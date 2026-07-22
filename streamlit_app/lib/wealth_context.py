@@ -45,6 +45,7 @@ def build_wealth_context(client) -> dict[str, Any]:
         .execute()
         .data
     )
+    chat_logs = fetch_recent_chat_logs(client, limit=24)
 
     price_map = {p["ticker"]: p for p in prices}
     usdkrw = price_map.get("USDKRW", {}).get("price")
@@ -88,7 +89,44 @@ def build_wealth_context(client) -> dict[str, Any]:
         "daily_snapshots": snaps,
         "tax_records": tax,
         "tax_estimates": tax_view,
+        "recent_chat_logs": chat_logs,
     }
+
+
+def fetch_recent_chat_logs(client, limit: int = 24) -> list[dict[str, Any]]:
+    """Oldest→newest recent Q&A for continuity (excludes morning_briefing jobs)."""
+    rows = _safe(
+        client.table("ai_chat_logs")
+        .select("id,user_query,ai_response,created_at")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+    )
+    # Filter system/job prompts, reverse to chronological
+    filtered = [
+        {
+            "at": r.get("created_at"),
+            "user": r.get("user_query"),
+            "assistant": r.get("ai_response"),
+        }
+        for r in reversed(rows)
+        if (r.get("user_query") or "") not in ("morning_briefing",)
+    ]
+    return filtered
+
+
+def logs_to_chat_turns(logs: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Convert archived logs into Gemini/UI chat turns."""
+    turns: list[dict[str, str]] = []
+    for item in logs:
+        u = (item.get("user") or "").strip()
+        a = (item.get("assistant") or "").strip()
+        if u:
+            turns.append({"role": "user", "content": u})
+        if a:
+            turns.append({"role": "model", "content": a})
+    return turns
 
 
 def context_to_prompt_block(ctx: dict[str, Any], max_chars: int = 14000) -> str:

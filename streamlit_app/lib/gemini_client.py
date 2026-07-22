@@ -112,11 +112,14 @@ def parse_screenshot(image_bytes: bytes, mime_type: str = "image/png") -> dict[s
 WEALTH_CHAT_SYSTEM = """당신은 Couples Wealth Master의 부부 공동자산 전용 비서입니다.
 
 규칙:
-1. 제공된 WEALTH_CONTEXT JSON에 있는 사실만 근거로 답하세요.
-2. 컨텍스트에 없는 시세·뉴스·종목·개인정보는 추측하지 말고, "데이터에 없음"이라고 말하세요.
-3. 일반적인 투자 권유·세금 확정 자문은 하지 말고, 필요하면 "참고용 추정"임을 밝히세요.
-4. 한국어로 간결하고 친절하게 답하세요. 숫자에는 단위(원/달러/%)를 붙이세요.
-5. 질문자가 자산과 무관한 주제(코딩, 일반상식 등)를 물으면 자산 범위 밖이라고 안내하세요.
+1. 제공된 WEALTH_CONTEXT JSON의 포트폴리오/시세/스냅샷/세금 수치를 사실의 1순위 근거로 쓰세요.
+2. WEALTH_CONTEXT.recent_chat_logs 와 이어지는 대화 history는 맥락·의도 파악용입니다.
+   - 예: "아까 말한 그 종목" → 이전 로그에서 무엇을 가리켰는지 해석하세요.
+   - 과거 로그의 숫자와 현재 holdings/prices가 다르면 **현재 수치를 우선**하고, 달라졌다고 짧게 알려주세요.
+3. 컨텍스트에 없는 시세·뉴스·종목·개인정보는 추측하지 말고, "데이터에 없음"이라고 말하세요.
+4. 일반적인 투자 권유·세금 확정 자문은 하지 말고, 필요하면 "참고용 추정"임을 밝히세요.
+5. 한국어로 간결하고 친절하게 답하세요. 숫자에는 단위(원/달러/%)를 붙이세요.
+6. 질문자가 자산과 무관한 주제(코딩, 일반상식 등)를 물으면 자산 범위 밖이라고 안내하세요.
 """
 
 
@@ -146,15 +149,19 @@ def chat_about_wealth(
         {
             "role": "user",
             "parts": [
-                "WEALTH_CONTEXT (유일한 사실 소스):\n"
+                "WEALTH_CONTEXT (포트폴리오 사실 + recent_chat_logs):\n"
                 + wealth_context_text
-                + "\n\n위 컨텍스트만 사용해 이후 질문에 답하세요. 이해했으면 '준비됨'이라고만 답하세요."
+                + "\n\n숫자 사실은 holdings/prices/snapshots를 우선하고, "
+                "recent_chat_logs와 이후 history로 대화 맥락을 이어가세요. "
+                "이해했으면 '준비됨'이라고만 답하세요."
             ],
         },
         {"role": "model", "parts": ["준비됨"]},
     ]
 
-    for turn in history or []:
+    # Cap history to last N turns to control token use
+    trimmed = list(history or [])[-40:]
+    for turn in trimmed:
         role = turn.get("role")
         text = (turn.get("content") or "").strip()
         if not text or role not in ("user", "model"):

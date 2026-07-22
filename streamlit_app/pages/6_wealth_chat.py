@@ -1,4 +1,4 @@
-"""Page: Asset-grounded free chat with Gemini."""
+"""Page: Asset-grounded free chat with Gemini (session + archived log context)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,12 @@ if str(ROOT) not in sys.path:
 
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.gemini_client import GeminiError, chat_about_wealth  # noqa: E402
-from lib.wealth_context import build_wealth_context, context_to_prompt_block  # noqa: E402
+from lib.wealth_context import (  # noqa: E402
+    build_wealth_context,
+    context_to_prompt_block,
+    fetch_recent_chat_logs,
+    logs_to_chat_turns,
+)
 
 st.set_page_config(page_title="Wealth Chat", layout="wide")
 
@@ -28,60 +33,76 @@ st.markdown(
 )
 
 
+def _reload_context(client) -> None:
+    ctx = build_wealth_context(client)
+    st.session_state.wealth_ctx_text = context_to_prompt_block(ctx)
+    st.session_state.wealth_ctx_meta = {
+        "holdings": len(ctx.get("holdings") or []),
+        "usdkrw": ctx.get("usdkrw"),
+        "approx_investment_usd": ctx.get("approx_investment_usd"),
+        "chat_logs": len(ctx.get("recent_chat_logs") or []),
+    }
+
+
+def _hydrate_from_logs(client) -> None:
+    """Restore UI turns from DB so cross-session continuity is visible."""
+    if st.session_state.get("wealth_chat_hydrated"):
+        return
+    logs = fetch_recent_chat_logs(client, limit=16)
+    turns = logs_to_chat_turns(logs)
+    if turns and not st.session_state.get("wealth_chat"):
+        st.session_state.wealth_chat = turns
+    st.session_state.wealth_chat_hydrated = True
+
+
 def main() -> None:
     st.title("Wealth Chat")
-    st.caption("내 자산 데이터만 근거로 하는 Gemini 대화 · 범위 밖 질문은 거절합니다")
+    st.caption(
+        "자산 DB + 이전 대화 로그를 함께 보고 맥락을 이어갑니다. "
+        "숫자는 최신 포트폴리오가 우선입니다."
+    )
 
     user, client = require_auth()
     ensure_profile(user, client)
 
-    if "wealth_chat" not in st.session_state:
-        st.session_state.wealth_chat = []  # [{role, content}]
-    if "wealth_ctx_text" not in st.session_state:
-        st.session_state.wealth_ctx_text = None
+    st.session_state.setdefault("wealth_chat", [])
+    st.session_state.setdefault("wealth_ctx_text", None)
+    st.session_state.setdefault("wealth_chat_hydrated", False)
+
+    _hydrate_from_logs(client)
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("자산 컨텍스트 새로고침", type="primary"):
-            with st.spinner("DB에서 포트폴리오 로드 중…"):
-                ctx = build_wealth_context(client)
-                st.session_state.wealth_ctx_text = context_to_prompt_block(ctx)
-                st.session_state.wealth_ctx_meta = {
-                    "holdings": len(ctx.get("holdings") or []),
-                    "usdkrw": ctx.get("usdkrw"),
-                    "approx_investment_usd": ctx.get("approx_investment_usd"),
-                }
+        if st.button("자산·로그 컨텍스트 새로고침", type="primary"):
+            with st.spinner("DB 로드 중…"):
+                _reload_context(client)
             st.success("컨텍스트 갱신됨")
     with col2:
-        if st.button("대화 초기화"):
+        if st.button("화면 대화만 초기화"):
             st.session_state.wealth_chat = []
+            st.session_state.wealth_chat_hydrated = True  # don't auto-reload immediately
             st.rerun()
 
     if not st.session_state.wealth_ctx_text:
         with st.spinner("첫 컨텍스트 로드…"):
-            ctx = build_wealth_context(client)
-            st.session_state.wealth_ctx_text = context_to_prompt_block(ctx)
-            st.session_state.wealth_ctx_meta = {
-                "holdings": len(ctx.get("holdings") or []),
-                "usdkrw": ctx.get("usdkrw"),
-                "approx_investment_usd": ctx.get("approx_investment_usd"),
-            }
+            _reload_context(client)
 
     meta = st.session_state.get("wealth_ctx_meta") or {}
     st.info(
-        f"근거 데이터: 보유 {meta.get('holdings', '?')}종 · "
+        f"근거: 보유 {meta.get('holdings', '?')}종 · "
         f"USD/KRW {meta.get('usdkrw', '—')} · "
-        f"평가(USD) ≈ {meta.get('approx_investment_usd', '—')}"
+        f"평가(USD) ≈ {meta.get('approx_investment_usd', '—')} · "
+        f"최근 대화 로그 {meta.get('chat_logs', '?')}건"
     )
 
-    with st.expander("컨텍스트 미리보기 (전송되는 JSON)", expanded=False):
+    with st.expander("컨텍스트 미리보기 (포트폴리오 + recent_chat_logs)", expanded=False):
         st.code(st.session_state.wealth_ctx_text or "", language="json")
 
     for msg in st.session_state.wealth_chat:
         with st.chat_message("assistant" if msg["role"] == "model" else "user"):
             st.markdown(msg["content"])
 
-    prompt = st.chat_input("예: 지금 순자산이 얼마야? TQQQ 비중이 커?")
+    prompt = st.chat_input("예: 아까 말한 그 종목 비중이 지금 얼마야?")
     if not prompt:
         return
 
@@ -92,7 +113,8 @@ def main() -> None:
     with st.chat_message("assistant"):
         try:
             with st.spinner("생각 중…"):
-                # History for model: prior turns only (current user msg passed separately)
+                # Refresh logs into context each turn so brand-new saves are visible next question
+                _reload_context(client)
                 history = [
                     {"role": m["role"], "content": m["content"]}
                     for m in st.session_state.wealth_chat[:-1]
@@ -104,7 +126,6 @@ def main() -> None:
                 )
             st.markdown(answer)
             st.session_state.wealth_chat.append({"role": "model", "content": answer})
-            # Persist archive
             try:
                 client.table("ai_chat_logs").insert(
                     {
@@ -118,7 +139,7 @@ def main() -> None:
                 st.caption(f"로그 저장 실패(대화는 유지됨): {exc}")
         except GeminiError as exc:
             st.error(str(exc))
-            st.session_state.wealth_chat.pop()  # remove failed user turn display consistency
+            st.session_state.wealth_chat.pop()
         except Exception as exc:
             st.error(f"채팅 실패: {exc}")
             if st.session_state.wealth_chat and st.session_state.wealth_chat[-1]["role"] == "user":
