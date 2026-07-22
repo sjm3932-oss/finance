@@ -104,67 +104,31 @@ def _ensure_allowed_and_profile() -> bool:
 
 def login_panel() -> None:
     page_hero(
-        "함께 모으는 우리의 자산",
-        "Google로 간편하게 로그인하고 부부 공동 자산을 관리하세요.",
+        "부부 자산 마스터",
+        "Google로 로그인하세요.",
     )
-    st.caption(f"허용된 이메일만 접근할 수 있습니다 (허용 {len(ALLOWED_EMAILS)}명).")
-    st.info("한 번 로그인하면 브라우저에 로그인 상태가 유지됩니다 (최대 60일).")
 
     try:
         client = get_anon_client()
     except ConfigError as exc:
         st.error(str(exc))
-        st.info("`.env.example`을 `.env`로 복사한 뒤 키를 채우세요.")
         return
 
-    redirect_to = st.text_input(
-        "로그인 후 돌아갈 주소",
-        value=PUBLIC_APP_URL,
-        help="모바일/공개 접속 시 PUBLIC_APP_URL(터널 주소)과 같아야 합니다.",
-    )
-
-    if st.button("Google로 계속", type="primary"):
-        try:
-            result = client.auth.sign_in_with_oauth(
-                {
-                    "provider": "google",
-                    "options": {"redirect_to": redirect_to},
-                }
-            )
-            url = getattr(result, "url", None) or (result.get("url") if isinstance(result, dict) else None)
-            if url:
-                st.link_button("Google 로그인 열기", url, type="primary")
-                st.markdown(f"[또는 이 링크를 탭하세요]({url})")
-            else:
-                st.error("로그인을 시작할 수 없습니다. Supabase Google 설정을 확인하세요.")
-        except Exception as exc:
-            st.error(f"로그인 시작 실패: {exc}")
-
-    with st.expander("개발용: 이메일 매직 링크 / 토큰"):
-        email = st.text_input("이메일 (허용 목록에 있어야 함)")
-        if st.button("매직 링크 보내기"):
-            if not is_email_allowed(email):
-                st.error("허용되지 않은 이메일입니다")
-            else:
-                try:
-                    client.auth.sign_in_with_otp(
-                        {"email": email, "options": {"email_redirect_to": redirect_to}}
-                    )
-                    st.success("매직 링크를 보냈습니다 (이메일 로그인이 켜져 있는 경우).")
-                except Exception as exc:
-                    st.error(f"매직 링크 실패: {exc}")
-        access = st.text_input("액세스 토큰", type="password")
-        refresh = st.text_input("리프레시 토큰", type="password")
-        if st.button("토큰으로 로그인"):
-            if not access:
-                st.error("액세스 토큰이 필요합니다")
-            else:
-                remember_login(access, refresh or None, None)
-                st.session_state._cwm_await_cookie = True
-                st.session_state._cwm_cookie_tries = 0
-                st.rerun()
-
-    st.caption(f"앱 주소: {PUBLIC_APP_URL}")
+    redirect_to = PUBLIC_APP_URL
+    try:
+        result = client.auth.sign_in_with_oauth(
+            {
+                "provider": "google",
+                "options": {"redirect_to": redirect_to},
+            }
+        )
+        url = getattr(result, "url", None) or (result.get("url") if isinstance(result, dict) else None)
+        if url:
+            st.link_button("Google로 로그인", url, type="primary")
+        else:
+            st.error("로그인을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요.")
+    except Exception as exc:
+        st.error(f"로그인 준비 실패: {exc}")
 
 
 def home() -> None:
