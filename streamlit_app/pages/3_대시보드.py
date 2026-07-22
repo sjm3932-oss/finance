@@ -599,9 +599,7 @@ def main() -> None:
     elif view == "종목":
         view_tickers(client, live_rows)
     elif view == "실현손익":
-        st.caption(
-            "전체·종목별 실현손익 · 일자별 증감 · 매매/배당/이자 종류 구분"
-        )
+        st.caption("기간 버튼으로 조회 · 월별 집계 · 매매/배당/이자 구분")
         render_total_realized_pnl(client, compact=False)
     elif view == "자산 흐름":
         render_flow_charts(client)

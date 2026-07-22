@@ -1,7 +1,7 @@
 """Combined realized P&L charts (trades + dividends + interest).
 
-Shows overall and per-ticker views, change over time, and kind split
-(매매실현 / 배당 / 이자).
+Shows overall and per-ticker views at **monthly** granularity, with
+button-based period filters (no chart drag-zoom).
 """
 
 from __future__ import annotations
@@ -23,6 +23,22 @@ KIND_COLORS = {
 }
 
 KIND_ORDER = ["매매실현", "배당", "이자수입", "이자비용"]
+
+# Period presets (months back from latest data month). None = all time.
+PERIOD_OPTIONS: list[tuple[str, int | None]] = [
+    ("3개월", 3),
+    ("6개월", 6),
+    ("1년", 12),
+    ("3년", 36),
+    ("전체", None),
+]
+
+# Disable drag-zoom / pan on realized-PnL charts (period buttons instead)
+_NO_DRAG = dict(
+    dragmode=False,
+    xaxis=dict(fixedrange=True),
+    yaxis=dict(fixedrange=True),
+)
 
 
 def _usdkrw(client) -> float | None:
@@ -97,6 +113,52 @@ def _value_setup(df: pd.DataFrame, client) -> tuple[str, str, bool, float | None
     return value_col, unit, use_krw, rate
 
 
+def _period_selector(*, key: str, default: str = "1년") -> int | None:
+    """Render period buttons; return months-back (None = 전체)."""
+    labels = [p[0] for p in PERIOD_OPTIONS]
+    default_idx = labels.index(default) if default in labels else 0
+    choice = st.radio(
+        "기간",
+        options=labels,
+        index=default_idx,
+        horizontal=True,
+        key=key,
+        help="드래그 줌 대신 버튼을 눌러 조회 기간을 고르세요. 데이터는 월별로 집계됩니다.",
+    )
+    mapping = dict(PERIOD_OPTIONS)
+    return mapping[choice]
+
+
+def _filter_period(df: pd.DataFrame, months: int | None) -> pd.DataFrame:
+    """Keep rows within the last N months of the latest event (inclusive)."""
+    if df.empty or months is None:
+        return df
+    tmp = df.dropna(subset=["event_date"])
+    if tmp.empty:
+        return df.iloc[0:0].copy()
+    latest = tmp["event_date"].max()
+    # Start of the month that is (months-1) before the latest month
+    end_month = latest.to_period("M").to_timestamp()
+    start = end_month - pd.DateOffset(months=months - 1)
+    return df[df["event_date"] >= start].copy()
+
+
+def _monthly_totals(df: pd.DataFrame, value_col: str) -> pd.DataFrame:
+    """Aggregate to one row per calendar month."""
+    tmp = df.dropna(subset=["event_date"]).copy()
+    if tmp.empty:
+        return pd.DataFrame(columns=["월", "월표시", value_col, "누적실현손익"])
+    tmp["월"] = tmp["event_date"].dt.to_period("M")
+    monthly = (
+        tmp.groupby("월", as_index=False)[value_col]
+        .sum()
+        .sort_values("월")
+    )
+    monthly["월표시"] = monthly["월"].astype(str)
+    monthly["누적실현손익"] = monthly[value_col].cumsum()
+    return monthly
+
+
 def _kpi_row(df: pd.DataFrame, value_col: str, unit: str, *, use_krw: bool) -> None:
     total = float(df[value_col].sum(skipna=True) or 0)
     by_kind = (
@@ -104,12 +166,11 @@ def _kpi_row(df: pd.DataFrame, value_col: str, unit: str, *, use_krw: bool) -> N
         .sum()
         .set_index("pnl_kind_ko")[value_col]
     )
-    # Prefer fixed order: 매매 / 배당 first
     kind_labels = [k for k in KIND_ORDER if k in by_kind.index] + [
         k for k in by_kind.index if k not in KIND_ORDER
     ]
     cols = st.columns(min(5, max(2, len(kind_labels) + 1)))
-    cols[0].metric(f"실현손익 합계 ({unit})", _fmt(total, use_krw=use_krw))
+    cols[0].metric(f"기간 실현손익 ({unit})", _fmt(total, use_krw=use_krw))
     for i, kind in enumerate(kind_labels, start=1):
         if i >= len(cols):
             break
@@ -117,7 +178,6 @@ def _kpi_row(df: pd.DataFrame, value_col: str, unit: str, *, use_krw: bool) -> N
 
 
 def _ticker_options(df: pd.DataFrame) -> list[str]:
-    """Tickers that appear in trade or dividend rows (종목별)."""
     mask = df["pnl_kind"].isin(["trade_realized", "dividend"])
     refs = (
         df.loc[mask, "asset_ref"]
@@ -130,12 +190,15 @@ def _ticker_options(df: pd.DataFrame) -> list[str]:
     return sorted(refs)
 
 
-def _chart_cumulative_total(daily: pd.DataFrame, value_col: str, unit: str, *, height: int) -> None:
+def _chart_cumulative_total(monthly: pd.DataFrame, value_col: str, unit: str, *, height: int) -> None:
+    if monthly.empty:
+        st.info("선택한 기간에 실현손익이 없습니다.")
+        return
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=daily["event_date"],
-            y=daily["누적실현손익"],
+            x=monthly["월표시"],
+            y=monthly["누적실현손익"],
             mode="lines+markers",
             name="누적 실현손익",
             line=dict(color=PRIMARY, width=3),
@@ -146,23 +209,26 @@ def _chart_cumulative_total(daily: pd.DataFrame, value_col: str, unit: str, *, h
     apply_chart_layout(
         fig,
         height,
-        title="누적 실현손익",
+        title="누적 실현손익 (월별)",
         yaxis_title=unit,
-        xaxis_title="일자",
+        xaxis_title="월",
+        **_NO_DRAG,
     )
     show_plotly(fig)
 
 
-def _chart_period_change(daily: pd.DataFrame, value_col: str, unit: str, *, height: int) -> None:
-    """Bar chart of period-over-period realized P&L change (증감)."""
-    colors = [PRIMARY if v >= 0 else "#FF6B6B" for v in daily[value_col]]
+def _chart_period_change(monthly: pd.DataFrame, value_col: str, unit: str, *, height: int) -> None:
+    """Bar chart of month-over-month realized P&L change."""
+    if monthly.empty:
+        return
+    colors = [PRIMARY if v >= 0 else "#FF6B6B" for v in monthly[value_col]]
     fig = go.Figure(
         go.Bar(
-            x=daily["event_date"],
-            y=daily[value_col],
+            x=monthly["월표시"],
+            y=monthly[value_col],
             marker_color=colors,
-            name="기간 증감",
-            text=[f"{v:+,.0f}" if abs(v) >= 1 else f"{v:+,.2f}" for v in daily[value_col]],
+            name="월별 증감",
+            text=[f"{v:+,.0f}" if abs(v) >= 1 else f"{v:+,.2f}" for v in monthly[value_col]],
             textposition="outside",
             cliponaxis=False,
         )
@@ -170,27 +236,27 @@ def _chart_period_change(daily: pd.DataFrame, value_col: str, unit: str, *, heig
     apply_chart_layout(
         fig,
         height,
-        title="실현손익 증감 (일자별)",
+        title="실현손익 증감 (월별)",
         yaxis_title=unit,
-        xaxis_title="일자",
+        xaxis_title="월",
         showlegend=False,
+        **_NO_DRAG,
     )
     show_plotly(fig)
 
 
 def _chart_cumulative_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, height: int) -> None:
-    """Multi-line cumulative P&L by kind (매매 vs 배당 vs …)."""
     tmp = df.dropna(subset=["event_date"]).copy()
     if tmp.empty:
         return
-    daily_kind = (
-        tmp.groupby(["event_date", "pnl_kind_ko"], as_index=False)[value_col]
+    tmp["월"] = tmp["event_date"].dt.to_period("M")
+    monthly_kind = (
+        tmp.groupby(["월", "pnl_kind_ko"], as_index=False)[value_col]
         .sum()
-        .sort_values("event_date")
+        .sort_values("월")
     )
-    # Pivot so each kind has a continuous series, then cumsum
     pivot = (
-        daily_kind.pivot(index="event_date", columns="pnl_kind_ko", values=value_col)
+        monthly_kind.pivot(index="월", columns="pnl_kind_ko", values=value_col)
         .fillna(0.0)
         .sort_index()
     )
@@ -199,13 +265,14 @@ def _chart_cumulative_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, he
         k for k in cum.columns if k not in KIND_ORDER
     ]
     cmap = _kind_color_map(kinds)
+    x_labels = cum.index.astype(str)
     fig = go.Figure()
     for kind in kinds:
         fig.add_trace(
             go.Scatter(
-                x=cum.index,
+                x=x_labels,
                 y=cum[kind],
-                mode="lines",
+                mode="lines+markers",
                 name=kind,
                 line=dict(color=cmap[kind], width=2.5),
             )
@@ -213,10 +280,11 @@ def _chart_cumulative_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, he
     apply_chart_layout(
         fig,
         height,
-        title="종류별 누적 실현손익 (매매 · 배당 · 이자)",
+        title="종류별 누적 실현손익 (월별 · 매매 · 배당 · 이자)",
         yaxis_title=unit,
-        xaxis_title="일자",
+        xaxis_title="월",
         legend_title_text="",
+        **_NO_DRAG,
     )
     show_plotly(fig)
 
@@ -241,21 +309,21 @@ def _chart_monthly_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, heigh
         y="손익",
         color="pnl_kind_ko",
         color_discrete_map=cmap,
-        category_orders={"pnl_kind_ko": kinds},
+        category_orders={"pnl_kind_ko": kinds, "월": sorted(monthly["월"].unique())},
         barmode="relative",
         labels={"pnl_kind_ko": "구분", "손익": f"손익({unit})"},
     )
     apply_chart_layout(
         fig,
         height,
-        title="월별 실현손익 (매매 · 배당 · 이자)",
+        title="월별 실현손익 구성 (매매 · 배당 · 이자)",
         legend_title_text="",
+        **_NO_DRAG,
     )
     show_plotly(fig)
 
 
 def _chart_by_ticker(df: pd.DataFrame, value_col: str, unit: str, *, use_krw: bool, height: int) -> None:
-    """Horizontal bars: total realized P&L per ticker (trade + dividend)."""
     mask = df["pnl_kind"].isin(["trade_realized", "dividend"])
     sub = df.loc[mask].copy()
     if sub.empty:
@@ -285,12 +353,12 @@ def _chart_by_ticker(df: pd.DataFrame, value_col: str, unit: str, *, use_krw: bo
         xaxis_title=unit,
         yaxis_title="",
         showlegend=False,
+        **_NO_DRAG,
     )
     show_plotly(fig)
 
 
 def _chart_ticker_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, height: int) -> None:
-    """Stacked bar: each ticker split into 매매실현 / 배당."""
     mask = df["pnl_kind"].isin(["trade_realized", "dividend"])
     sub = df.loc[mask].copy()
     if sub.empty:
@@ -304,7 +372,6 @@ def _chart_ticker_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, height
     if not kinds:
         return
     cmap = _kind_color_map(kinds)
-    # Order tickers by total
     order = (
         g.groupby("asset_ref")["손익"].sum().sort_values(ascending=False).index.tolist()
     )
@@ -324,6 +391,7 @@ def _chart_ticker_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, height
         title="종목별 · 종류별 실현손익 (매매 vs 배당)",
         legend_title_text="",
         xaxis_title="종목",
+        **_NO_DRAG,
     )
     show_plotly(fig)
 
@@ -341,11 +409,13 @@ def _table_by_ticker(df: pd.DataFrame, value_col: str, *, use_krw: bool) -> None
             aggfunc="sum",
             fill_value=0.0,
         )
-        .reindex(columns=[c for c in ("매매실현", "배당") if c in sub["pnl_kind_ko"].unique()], fill_value=0.0)
+        .reindex(
+            columns=[c for c in ("매매실현", "배당") if c in sub["pnl_kind_ko"].unique()],
+            fill_value=0.0,
+        )
     )
     pivot["합계"] = pivot.sum(axis=1)
     pivot = pivot.sort_values("합계", ascending=False).reset_index().rename(columns={"asset_ref": "종목"})
-    # Format for display
     disp = pivot.copy()
     for c in disp.columns:
         if c == "종목":
@@ -356,7 +426,7 @@ def _table_by_ticker(df: pd.DataFrame, value_col: str, *, use_krw: bool) -> None
 
 
 def render_total_realized_pnl(client, *, compact: bool = False) -> None:
-    """Charts: overall + per-ticker, change over time, kind split (매매·배당·이자)."""
+    """Monthly realized P&L with period buttons and kind/ticker breakdown."""
     df_all = load_total_realized(client)
     if df_all.empty:
         st.info(
@@ -367,28 +437,30 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
     value_col, unit, use_krw, rate = _value_setup(df_all, client)
 
     if use_krw and rate:
-        st.caption(f"달러 항목은 현재 환율 {rate:,.2f}원으로 환산했습니다.")
+        st.caption(f"달러 항목은 현재 환율 {rate:,.2f}원으로 환산했습니다. · 월별 집계")
     elif (df_all["currency"] == "USD").any() and not use_krw:
-        st.caption("환율(USDKRW)이 없어 통화별 단순합으로 표시합니다. 대시보드에서 시세를 갱신하세요.")
+        st.caption("환율(USDKRW)이 없어 통화별 단순합으로 표시합니다. · 월별 집계")
+    else:
+        st.caption("월별 집계 · 기간은 아래 버튼으로 선택")
 
-    # —— compact (overview / asset flows): summary only ——
+    # —— compact (overview / asset flows) ——
     if compact:
-        _kpi_row(df_all, value_col, unit, use_krw=use_krw)
-        daily = (
-            df_all.dropna(subset=["event_date"])
-            .groupby("event_date", as_index=False)[value_col]
-            .sum()
-            .sort_values("event_date")
-        )
-        daily["누적실현손익"] = daily[value_col].cumsum()
+        months = _period_selector(key="realized_pnl_period_compact", default="1년")
+        df = _filter_period(df_all, months)
+        if df.empty:
+            st.info("선택한 기간에 실현손익이 없습니다.")
+            return
+        _kpi_row(df, value_col, unit, use_krw=use_krw)
+        monthly = _monthly_totals(df, value_col)
         left, right = st.columns(2, gap="medium")
         with left:
-            _chart_cumulative_total(daily, value_col, unit, height=280)
+            _chart_cumulative_total(monthly, value_col, unit, height=280)
         with right:
-            _chart_period_change(daily, value_col, unit, height=280)
+            _chart_period_change(monthly, value_col, unit, height=280)
         return
 
-    # —— full view: 전체 / 종목 ——
+    # —— full view ——
+    months = _period_selector(key="realized_pnl_period", default="1년")
     tickers = _ticker_options(df_all)
     scope = st.radio(
         "보기",
@@ -404,33 +476,28 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
             st.warning("종목별 실현손익(매매·배당) 기록이 아직 없습니다.")
             return
         selected_ticker = st.selectbox("종목", tickers, key="realized_pnl_ticker")
-        df = df_all[
+        scoped = df_all[
             (df_all["asset_ref"] == selected_ticker)
             & (df_all["pnl_kind"].isin(["trade_realized", "dividend"]))
         ].copy()
-        if df.empty:
-            st.info(f"{selected_ticker} 실현손익 데이터가 없습니다.")
-            return
         st.caption(f"**{selected_ticker}** — 매매실현과 배당만 표시합니다.")
     else:
-        df = df_all
+        scoped = df_all
+
+    df = _filter_period(scoped, months)
+    if df.empty:
+        st.info("선택한 기간에 실현손익이 없습니다.")
+        return
 
     _kpi_row(df, value_col, unit, use_krw=use_krw)
+    monthly = _monthly_totals(df, value_col)
 
-    daily = (
-        df.dropna(subset=["event_date"])
-        .groupby("event_date", as_index=False)[value_col]
-        .sum()
-        .sort_values("event_date")
-    )
-    daily["누적실현손익"] = daily[value_col].cumsum()
-
-    st.markdown("##### 증감 · 누적")
+    st.markdown("##### 증감 · 누적 (월별)")
     c1, c2 = st.columns(2, gap="medium")
     with c1:
-        _chart_cumulative_total(daily, value_col, unit, height=320)
+        _chart_cumulative_total(monthly, value_col, unit, height=320)
     with c2:
-        _chart_period_change(daily, value_col, unit, height=320)
+        _chart_period_change(monthly, value_col, unit, height=320)
 
     st.markdown("##### 종류 구분 (매매 · 배당 · 이자)")
     _chart_cumulative_by_kind(df, value_col, unit, height=320)
@@ -445,7 +512,6 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
             _chart_ticker_by_kind(df, value_col, unit, height=320)
         _table_by_ticker(df, value_col, use_krw=use_krw)
     else:
-        # Single ticker: kind contribution bars
         by_kind = (
             df.groupby("pnl_kind_ko", as_index=False)[value_col]
             .sum()
@@ -469,5 +535,6 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
             yaxis_title=unit,
             xaxis_title="",
             showlegend=False,
+            **_NO_DRAG,
         )
         show_plotly(fig)
