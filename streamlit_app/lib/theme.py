@@ -515,6 +515,17 @@ div.np-top-auth-slot div.stButton > button {{
   }}
 }}
 
+/* Home clickable menu rows */
+.np-home-menu div.stButton > button {{
+  justify-content: flex-start !important;
+  text-align: left !important;
+  white-space: normal !important;
+  line-height: 1.35 !important;
+  min-height: 3.2rem !important;
+  padding: 0.85rem 1.1rem !important;
+  margin-bottom: 0.35rem;
+}}
+
 /* Wrap metric / button rows on narrow screens */
 @media (max-width: 720px) {{
   div[data-testid="stHorizontalBlock"] {{

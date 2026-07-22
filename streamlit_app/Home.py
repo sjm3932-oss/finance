@@ -181,57 +181,30 @@ def render_top_right_auth(*, logged_in: bool) -> None:
 
 
 def render_menu_index(*, can_navigate: bool) -> None:
-    """Table of contents + shortcuts for all app menus."""
-    st.markdown(
-        """
-<div class="np-section">
-  <h3>메뉴 목차</h3>
-  <p style="margin:0 0 0.75rem 0;color:#6B7280;font-size:0.92rem;">
-    아래에서 바로가기를 누르거나, 왼쪽 사이드바에서도 이동할 수 있습니다.
-  </p>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
+    """Clickable menu index — each row navigates on press."""
+    st.markdown('<div class="np-section np-home-menu">', unsafe_allow_html=True)
+    st.markdown("### 메뉴")
+    if can_navigate:
+        st.caption("항목을 누르면 해당 화면으로 이동합니다.")
+    else:
+        st.caption("오른쪽 위 **Google로 로그인** 후 메뉴를 눌러 이동하세요.")
 
-    # Visual TOC cards
-    cards = []
     for i, item in enumerate(MENU_ITEMS, start=1):
-        cards.append(
-            f"""
-<div class="np-menu-item">
-  <div class="np-menu-num">{i}</div>
-  <div class="np-menu-body">
-    <strong>{item['title']}</strong>
-    <span>{item['desc']}</span>
-  </div>
-</div>
-"""
+        label = f"{i}. {item['title']}  —  {item['desc']}"
+        clicked = st.button(
+            label,
+            key=f"home_go_{i}",
+            type="primary" if can_navigate else "secondary",
+            use_container_width=True,
+            disabled=not can_navigate,
         )
-    st.markdown(
-        f'<div class="np-menu-grid">{"".join(cards)}</div>',
-        unsafe_allow_html=True,
-    )
+        if clicked and can_navigate:
+            try:
+                st.switch_page(item["path"])
+            except Exception as exc:
+                st.error(f"이동 실패: {exc}")
 
-    st.markdown("##### 바로가기")
-    if not can_navigate:
-        st.caption("오른쪽 위 **Google로 로그인** 후 바로가기를 사용할 수 있습니다.")
-
-    cols = st.columns(2, gap="small")
-    for i, item in enumerate(MENU_ITEMS):
-        with cols[i % 2]:
-            clicked = st.button(
-                item["title"],
-                key=f"home_go_{i}",
-                type="primary" if can_navigate else "secondary",
-                use_container_width=True,
-                disabled=not can_navigate,
-            )
-            if clicked and can_navigate:
-                try:
-                    st.switch_page(item["path"])
-                except Exception as exc:
-                    st.error(f"이동 실패: {exc}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def home_logged_out() -> None:
@@ -246,7 +219,7 @@ def home_logged_in() -> None:
     name = app_user.get("display_name") or (user.email or "회원")
 
     render_top_right_auth(logged_in=True)
-    page_hero("홈", "메뉴 목차와 바로가기로 원하는 화면으로 이동하세요.")
+    page_hero("홈", "메뉴를 눌러 원하는 화면으로 이동하세요.")
     user_chip(str(name), user.email or "")
     render_menu_index(can_navigate=True)
 
