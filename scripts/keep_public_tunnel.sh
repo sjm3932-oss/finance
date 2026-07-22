@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Keep Cloudflare quick tunnel alive, publish live URL to app_runtime,
-# and sync OAuth allow-list. Users should open the stable gateway URL, not the tunnel hostname.
+# Publish live Streamlit origins for the stable Supabase gateway.
+# Primary: Pinggy (more reliable than Cloudflare quick tunnels here)
+# Fallback: Cloudflare quick tunnel
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -13,45 +14,48 @@ if [[ -f .env ]]; then
 fi
 
 PORT="${PORT:-8501}"
-LOG="${TUNNEL_LOG:-/tmp/cloudflared.log}"
 STATE="${TUNNEL_STATE:-/tmp/cwm_tunnel_url.txt}"
+CF_LOG="${TUNNEL_LOG:-/tmp/cloudflared.log}"
+PINGGY_LOG="${PINGGY_LOG:-/tmp/pinggy.log}"
 REF="${SUPABASE_PROJECT_REF:-lsqkixysysfhywipmrky}"
 STABLE_GATEWAY="${STABLE_APP_URL:-https://lsqkixysysfhywipmrky.supabase.co/functions/v1/app-gateway}"
 
 publish_runtime() {
-  local url="$1"
-  python3 - "$url" "$STABLE_GATEWAY" "$REF" <<'PY'
+  local primary="$1"
+  local fallback="${2:-}"
+  python3 - "$primary" "$fallback" "$STABLE_GATEWAY" "$REF" <<'PY'
 import os, sys, httpx
 from pathlib import Path
 from dotenv import dotenv_values
 
-url = sys.argv[1].rstrip("/")
-stable = sys.argv[2].rstrip("/")
-ref = sys.argv[3]
+primary = sys.argv[1].rstrip("/")
+fallback = (sys.argv[2] or "").rstrip("/") or None
+stable = sys.argv[3].rstrip("/")
+ref = sys.argv[4]
 env_path = Path("/workspace/.env") if Path("/workspace/.env").exists() else Path(".env")
 vals = dotenv_values(str(env_path))
 token = vals.get("SUPABASE_ACCESS_TOKEN") or os.environ.get("SUPABASE_ACCESS_TOKEN")
 svc = vals.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-sb_url = (vals.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL") or "").rstrip("/")
+sb_url = (vals.get("SUPABASE_URL") or "").rstrip("/")
 
-# Persist tunnel URL for the Streamlit process / local tooling.
-lines, found = [], False
+lines, seen = [], set()
 for line in env_path.read_text().splitlines():
     if line.startswith("PUBLIC_APP_URL="):
-        lines.append(f"PUBLIC_APP_URL={url}")
-        found = True
+        lines.append(f"PUBLIC_APP_URL={primary}")
     elif line.startswith("STABLE_APP_URL="):
         lines.append(f"STABLE_APP_URL={stable}")
     else:
         lines.append(line)
-if not found:
-    lines.append(f"PUBLIC_APP_URL={url}")
-if not any(l.startswith("STABLE_APP_URL=") for l in lines):
+    if "=" in line:
+        seen.add(line.split("=", 1)[0])
+if "PUBLIC_APP_URL" not in seen:
+    lines.append(f"PUBLIC_APP_URL={primary}")
+if "STABLE_APP_URL" not in seen:
     lines.append(f"STABLE_APP_URL={stable}")
 env_path.write_text("\n".join(lines) + "\n")
 
-# Publish live URL for the stable gateway to resolve.
 if sb_url and svc:
+    payload = {"public_url": primary, "fallback_url": fallback}
     r = httpx.patch(
         f"{sb_url}/rest/v1/app_runtime?id=eq.1",
         headers={
@@ -60,173 +64,96 @@ if sb_url and svc:
             "Content-Type": "application/json",
             "Prefer": "return=minimal",
         },
-        json={"public_url": url},
+        json=payload,
         timeout=30,
     )
-    if r.status_code >= 400:
-        # insert if missing
-        httpx.post(
-            f"{sb_url}/rest/v1/app_runtime",
-            headers={
-                "Authorization": f"Bearer {svc}",
-                "apikey": svc,
-                "Content-Type": "application/json",
-                "Prefer": "resolution=merge-duplicates,return=minimal",
-            },
-            json={"id": 1, "public_url": url},
-            timeout=30,
-        )
-    print(f"runtime publish {r.status_code} -> {url}", flush=True)
+    print(f"runtime {r.status_code} primary={primary} fallback={fallback}", flush=True)
 
-# Keep both the stable gateway and current tunnel in Auth allow-list.
 if token:
-    allow = ",".join([
-        "http://localhost:8501",
-        "http://localhost:8501/**",
-        stable,
-        stable + "/**",
-        url,
-        url + "/**",
-    ])
+    urls = ["http://localhost:8501", "http://localhost:8501/**", stable, stable + "/**", primary, primary + "/**"]
+    if fallback:
+        urls += [fallback, fallback + "/**"]
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     r = httpx.patch(
         f"https://api.supabase.com/v1/projects/{ref}/config/auth",
         headers=headers,
-        json={"site_url": stable, "uri_allow_list": allow},
+        json={"site_url": stable, "uri_allow_list": ",".join(urls)},
         timeout=60,
     )
     print(f"auth sync {r.status_code} site_url={stable}", flush=True)
 PY
 }
 
-dns_ok() {
-  local host="$1"
-  python3 - "$host" <<'PY'
-import sys, httpx
-host = sys.argv[1]
-try:
-    r = httpx.get(
-        "https://cloudflare-dns.com/dns-query",
-        params={"name": host, "type": "A"},
-        headers={"accept": "application/dns-json"},
-        timeout=15,
-    )
-    data = r.json()
-    # Status 0 + Answer => resolvable
-    ok = data.get("Status") == 0 and bool(data.get("Answer"))
-    print("1" if ok else "0")
-except Exception:
-    print("0")
-PY
+extract_pinggy() {
+  grep -oE 'https://[a-z0-9.-]+\.(pinggy-free\.link|free\.pinggy\.net)' "$PINGGY_LOG" 2>/dev/null | tail -1 || true
 }
 
-probe_http() {
+extract_cf() {
+  grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$CF_LOG" 2>/dev/null | tail -1 || true
+}
+
+probe() {
   local url="$1"
-  local host="${url#https://}"; host="${host%%/*}"
-  local ip
-  ip=$(python3 - "$host" <<'PY'
-import sys, httpx
-host=sys.argv[1]
-try:
-  r=httpx.get('https://cloudflare-dns.com/dns-query', params={'name':host,'type':'A'}, headers={'accept':'application/dns-json'}, timeout=15)
-  ans=r.json().get('Answer') or []
-  print(ans[0]['data'] if ans else '')
-except Exception:
-  print('')
-PY
-)
-  if [[ -n "$ip" ]]; then
-    curl -fsS -o /dev/null --max-time 15 --resolve "${host}:443:${ip}" "${url}/_stcore/health"
-  else
-    return 1
-  fi
+  curl -fsS -o /dev/null --max-time 12 "${url}/_stcore/health" 2>/dev/null
 }
 
 echo "Waiting for Streamlit on :$PORT …"
 for _ in $(seq 1 60); do
-  if curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:${PORT}/_stcore/health" 2>/dev/null; then
-    break
-  fi
+  curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:${PORT}/_stcore/health" 2>/dev/null && break
   sleep 1
 done
-
 echo "Stable gateway: $STABLE_GATEWAY"
 
-while true; do
-  : >"$LOG"
-  echo "=== starting cloudflared $(date -u +%Y-%m-%dT%H:%M:%SZ) ===" | tee -a "$LOG"
-  cloudflared tunnel --url "http://127.0.0.1:${PORT}" --protocol http2 --no-autoupdate \
-    >>"$LOG" 2>&1 &
-  CF_PID=$!
-
-  URL=""
-  for _ in $(seq 1 45); do
-    URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG" | tail -1 || true)
-    if [[ -n "$URL" ]] && grep -q 'Registered tunnel connection' "$LOG"; then
-      break
-    fi
-    if ! kill -0 "$CF_PID" 2>/dev/null; then
-      break
-    fi
-    sleep 1
-  done
-
-  if [[ -z "$URL" ]]; then
-    echo "failed to obtain tunnel URL; retrying…" | tee -a "$LOG"
-    kill "$CF_PID" 2>/dev/null || true
-    wait "$CF_PID" 2>/dev/null || true
+# Child: Cloudflare fallback
+(
+  while true; do
+    : >"$CF_LOG"
+    cloudflared tunnel --url "http://127.0.0.1:${PORT}" --protocol http2 --no-autoupdate >>"$CF_LOG" 2>&1 || true
     sleep 3
-    continue
-  fi
-
-  HOST="${URL#https://}"
-  echo "$URL" >"$STATE"
-  echo "TUNNEL URL: $URL" | tee -a "$LOG"
-  publish_runtime "$URL" || true
-
-  # Wait until public DNS exists (DoH). NXDOMAIN means the hostname is useless.
-  dns_ready=0
-  for _ in $(seq 1 30); do
-    if [[ "$(dns_ok "$HOST")" == "1" ]]; then
-      dns_ready=1
-      break
-    fi
-    sleep 2
   done
-  if [[ "$dns_ready" != "1" ]]; then
-    echo "DNS never became ready for $HOST; rotating" | tee -a "$LOG"
-    kill "$CF_PID" 2>/dev/null || true
-    wait "$CF_PID" 2>/dev/null || true
-    sleep 2
-    continue
-  fi
+) &
+CF_LOOP_PID=$!
 
-  if probe_http "$URL"; then
-    echo "tunnel healthy (+ DNS)" | tee -a "$LOG"
-  else
-    echo "HTTP probe failed after DNS ok; continuing watch" | tee -a "$LOG"
-  fi
+# Child: Pinggy primary
+(
+  while true; do
+    : >"$PINGGY_LOG"
+    ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=20 -o ServerAliveCountMax=3 \
+      -p 443 -R0:localhost:${PORT} a.pinggy.io >>"$PINGGY_LOG" 2>&1 || true
+    sleep 3
+  done
+) &
+PINGGY_LOOP_PID=$!
 
-  fails=0
-  while kill -0 "$CF_PID" 2>/dev/null; do
-    if [[ "$(dns_ok "$HOST")" != "1" ]]; then
-      echo "DNS NXDOMAIN for $HOST; rotating" | tee -a "$LOG"
-      break
-    fi
-    if probe_http "$URL"; then
-      fails=0
+trap 'kill $CF_LOOP_PID $PINGGY_LOOP_PID 2>/dev/null || true' EXIT
+
+primary=""; fallback=""
+while true; do
+  p=$(extract_pinggy)
+  c=$(extract_cf)
+
+  # Prefer healthy pinggy, else healthy cloudflare
+  new_primary=""
+  new_fallback=""
+  if [[ -n "$p" ]] && probe "$p"; then
+    new_primary="$p"
+  fi
+  if [[ -n "$c" ]] && probe "$c"; then
+    if [[ -z "$new_primary" ]]; then
+      new_primary="$c"
     else
-      fails=$((fails + 1))
-      echo "health fail #$fails for $URL" | tee -a "$LOG"
-      if [[ "$fails" -ge 4 ]]; then
-        echo "sustained health failures; rotating" | tee -a "$LOG"
-        break
-      fi
+      new_fallback="$c"
     fi
-    sleep 20
-  done
+  fi
 
-  kill "$CF_PID" 2>/dev/null || true
-  wait "$CF_PID" 2>/dev/null || true
-  sleep 2
+  if [[ -n "$new_primary" && ( "$new_primary" != "$primary" || "$new_fallback" != "$fallback" ) ]]; then
+    primary="$new_primary"
+    fallback="$new_fallback"
+    echo "$primary" >"$STATE"
+    echo "ACTIVE primary=$primary fallback=${fallback:-none}" 
+    publish_runtime "$primary" "$fallback" || true
+  elif [[ -z "$new_primary" ]]; then
+    echo "no healthy tunnel yet (pinggy=$( [[ -n \"$p\" ]] && echo up || echo down ), cf=$( [[ -n \"$c\" ]] && echo up || echo down ))"
+  fi
+  sleep 15
 done
