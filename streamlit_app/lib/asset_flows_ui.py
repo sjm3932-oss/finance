@@ -61,7 +61,7 @@ def render_flow_charts(client) -> None:
     df = filter_by_period(_load_flows(client), months, date_col="event_date")
 
     if df.empty:
-        st.info("선택한 기간에 거래 기록이 없습니다. 「입력」에서 등록하세요.")
+        st.info("선택한 기간에 거래 기록이 없습니다. 「기록하기」에서 등록하세요.")
         return
 
     trade_n = int((df["flow_kind"] == "trade").sum())
@@ -182,7 +182,7 @@ def _ocr_block(client, user, accounts, *, doc_type: str, key_prefix: str, label:
 def render_flow_forms(client, user) -> None:
     """OCR + manual entry for trades/dividends; manual for cash/debt."""
     accounts = _accounts(client)
-    st.info("매매·배당은 **OCR 스크린샷**과 **수기 입력**을 함께 사용할 수 있습니다.")
+    st.info("매매·배당은 **OCR**과 **수기**를 「기록하기」에서 함께 사용할 수 있습니다.")
     tabs = st.tabs(["매매", "배당", "현금", "부채"])
 
     with tabs[0]:

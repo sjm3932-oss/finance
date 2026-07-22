@@ -1,4 +1,4 @@
-"""Dashboard hub: overview / holdings / asset-flow charts / entry forms."""
+"""Dashboard hub: overview / holdings / PnL / asset-flow charts (read-only)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from lib.asset_flows_ui import render_flow_charts, render_flow_forms  # noqa: E402
+from lib.asset_flows_ui import render_flow_charts  # noqa: E402
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.chart_period import filter_by_period, period_radio  # noqa: E402
 from lib.market_data import STALE_HOURS, fetch_usdkrw, is_stale, refresh_tickers  # noqa: E402
@@ -35,7 +35,7 @@ from lib.theme import (  # noqa: E402
 st.set_page_config(page_title="대시보드", page_icon="💚", layout="wide")
 apply_theme(max_width=1280)
 
-VIEWS = ["홈", "보유", "손익", "거래", "입력"]
+VIEWS = ["홈", "보유", "손익", "거래"]
 
 
 def _fmt_money(v, currency="KRW") -> str:
@@ -459,7 +459,7 @@ def view_holdings(client, live_rows) -> None:
 
 
 def main() -> None:
-    page_hero("대시보드", "홈 · 보유 · 손익 · 거래 · 입력", compact=True)
+    page_hero("대시보드", "홈 · 보유 · 손익 · 거래", compact=True)
     view = render_subnav(VIEWS, state_key="dash_view", default="홈")
 
     user, client = require_auth()
@@ -478,10 +478,8 @@ def main() -> None:
         view_holdings(client, live_rows)
     elif view == "손익":
         render_total_realized_pnl(client, compact=False)
-    elif view == "거래":
-        render_flow_charts(client)
     else:
-        render_flow_forms(client, user)
+        render_flow_charts(client)
 
 
 main()

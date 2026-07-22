@@ -31,36 +31,32 @@ st.set_page_config(
 apply_theme(max_width=920)
 
 # Sidebar / home menu registry (path relative to streamlit_app/)
+# MECE: 조회 → 질문 → 세금 → 기록 → 알림 (읽기 먼저, 쓰기·설정은 뒤)
 MENU_ITEMS = [
     {
-        "title": "OCR 업로드",
-        "path": "pages/1_OCR_업로드.py",
-        "desc": "잔고·매매·배당 스크린샷 → AI 파싱 → 스테이징",
-    },
-    {
-        "title": "스테이징 검토",
-        "path": "pages/2_스테이징_검토.py",
-        "desc": "검토·수정 후 승인하면 매매·배당·보유 반영",
-    },
-    {
         "title": "대시보드",
-        "path": "pages/3_대시보드.py",
-        "desc": "홈 · 보유 · 손익 · 거래 · 입력",
-    },
-    {
-        "title": "세금 리포트",
-        "path": "pages/4_세금_리포트.py",
-        "desc": "해외주식 양도세 추정 (기본공제 250만원 · 22%)",
-    },
-    {
-        "title": "알림·작업",
-        "path": "pages/5_알림_작업.py",
-        "desc": "푸시 구독 · 브리핑/백업 수동 실행",
+        "path": "pages/1_대시보드.py",
+        "desc": "홈 · 보유 · 손익 · 거래 (조회)",
     },
     {
         "title": "자산 챗",
-        "path": "pages/6_자산_챗.py",
-        "desc": "내 자산 데이터 기준 AI 대화",
+        "path": "pages/2_자산_챗.py",
+        "desc": "내 자산 데이터 기준 AI 질문",
+    },
+    {
+        "title": "세금",
+        "path": "pages/3_세금.py",
+        "desc": "해외주식 양도세 추정 (기본공제 250만원 · 22%)",
+    },
+    {
+        "title": "기록하기",
+        "path": "pages/4_기록하기.py",
+        "desc": "OCR · 검토 · 수기 (쓰기 한곳)",
+    },
+    {
+        "title": "알림·설정",
+        "path": "pages/5_알림_설정.py",
+        "desc": "푸시 구독 · 브리핑/백업 수동 실행",
     },
 ]
 

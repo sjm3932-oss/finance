@@ -22,7 +22,7 @@ from lib.ui_ko import rename_columns  # noqa: E402
 from lib.theme import apply_theme, page_hero  # noqa: E402
 
 
-st.set_page_config(page_title="알림·작업", page_icon="💚", layout="wide")
+st.set_page_config(page_title="알림·설정", page_icon="💚", layout="wide")
 apply_theme(max_width=1120)
 
 VAPID_PUBLIC = os.getenv("VAPID_PUBLIC_KEY", "")
@@ -51,7 +51,7 @@ def _invoke(name: str, token: str) -> dict:
 
 
 def main() -> None:
-    page_hero("알림·작업", "웹 푸시 구독 · 아침 브리핑/시세/백업 수동 실행")
+    page_hero("알림·설정", "웹 푸시 구독 · 아침 브리핑/시세/백업 수동 실행")
 
     user, client = require_auth()
     ensure_profile(user, client)

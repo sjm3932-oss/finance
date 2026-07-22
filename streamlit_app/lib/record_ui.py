@@ -1,26 +1,15 @@
-"""Page: Review / edit / approve ocr_staging rows."""
+"""Unified write path: OCR upload → staging review → manual entry."""
 
 from __future__ import annotations
 
 import json
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from lib.auth import ensure_profile, require_auth  # noqa: E402
-from lib.ui_ko import STATUS_KO, localize_flow_df, rename_columns  # noqa: E402
-from lib.theme import apply_theme, page_hero  # noqa: E402
-
-
-st.set_page_config(page_title="스테이징 검토", page_icon="💚", layout="wide")
-apply_theme(max_width=1120)
+from lib.ocr_upload import DOC_TYPES, stage_screenshot
+from lib.ui_ko import ACCOUNT_TYPE_KO, STATUS_KO, localize_flow_df, rename_columns
 
 
 def _signed_url(client, path: str) -> str | None:
@@ -45,17 +34,109 @@ def _signed_url(client, path: str) -> str | None:
     return None
 
 
-def main() -> None:
-    page_hero("스테이징 검토", "대기·실패 항목을 수정하고 승인하면 매매·배당·보유에 반영됩니다.")
+def render_ocr_upload(client, user) -> None:
+    """Screenshot → Gemini OCR → ocr_staging."""
+    accounts_resp = client.table("accounts").select("id, institution, account_type, currency").execute()
+    accounts = accounts_resp.data or []
 
-    user, client = require_auth()
-    ensure_profile(user, client)
+    with st.expander("계좌 만들기 (승인 전 필요)", expanded=not accounts):
+        with st.form("create_account_record"):
+            institution = st.text_input("금융기관", placeholder="토스증권")
+            account_type = st.selectbox(
+                "계좌유형",
+                ["brokerage", "bank", "loan"],
+                format_func=lambda x: ACCOUNT_TYPE_KO.get(x, x),
+            )
+            currency = st.selectbox("통화", ["KRW", "USD"])
+            if st.form_submit_button("계좌 생성"):
+                if not institution.strip():
+                    st.error("금융기관명을 입력하세요")
+                else:
+                    client.table("accounts").insert(
+                        {
+                            "user_id": str(user.id),
+                            "institution": institution.strip(),
+                            "account_type": account_type,
+                            "currency": currency,
+                        }
+                    ).execute()
+                    st.success("계좌가 생성되었습니다")
+                    st.rerun()
 
+    if not accounts:
+        st.info("계좌를 하나 만든 뒤 업로드하세요. (승인 시 계좌 선택이 필요합니다)")
+        return
+
+    account_labels = {
+        a["id"]: (
+            f"{a['institution']} "
+            f"({ACCOUNT_TYPE_KO.get(a['account_type'], a['account_type'])}, {a['currency']})"
+        )
+        for a in accounts
+    }
+    selected_account = st.selectbox(
+        "이 업로드의 대상 계좌",
+        options=list(account_labels.keys()),
+        format_func=lambda i: account_labels[i],
+        key="record_ocr_account",
+    )
+
+    doc_type = st.selectbox(
+        "문서 종류",
+        options=list(DOC_TYPES.keys()),
+        format_func=lambda k: DOC_TYPES[k],
+        index=0,
+        help="매매·배당·잔고를 각각 찍어도 되고, 자동 인식도 가능합니다.",
+        key="record_ocr_doc_type",
+    )
+
+    uploaded = st.file_uploader(
+        "스크린샷 (잔고 / 매매 / 배당)",
+        type=["png", "jpg", "jpeg", "webp", "gif"],
+        key="record_ocr_file",
+    )
+
+    if uploaded and st.button("파싱 및 스테이징", type="primary", key="record_ocr_submit"):
+        with st.spinner("이미지 저장 · AI 파싱 중…"):
+            try:
+                created, status, parsed_json, error_msg = stage_screenshot(
+                    client,
+                    user_id=str(user.id),
+                    account_id=selected_account,
+                    image_bytes=uploaded.getvalue(),
+                    filename=uploaded.name,
+                    mime_type=uploaded.type,
+                    doc_type=doc_type,
+                )
+            except Exception as exc:
+                st.error(f"업로드/파싱 실패: {exc}")
+                st.stop()
+
+        n_trades = len(parsed_json.get("trades") or [])
+        n_divs = len(parsed_json.get("dividends") or [])
+        n_hold = len(parsed_json.get("holdings_snapshot") or [])
+
+        if status == "failed":
+            st.error(f"실패로 스테이징됨: {error_msg}. 다시 업로드하거나 「검토」에서 수정하세요.")
+        else:
+            st.success(
+                f"대기로 스테이징됨 · 매매 {n_trades} · 배당 {n_divs} · 잔고 {n_hold} "
+                f"(`{created['id'] if created else '완료'}`)"
+            )
+
+        st.subheader("파싱 결과")
+        st.code(json.dumps(parsed_json, ensure_ascii=False, indent=2), language="json")
+        st.info("다음: 상단 **검토**에서 확인 후 승인하세요. 수기 입력은 **수기** 탭을 사용하세요.")
+
+
+def render_staging_review(client, user) -> None:
+    """Review / edit / approve ocr_staging rows."""
     status_filter = st.multiselect(
         "상태 필터",
         options=["pending", "failed", "approved", "rejected"],
         default=["pending", "failed"],
         format_func=lambda x: STATUS_KO.get(x, x),
+        key="record_staging_status",
     )
     query = (
         client.table("ocr_staging")
@@ -68,7 +149,7 @@ def main() -> None:
     rows = query.execute().data or []
 
     if not rows:
-        st.info("표시할 스테이징 항목이 없습니다.")
+        st.info("표시할 스테이징 항목이 없습니다. 「OCR」에서 먼저 업로드하세요.")
         return
 
     labels = {
@@ -79,6 +160,7 @@ def main() -> None:
         "스테이징 항목",
         options=list(labels.keys()),
         format_func=lambda i: labels[i],
+        key="record_staging_pick",
     )
     row = next(r for r in rows if r["id"] == selected_id)
 
@@ -102,7 +184,7 @@ def main() -> None:
     account_ids = [a["id"] for a in accounts]
     account_map = {a["id"]: a["institution"] for a in accounts}
 
-    with st.form("review_form"):
+    with st.form("record_review_form"):
         current_account = parsed.get("account_id")
         if current_account not in account_ids and account_ids:
             current_account = account_ids[0]
@@ -185,6 +267,3 @@ def main() -> None:
         st.warning("반려되었습니다.")
     else:
         st.success("수정 내용이 저장되었습니다.")
-
-
-main()
