@@ -117,12 +117,14 @@ def show_plotly(fig, *, key: str | None = None) -> None:
         height=height,
     )
     if has_title:
-        fig.update_layout(
-            title=dict(
-                **TITLE_DEFAULTS,
-                pad=dict(t=0, b=14, l=0, r=0),
-            )
-        )
+        # Restyle without rebuilding title=dict(**defaults, pad=...) —
+        # Plotly merges into the existing Title and duplicate pad blows up.
+        fig.layout.title.font = TITLE_DEFAULTS["font"]
+        fig.layout.title.x = TITLE_DEFAULTS["x"]
+        fig.layout.title.xanchor = TITLE_DEFAULTS["xanchor"]
+        fig.layout.title.y = TITLE_DEFAULTS["y"]
+        fig.layout.title.yanchor = TITLE_DEFAULTS["yanchor"]
+        fig.layout.title.pad = dict(t=0, b=14, l=0, r=0)
     kwargs = {
         "use_container_width": True,
         "config": {
