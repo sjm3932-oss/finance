@@ -1,4 +1,4 @@
-"""Couples Wealth Master — Streamlit entry (auth + home)."""
+"""Couples Wealth Master — Home (auth + menu index)."""
 
 from __future__ import annotations
 
@@ -23,12 +23,46 @@ from lib.supabase_client import (  # noqa: E402
 from lib.theme import apply_theme, page_hero, user_chip  # noqa: E402
 
 st.set_page_config(
-    page_title="부부 자산 마스터",
+    page_title="홈 · 부부 자산 마스터",
     page_icon="💚",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 apply_theme(max_width=920)
+
+# Sidebar / home menu registry (path relative to streamlit_app/)
+MENU_ITEMS = [
+    {
+        "title": "OCR 업로드",
+        "path": "pages/1_OCR_업로드.py",
+        "desc": "잔고·매매·배당 스크린샷 → AI 파싱 → 스테이징",
+    },
+    {
+        "title": "스테이징 검토",
+        "path": "pages/2_스테이징_검토.py",
+        "desc": "검토·수정 후 승인하면 매매·배당·보유 반영",
+    },
+    {
+        "title": "대시보드",
+        "path": "pages/3_대시보드.py",
+        "desc": "한눈에 · 종목 · 실현손익 · 자산 흐름 · 기록하기",
+    },
+    {
+        "title": "세금 리포트",
+        "path": "pages/4_세금_리포트.py",
+        "desc": "해외주식 양도세 추정 (기본공제 250만원 · 22%)",
+    },
+    {
+        "title": "알림·작업",
+        "path": "pages/5_알림_작업.py",
+        "desc": "푸시 구독 · 브리핑/백업 수동 실행",
+    },
+    {
+        "title": "자산 챗",
+        "path": "pages/6_자산_챗.py",
+        "desc": "내 자산 데이터 기준 AI 대화",
+    },
+]
 
 
 def _handle_oauth_callback() -> None:
@@ -101,66 +135,120 @@ def _ensure_allowed_and_profile() -> bool:
     return True
 
 
-def login_panel() -> None:
-    page_hero(
-        "부부 자산 마스터",
-        "Google로 로그인하세요.",
-    )
-
+def _oauth_login_url() -> str | None:
     try:
         client = get_anon_client()
-    except ConfigError as exc:
-        st.error(str(exc))
-        return
-
-    redirect_to = PUBLIC_APP_URL
-    try:
         result = client.auth.sign_in_with_oauth(
             {
                 "provider": "google",
-                "options": {"redirect_to": redirect_to},
+                "options": {"redirect_to": PUBLIC_APP_URL},
             }
         )
-        url = getattr(result, "url", None) or (result.get("url") if isinstance(result, dict) else None)
-        if url:
-            st.link_button("Google로 로그인", url, type="primary")
-        else:
-            st.error("로그인을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요.")
+        return getattr(result, "url", None) or (
+            result.get("url") if isinstance(result, dict) else None
+        )
+    except ConfigError as exc:
+        st.session_state["_cwm_login_cfg_error"] = str(exc)
+        return None
     except Exception as exc:
-        st.error(f"로그인 준비 실패: {exc}")
+        st.session_state["_cwm_login_cfg_error"] = str(exc)
+        return None
 
 
-def home() -> None:
-    user = st.session_state.user
-    app_user = st.session_state.app_user or {}
-    name = app_user.get("display_name") or (user.email or "회원")
+def render_top_right_auth(*, logged_in: bool) -> None:
+    """Fixed top-right login / logout control."""
+    if logged_in:
+        st.markdown('<div class="np-top-auth-slot">', unsafe_allow_html=True)
+        if st.button("로그아웃", key="top_logout", type="secondary"):
+            logout_and_clear()
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
 
-    page_hero(
-        "오늘의 자산 한눈에",
-        "왼쪽 메뉴에서 업로드·대시보드·챗을 바로 시작하세요.",
+    url = _oauth_login_url()
+    err = st.session_state.pop("_cwm_login_cfg_error", None)
+    if err:
+        st.error(err)
+        return
+    if not url:
+        st.error("로그인을 준비할 수 없습니다.")
+        return
+
+    st.markdown(
+        f'<a class="np-top-auth-btn" href="{url}" target="_self" rel="noopener">Google로 로그인</a>',
+        unsafe_allow_html=True,
     )
-    user_chip(str(name), user.email or "")
 
+
+def render_menu_index(*, can_navigate: bool) -> None:
+    """Table of contents + shortcuts for all app menus."""
     st.markdown(
         """
 <div class="np-section">
-  <h3>바로가기</h3>
-  <div class="np-menu-grid">
-    <div class="np-menu-item"><div class="np-menu-num">1</div><div class="np-menu-body"><strong>OCR 업로드</strong><span>잔고 스크린샷 → AI 파싱 → 스테이징</span></div></div>
-    <div class="np-menu-item"><div class="np-menu-num">2</div><div class="np-menu-body"><strong>스테이징 검토</strong><span>검토·수정 후 승인하면 보유·매매 반영</span></div></div>
-    <div class="np-menu-item"><div class="np-menu-num">3</div><div class="np-menu-body"><strong>대시보드</strong><span>한눈에 · 종목 · 자산 흐름 · 기록하기</span></div></div>
-    <div class="np-menu-item"><div class="np-menu-num">4</div><div class="np-menu-body"><strong>세금 리포트</strong><span>해외주식 양도세 추정 (기본공제 250만원)</span></div></div>
-    <div class="np-menu-item"><div class="np-menu-num">5</div><div class="np-menu-body"><strong>알림·작업</strong><span>푸시 구독 · 브리핑/백업 수동 실행</span></div></div>
-    <div class="np-menu-item"><div class="np-menu-num">6</div><div class="np-menu-body"><strong>자산 챗</strong><span>내 자산 데이터 기준 AI 대화</span></div></div>
-  </div>
+  <h3>메뉴 목차</h3>
+  <p style="margin:0 0 0.75rem 0;color:#6B7280;font-size:0.92rem;">
+    아래에서 바로가기를 누르거나, 왼쪽 사이드바에서도 이동할 수 있습니다.
+  </p>
 </div>
 """,
         unsafe_allow_html=True,
     )
 
-    if st.button("로그아웃", type="secondary"):
-        logout_and_clear()
-        st.rerun()
+    # Visual TOC cards
+    cards = []
+    for i, item in enumerate(MENU_ITEMS, start=1):
+        cards.append(
+            f"""
+<div class="np-menu-item">
+  <div class="np-menu-num">{i}</div>
+  <div class="np-menu-body">
+    <strong>{item['title']}</strong>
+    <span>{item['desc']}</span>
+  </div>
+</div>
+"""
+        )
+    st.markdown(
+        f'<div class="np-menu-grid">{"".join(cards)}</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("##### 바로가기")
+    if not can_navigate:
+        st.caption("오른쪽 위 **Google로 로그인** 후 바로가기를 사용할 수 있습니다.")
+
+    cols = st.columns(2, gap="small")
+    for i, item in enumerate(MENU_ITEMS):
+        with cols[i % 2]:
+            clicked = st.button(
+                item["title"],
+                key=f"home_go_{i}",
+                type="primary" if can_navigate else "secondary",
+                use_container_width=True,
+                disabled=not can_navigate,
+            )
+            if clicked and can_navigate:
+                try:
+                    st.switch_page(item["path"])
+                except Exception as exc:
+                    st.error(f"이동 실패: {exc}")
+
+
+def home_logged_out() -> None:
+    render_top_right_auth(logged_in=False)
+    page_hero("홈", "부부 공동 자산 관리 — 메뉴를 선택해 시작하세요.")
+    render_menu_index(can_navigate=False)
+
+
+def home_logged_in() -> None:
+    user = st.session_state.user
+    app_user = st.session_state.app_user or {}
+    name = app_user.get("display_name") or (user.email or "회원")
+
+    render_top_right_auth(logged_in=True)
+    page_hero("홈", "메뉴 목차와 바로가기로 원하는 화면으로 이동하세요.")
+    user_chip(str(name), user.email or "")
+    render_menu_index(can_navigate=True)
 
 
 def _await_sid_cookie_if_needed() -> None:
@@ -199,14 +287,17 @@ def main() -> None:
     _handle_oauth_callback()
     _await_sid_cookie_if_needed()
 
-    if not st.session_state.get("access_token") or not st.session_state.get("user"):
-        login_panel()
+    logged_in = bool(
+        st.session_state.get("access_token") and st.session_state.get("user")
+    )
+    if not logged_in:
+        home_logged_out()
         return
 
     if not _ensure_allowed_and_profile():
         return
 
-    home()
+    home_logged_in()
 
 
 if __name__ == "__main__":

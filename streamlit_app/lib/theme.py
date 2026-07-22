@@ -467,6 +467,54 @@ div[data-testid="stVerticalBlockBorderWrapper"] {{
 footer {{ visibility: hidden; }}
 header[data-testid="stHeader"] {{ background: transparent !important; }}
 
+/* Top-right auth (login / logout) */
+.np-top-auth-btn {{
+  position: fixed;
+  top: 0.85rem;
+  right: 1.1rem;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.45rem;
+  padding: 0 1.1rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, {PRIMARY} 0%, {PRIMARY_DARK} 100%);
+  color: #fff !important;
+  font-weight: 700;
+  font-size: 0.92rem;
+  text-decoration: none !important;
+  box-shadow: 0 8px 20px rgba(3, 199, 90, 0.28);
+  border: none;
+}}
+.np-top-auth-btn:hover {{
+  filter: brightness(0.96);
+  color: #fff !important;
+}}
+div.np-top-auth-slot {{
+  position: fixed;
+  top: 0.65rem;
+  right: 1rem;
+  z-index: 1000;
+  width: auto !important;
+}}
+div.np-top-auth-slot div.stButton {{
+  width: auto !important;
+}}
+div.np-top-auth-slot div.stButton > button {{
+  width: auto !important;
+  min-width: 5.5rem;
+  min-height: 2.4rem !important;
+  padding: 0 1rem !important;
+  border-radius: 999px !important;
+}}
+@media (max-width: 640px) {{
+  .np-top-auth-btn, div.np-top-auth-slot {{
+    top: 0.55rem;
+    right: 0.65rem;
+  }}
+}}
+
 /* Wrap metric / button rows on narrow screens */
 @media (max-width: 720px) {{
   div[data-testid="stHorizontalBlock"] {{

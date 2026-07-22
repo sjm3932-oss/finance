@@ -57,7 +57,7 @@ on conflict do nothing;
 ### Run
 
 ```bash
-streamlit run streamlit_app/app.py
+streamlit run streamlit_app/Home.py
 ```
 
 ## parsed_json contract

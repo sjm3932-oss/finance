@@ -16,7 +16,7 @@ export PUBLIC_APP_URL="${PUBLIC_APP_URL:-}"
 
 echo "Starting Streamlit on :$PORT …"
 . .venv/bin/activate
-streamlit run streamlit_app/app.py \
+streamlit run streamlit_app/Home.py \
   --server.port "$PORT" \
   --server.address 0.0.0.0 \
   --server.headless true &
