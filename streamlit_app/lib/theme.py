@@ -53,18 +53,26 @@ CHART_LAYOUT = dict(
     hovermode="x unified",
     colorway=CHART_COLORS,
     autosize=True,
-    separatethousands=True,
 )
 
 
 def chart_layout(height: int = 300, *, with_title: bool = False, **extra) -> dict:
-    """Safe defaults so title / legend / plot never overlap."""
+    """Safe defaults so title / legend / plot never overlap.
+
+    Does not include a default ``title`` key so callers can safely do
+    ``fig.update_layout(**chart_layout(..., with_title=True), title="...")``
+    without a duplicate-keyword TypeError.
+    """
     layout = {**CHART_LAYOUT, "height": height}
+    title_defaults = layout.pop("title", None) or {}
     # Extra headroom when Plotly draws its own title
     if with_title or extra.get("title"):
         layout["margin"] = {**layout["margin"], "t": 56}
         layout["height"] = max(height, 320)
     layout.update(extra)
+    # String titles → styled title dict; leave dict titles as-is
+    if "title" in layout and isinstance(layout["title"], str):
+        layout["title"] = {**title_defaults, "text": layout["title"]}
     # Keep legend under the plot even if caller overrides partially
     leg = {**CHART_LAYOUT["legend"], **(extra.get("legend") or {})}
     if "y" not in (extra.get("legend") or {}):
