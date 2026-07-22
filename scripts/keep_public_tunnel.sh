@@ -132,17 +132,18 @@ while true; do
   p=$(extract_pinggy)
   c=$(extract_cf)
 
-  # Prefer healthy pinggy, else healthy cloudflare
+  # Prefer Cloudflare (no browser interstitial). Pinggy is fallback only
+  # because free Pinggy shows an "Enter site" caution page in browsers.
   new_primary=""
   new_fallback=""
-  if [[ -n "$p" ]] && probe "$p"; then
-    new_primary="$p"
-  fi
   if [[ -n "$c" ]] && probe "$c"; then
+    new_primary="$c"
+  fi
+  if [[ -n "$p" ]] && probe "$p"; then
     if [[ -z "$new_primary" ]]; then
-      new_primary="$c"
+      new_primary="$p"
     else
-      new_fallback="$c"
+      new_fallback="$p"
     fi
   fi
 
