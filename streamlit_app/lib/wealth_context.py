@@ -39,8 +39,34 @@ def build_wealth_context(client) -> dict[str, Any]:
     portfolio = _safe(client.table("v_portfolio").select("*").execute().data)
     cash = _safe(
         client.table("cash_flows")
-        .select("flow_date,category,amount,flow_type,memo")
+        .select("flow_date,category,amount,flow_type,memo,currency")
         .order("flow_date", desc=True)
+        .limit(40)
+        .execute()
+        .data
+    )
+    dividends = _safe(
+        client.table("dividends")
+        .select("pay_date,ticker,amount,currency,memo")
+        .order("pay_date", desc=True)
+        .limit(30)
+        .execute()
+        .data
+    )
+    debt_txs = _safe(
+        client.table("debt_transactions")
+        .select("tx_date,tx_type,amount,memo,debt_id")
+        .order("tx_date", desc=True)
+        .limit(30)
+        .execute()
+        .data
+    )
+    realized = _safe(client.table("v_realized_pnl").select("*").execute().data)
+    unrealized = _safe(client.table("v_unrealized_pnl").select("*").execute().data)
+    recent_flows = _safe(
+        client.table("v_asset_flows")
+        .select("event_date,flow_kind,flow_subtype,asset_ref,amount,currency,memo")
+        .order("event_date", desc=True)
         .limit(40)
         .execute()
         .data
@@ -86,6 +112,11 @@ def build_wealth_context(client) -> dict[str, Any]:
         "debts": debts,
         "recent_trades": trades,
         "recent_cash_flows": cash,
+        "recent_dividends": dividends,
+        "recent_debt_transactions": debt_txs,
+        "realized_pnl": realized,
+        "unrealized_pnl": unrealized,
+        "recent_asset_flows": recent_flows,
         "daily_snapshots": snaps,
         "tax_records": tax,
         "tax_estimates": tax_view,

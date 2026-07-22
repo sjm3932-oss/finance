@@ -19,6 +19,8 @@ const TABLES = [
   "allowed_emails",
   "app_settings",
   "holding_daily_snapshots",
+  "dividends",
+  "debt_transactions",
 ];
 
 Deno.serve(async (_req) => {
