@@ -224,6 +224,7 @@ def home() -> None:
 3. **Dashboard** — 시세 새로고침 · 순자산/수익률
 4. **Tax Report** — 해외주식 양도세 추정 (250만원 공제 · 22%)
 5. **Notifications** — Web Push 구독 · 브리핑/백업 수동 실행
+6. **Wealth Chat** — 내 자산 데이터만 근거로 Gemini와 자유 대화
 
 사이드바에서 페이지를 선택하세요.
 """

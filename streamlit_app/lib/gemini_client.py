@@ -107,3 +107,67 @@ def parse_screenshot(image_bytes: bytes, mime_type: str = "image/png") -> dict[s
     if not isinstance(parsed["holdings_snapshot"], list):
         parsed["holdings_snapshot"] = []
     return parsed
+
+
+WEALTH_CHAT_SYSTEM = """당신은 Couples Wealth Master의 부부 공동자산 전용 비서입니다.
+
+규칙:
+1. 제공된 WEALTH_CONTEXT JSON에 있는 사실만 근거로 답하세요.
+2. 컨텍스트에 없는 시세·뉴스·종목·개인정보는 추측하지 말고, "데이터에 없음"이라고 말하세요.
+3. 일반적인 투자 권유·세금 확정 자문은 하지 말고, 필요하면 "참고용 추정"임을 밝히세요.
+4. 한국어로 간결하고 친절하게 답하세요. 숫자에는 단위(원/달러/%)를 붙이세요.
+5. 질문자가 자산과 무관한 주제(코딩, 일반상식 등)를 물으면 자산 범위 밖이라고 안내하세요.
+"""
+
+
+def chat_about_wealth(
+    user_message: str,
+    wealth_context_text: str,
+    history: list[dict[str, str]] | None = None,
+) -> str:
+    """Grounded chat over the couple's wealth context. history items: role=user|model."""
+    if not GEMINI_API_KEY:
+        raise GeminiError("GEMINI_API_KEY is not set")
+    if not (user_message or "").strip():
+        raise GeminiError("Empty message")
+
+    try:
+        import google.generativeai as genai
+    except ImportError as exc:
+        raise GeminiError("google-generativeai is not installed") from exc
+
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(
+        GEMINI_MODEL,
+        system_instruction=WEALTH_CHAT_SYSTEM,
+    )
+
+    contents: list[Any] = [
+        {
+            "role": "user",
+            "parts": [
+                "WEALTH_CONTEXT (유일한 사실 소스):\n"
+                + wealth_context_text
+                + "\n\n위 컨텍스트만 사용해 이후 질문에 답하세요. 이해했으면 '준비됨'이라고만 답하세요."
+            ],
+        },
+        {"role": "model", "parts": ["준비됨"]},
+    ]
+
+    for turn in history or []:
+        role = turn.get("role")
+        text = (turn.get("content") or "").strip()
+        if not text or role not in ("user", "model"):
+            continue
+        contents.append({"role": role, "parts": [text]})
+
+    contents.append({"role": "user", "parts": [user_message.strip()]})
+
+    response = model.generate_content(
+        contents,
+        generation_config={"temperature": 0.3},
+    )
+    text = getattr(response, "text", None)
+    if not text:
+        raise GeminiError("Empty response from Gemini chat")
+    return text.strip()
