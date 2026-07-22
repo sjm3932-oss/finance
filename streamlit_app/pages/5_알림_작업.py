@@ -23,7 +23,7 @@ from lib.theme import apply_theme, page_hero  # noqa: E402
 
 
 st.set_page_config(page_title="알림·작업", page_icon="💚", layout="wide")
-apply_theme(max_width=900)
+apply_theme(max_width=1120)
 
 VAPID_PUBLIC = os.getenv("VAPID_PUBLIC_KEY", "")
 

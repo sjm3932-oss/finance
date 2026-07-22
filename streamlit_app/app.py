@@ -174,7 +174,7 @@ def home() -> None:
 
     page_hero(
         "오늘의 자산 한눈에",
-        "왼쪽 메뉴에서 업로드·대시보드·흐름·챗을 바로 시작하세요.",
+        "왼쪽 메뉴에서 업로드·대시보드·챗을 바로 시작하세요.",
     )
     user_chip(str(name), user.email or "")
 
@@ -185,11 +185,10 @@ def home() -> None:
   <div class="np-menu-grid">
     <div class="np-menu-item"><div class="np-menu-num">1</div><div class="np-menu-body"><strong>OCR 업로드</strong><span>잔고 스크린샷 → AI 파싱 → 스테이징</span></div></div>
     <div class="np-menu-item"><div class="np-menu-num">2</div><div class="np-menu-body"><strong>스테이징 검토</strong><span>검토·수정 후 승인하면 보유·매매 반영</span></div></div>
-    <div class="np-menu-item"><div class="np-menu-num">3</div><div class="np-menu-body"><strong>대시보드</strong><span>시세·순자산·종목별 추이</span></div></div>
+    <div class="np-menu-item"><div class="np-menu-num">3</div><div class="np-menu-body"><strong>대시보드</strong><span>한눈에 · 종목 · 자산 흐름 · 기록하기</span></div></div>
     <div class="np-menu-item"><div class="np-menu-num">4</div><div class="np-menu-body"><strong>세금 리포트</strong><span>해외주식 양도세 추정 (기본공제 250만원)</span></div></div>
     <div class="np-menu-item"><div class="np-menu-num">5</div><div class="np-menu-body"><strong>알림·작업</strong><span>푸시 구독 · 브리핑/백업 수동 실행</span></div></div>
     <div class="np-menu-item"><div class="np-menu-num">6</div><div class="np-menu-body"><strong>자산 챗</strong><span>내 자산 데이터 기준 AI 대화</span></div></div>
-    <div class="np-menu-item"><div class="np-menu-num">7</div><div class="np-menu-body"><strong>자산 흐름</strong><span>매매·배당·현금·부채·손익 기록</span></div></div>
   </div>
 </div>
 """,

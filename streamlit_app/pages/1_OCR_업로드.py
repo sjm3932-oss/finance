@@ -22,7 +22,7 @@ from lib.theme import apply_theme, page_hero  # noqa: E402
 
 
 st.set_page_config(page_title="OCR 업로드", page_icon="💚", layout="wide")
-apply_theme(max_width=900)
+apply_theme(max_width=1120)
 
 
 def main() -> None:

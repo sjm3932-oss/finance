@@ -20,7 +20,7 @@ from lib.theme import apply_theme, page_hero  # noqa: E402
 
 
 st.set_page_config(page_title="스테이징 검토", page_icon="💚", layout="wide")
-apply_theme(max_width=960)
+apply_theme(max_width=1120)
 
 
 def _signed_url(client, path: str) -> str | None:

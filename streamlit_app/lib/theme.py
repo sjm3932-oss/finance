@@ -28,18 +28,39 @@ CHART_COLORS = [
 ]
 
 CHART_LAYOUT = dict(
-    margin=dict(l=8, r=8, t=48, b=8),
-    height=340,
+    margin=dict(l=4, r=4, t=40, b=4),
+    height=280,
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="Pretendard, Noto Sans KR, sans-serif", color=INK, size=13),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+    font=dict(family="Pretendard, Noto Sans KR, sans-serif", color=INK, size=12),
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(size=11)),
     hovermode="x unified",
     colorway=CHART_COLORS,
+    autosize=True,
 )
 
 
-def apply_theme(*, max_width: int = 960) -> None:
+def chart_layout(height: int = 280, **extra) -> dict:
+    layout = {**CHART_LAYOUT, "height": height}
+    layout.update(extra)
+    return layout
+
+
+def show_plotly(fig) -> None:
+    """Render Plotly figure fluidly for any viewport width."""
+    fig.update_layout(autosize=True)
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={
+            "responsive": True,
+            "displayModeBar": False,
+            "scrollZoom": False,
+        },
+    )
+
+
+def apply_theme(*, max_width: int = 1120) -> None:
     """Inject global Naver Pay–style CSS. Call once per page after set_page_config."""
     st.markdown(
         f"""
@@ -62,9 +83,10 @@ def apply_theme(*, max_width: int = 960) -> None:
 html, body, [class*="css"] {{
   font-family: Pretendard, "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif !important;
   color: var(--np-ink);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }}
 
-/* App canvas — soft green mist + subtle grid */
 .stApp {{
   background:
     radial-gradient(1200px 480px at 10% -10%, rgba(3,199,90,0.16), transparent 55%),
@@ -73,24 +95,24 @@ html, body, [class*="css"] {{
 }}
 
 .block-container {{
-  padding-top: 1.25rem !important;
-  padding-bottom: 3rem !important;
-  max-width: {max_width}px !important;
+  padding-top: clamp(0.75rem, 2vw, 1.25rem) !important;
+  padding-bottom: clamp(1.5rem, 4vw, 3rem) !important;
+  padding-left: clamp(0.75rem, 3vw, 2rem) !important;
+  padding-right: clamp(0.75rem, 3vw, 2rem) !important;
+  max-width: min({max_width}px, 100%) !important;
+  width: 100% !important;
 }}
 
-/* Sidebar — clean white rail with green active */
 section[data-testid="stSidebar"] {{
   background: linear-gradient(180deg, #FFFFFF 0%, #F7FBF8 100%) !important;
   border-right: 1px solid var(--np-line) !important;
-}}
-section[data-testid="stSidebar"] .stMarkdown p {{
-  color: var(--np-muted);
 }}
 [data-testid="stSidebarNav"] a {{
   border-radius: 12px !important;
   margin: 2px 6px !important;
   padding: 0.55rem 0.75rem !important;
   font-weight: 600 !important;
+  font-size: clamp(0.85rem, 1.6vw, 0.95rem) !important;
   transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }}
 [data-testid="stSidebarNav"] a:hover {{
@@ -103,30 +125,36 @@ section[data-testid="stSidebar"] .stMarkdown p {{
   color: #fff !important;
 }}
 
-/* Headers */
-h1, h2, h3 {{
+h1, h2, h3, h4 {{
   letter-spacing: -0.03em !important;
   color: var(--np-ink) !important;
   font-weight: 800 !important;
+  line-height: 1.25 !important;
+  word-break: keep-all;
 }}
-h1 {{
-  font-size: 1.85rem !important;
-  margin-bottom: 0.25rem !important;
+h1 {{ font-size: clamp(1.25rem, 4.2vw, 1.85rem) !important; margin-bottom: 0.25rem !important; }}
+h2 {{ font-size: clamp(1.1rem, 3.2vw, 1.4rem) !important; }}
+h3 {{ font-size: clamp(1rem, 2.8vw, 1.2rem) !important; }}
+p, li, label, .stMarkdown {{
+  font-size: clamp(0.88rem, 2.2vw, 1rem) !important;
+  line-height: 1.5 !important;
 }}
 .stCaption, [data-testid="stCaptionContainer"] {{
   color: var(--np-muted) !important;
+  font-size: clamp(0.78rem, 2vw, 0.9rem) !important;
 }}
 
-/* Primary buttons — Naver Pay CTA */
 div.stButton > button,
 div.stFormSubmitButton > button,
 div.stDownloadButton > button {{
   width: 100%;
-  min-height: 3rem;
+  min-height: clamp(2.6rem, 7vw, 3rem);
   border-radius: 14px !important;
   font-weight: 700 !important;
+  font-size: clamp(0.88rem, 2.4vw, 1rem) !important;
   letter-spacing: -0.02em;
   transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease !important;
+  white-space: nowrap;
 }}
 div.stButton > button[kind="primary"],
 div.stFormSubmitButton > button[kind="primary"],
@@ -155,9 +183,14 @@ div.stButton > button[kind="secondary"]:hover {{
   color: var(--np-green-deep) !important;
   background: var(--np-mist) !important;
 }}
+/* Active subnav look */
+div.stButton > button[kind="primary"].np-active,
+div[data-testid="column"] button[kind="primary"] {{
+  box-shadow: 0 8px 20px rgba(3, 199, 90, 0.28) !important;
+}}
 div.stLinkButton > a {{
   width: 100%;
-  min-height: 3rem;
+  min-height: clamp(2.6rem, 7vw, 3rem);
   display: flex !important;
   align-items: center;
   justify-content: center;
@@ -165,7 +198,6 @@ div.stLinkButton > a {{
   font-weight: 700 !important;
 }}
 
-/* Inputs */
 div[data-baseweb="input"] > div,
 div[data-baseweb="select"] > div,
 div[data-baseweb="textarea"] > div,
@@ -173,6 +205,7 @@ div[data-baseweb="textarea"] > div,
   border-radius: 12px !important;
   border-color: var(--np-line) !important;
   background: #fff !important;
+  font-size: clamp(0.88rem, 2.2vw, 1rem) !important;
 }}
 div[data-baseweb="input"]:focus-within > div,
 div[data-baseweb="select"]:focus-within > div {{
@@ -180,14 +213,14 @@ div[data-baseweb="select"]:focus-within > div {{
   box-shadow: 0 0 0 3px rgba(3,199,90,0.15) !important;
 }}
 
-/* Metrics — soft white panels */
 div[data-testid="stMetric"] {{
   background: var(--np-surface);
   border: 1px solid rgba(3,199,90,0.12);
   border-radius: 16px;
-  padding: 1rem 1.1rem;
+  padding: clamp(0.75rem, 2vw, 1rem) clamp(0.8rem, 2vw, 1.1rem);
   box-shadow: 0 6px 18px rgba(26, 26, 26, 0.04);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  height: 100%;
 }}
 div[data-testid="stMetric"]:hover {{
   transform: translateY(-2px);
@@ -196,43 +229,40 @@ div[data-testid="stMetric"]:hover {{
 div[data-testid="stMetric"] label {{
   color: var(--np-muted) !important;
   font-weight: 600 !important;
+  font-size: clamp(0.75rem, 2vw, 0.88rem) !important;
 }}
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
   color: var(--np-ink) !important;
   font-weight: 800 !important;
   letter-spacing: -0.03em;
+  font-size: clamp(1.05rem, 3.4vw, 1.55rem) !important;
+  word-break: break-word;
 }}
 
-/* Tabs */
 button[data-baseweb="tab"] {{
   font-weight: 700 !important;
   border-radius: 999px !important;
+  font-size: clamp(0.82rem, 2.2vw, 0.95rem) !important;
 }}
 button[data-baseweb="tab"][aria-selected="true"] {{
   background: var(--np-soft) !important;
   color: var(--np-green-deep) !important;
 }}
 
-/* Expanders / alerts */
 details[data-testid="stExpander"] {{
   background: #fff;
   border: 1px solid var(--np-line);
   border-radius: 16px;
   overflow: hidden;
 }}
-div[data-testid="stAlert"] {{
-  border-radius: 14px !important;
-}}
-
-/* Dataframes */
+div[data-testid="stAlert"] {{ border-radius: 14px !important; }}
 div[data-testid="stDataFrame"] {{
   border: 1px solid var(--np-line);
   border-radius: 16px;
   overflow: hidden;
   background: #fff;
+  max-width: 100%;
 }}
-
-/* Chat */
 [data-testid="stChatMessage"] {{
   background: #fff;
   border: 1px solid var(--np-line);
@@ -240,80 +270,58 @@ div[data-testid="stDataFrame"] {{
   padding: 0.75rem 1rem;
 }}
 
-/* Brand header block */
+div[data-testid="stPlotlyChart"],
+.js-plotly-plot, .plotly, .plot-container {{
+  width: 100% !important;
+  max-width: 100% !important;
+}}
+
 .np-hero {{
   position: relative;
   overflow: hidden;
-  border-radius: 22px;
-  padding: 1.35rem 1.4rem 1.25rem;
-  margin: 0 0 1.25rem 0;
+  border-radius: clamp(14px, 3vw, 22px);
+  padding: clamp(1rem, 3vw, 1.35rem) clamp(1rem, 3vw, 1.4rem);
+  margin: 0 0 clamp(0.85rem, 2vw, 1.25rem) 0;
   color: #fff;
-  background:
-    linear-gradient(135deg, {PRIMARY} 0%, {PRIMARY_DEEP} 55%, #018A3D 100%);
+  background: linear-gradient(135deg, {PRIMARY} 0%, {PRIMARY_DEEP} 55%, #018A3D 100%);
   box-shadow: 0 14px 36px rgba(3, 199, 90, 0.28);
   animation: npFadeUp 0.45s ease both;
 }}
 .np-hero::after {{
   content: "";
   position: absolute;
-  right: -40px;
-  top: -50px;
-  width: 180px;
-  height: 180px;
+  right: -40px; top: -50px;
+  width: clamp(100px, 28vw, 180px); height: clamp(100px, 28vw, 180px);
   border-radius: 50%;
   background: rgba(255,255,255,0.12);
 }}
-.np-hero::before {{
-  content: "";
-  position: absolute;
-  right: 40px;
-  bottom: -60px;
-  width: 140px;
-  height: 140px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.08);
-}}
 .np-hero-brand {{
-  position: relative;
-  z-index: 1;
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  opacity: 0.92;
-  margin-bottom: 0.35rem;
+  position: relative; z-index: 1;
+  font-size: clamp(0.72rem, 2vw, 0.82rem);
+  font-weight: 700; letter-spacing: 0.04em; opacity: 0.92; margin-bottom: 0.35rem;
 }}
 .np-hero-title {{
-  position: relative;
-  z-index: 1;
-  font-size: 1.65rem;
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  line-height: 1.25;
-  margin: 0;
+  position: relative; z-index: 1;
+  font-size: clamp(1.2rem, 4.5vw, 1.7rem) !important;
+  font-weight: 800; letter-spacing: -0.04em; line-height: 1.25; margin: 0;
+  color: #fff !important;
 }}
 .np-hero-sub {{
-  position: relative;
-  z-index: 1;
+  position: relative; z-index: 1;
   margin-top: 0.45rem;
-  font-size: 0.95rem;
-  opacity: 0.92;
-  font-weight: 500;
+  font-size: clamp(0.82rem, 2.5vw, 0.98rem);
+  opacity: 0.92; font-weight: 500;
 }}
 
 .np-section {{
   background: #fff;
   border: 1px solid var(--np-line);
-  border-radius: 18px;
-  padding: 1.1rem 1.15rem;
+  border-radius: clamp(14px, 2.5vw, 18px);
+  padding: clamp(0.85rem, 2.5vw, 1.15rem);
   margin: 0 0 1rem 0;
   box-shadow: 0 8px 22px rgba(26,26,26,0.035);
   animation: npFadeUp 0.5s ease both;
 }}
-.np-section h3 {{
-  margin: 0 0 0.65rem 0 !important;
-  font-size: 1.05rem !important;
-}}
-
 .np-menu-grid {{
   display: grid;
   grid-template-columns: 1fr;
@@ -323,68 +331,51 @@ div[data-testid="stDataFrame"] {{
   .np-menu-grid {{ grid-template-columns: 1fr 1fr; }}
 }}
 .np-menu-item {{
-  display: flex;
-  gap: 0.85rem;
-  align-items: flex-start;
-  padding: 0.95rem 1rem;
-  border-radius: 16px;
-  background: var(--np-mist);
-  border: 1px solid rgba(3,199,90,0.14);
+  display: flex; gap: 0.85rem; align-items: flex-start;
+  padding: 0.95rem 1rem; border-radius: 16px;
+  background: var(--np-mist); border: 1px solid rgba(3,199,90,0.14);
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }}
 .np-menu-item:hover {{
-  transform: translateY(-2px);
-  background: #fff;
+  transform: translateY(-2px); background: #fff;
   box-shadow: 0 10px 22px rgba(3,199,90,0.12);
 }}
 .np-menu-num {{
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: var(--np-green);
-  color: #fff;
-  font-weight: 800;
-  font-size: 0.8rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  flex: 0 0 auto; width: 28px; height: 28px; border-radius: 999px;
+  background: var(--np-green); color: #fff; font-weight: 800; font-size: 0.8rem;
+  display: flex; align-items: center; justify-content: center;
 }}
 .np-menu-body strong {{
-  display: block;
-  color: var(--np-ink);
-  font-size: 0.98rem;
-  letter-spacing: -0.02em;
+  display: block; color: var(--np-ink);
+  font-size: clamp(0.92rem, 2.4vw, 0.98rem); letter-spacing: -0.02em;
 }}
 .np-menu-body span {{
-  display: block;
-  margin-top: 0.15rem;
-  color: var(--np-muted);
-  font-size: 0.86rem;
-  line-height: 1.4;
+  display: block; margin-top: 0.15rem; color: var(--np-muted);
+  font-size: clamp(0.8rem, 2.1vw, 0.86rem); line-height: 1.4;
 }}
-
 .np-user-chip {{
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: #fff;
-  border: 1px solid rgba(3,199,90,0.2);
-  color: var(--np-ink);
-  border-radius: 999px;
-  padding: 0.45rem 0.9rem;
-  font-weight: 600;
-  font-size: 0.9rem;
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  background: #fff; border: 1px solid rgba(3,199,90,0.2);
+  color: var(--np-ink); border-radius: 999px;
+  padding: 0.45rem 0.9rem; font-weight: 600;
+  font-size: clamp(0.8rem, 2.2vw, 0.9rem);
   margin-bottom: 1rem;
   box-shadow: 0 4px 14px rgba(3,199,90,0.08);
-  animation: npFadeUp 0.4s ease both;
+  max-width: 100%; flex-wrap: wrap;
 }}
 .np-user-dot {{
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--np-green);
+  width: 8px; height: 8px; border-radius: 50%; background: var(--np-green);
   box-shadow: 0 0 0 4px rgba(3,199,90,0.18);
+}}
+
+.np-subnav {{
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0 0 1rem 0;
+}}
+@media (max-width: 640px) {{
+  .np-subnav {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
 }}
 
 @keyframes npFadeUp {{
@@ -392,17 +383,26 @@ div[data-testid="stDataFrame"] {{
   to {{ opacity: 1; transform: translateY(0); }}
 }}
 
-/* Streamlit chrome tweaks */
 #MainMenu {{ visibility: hidden; }}
 footer {{ visibility: hidden; }}
-header[data-testid="stHeader"] {{
-  background: transparent !important;
-}}
+header[data-testid="stHeader"] {{ background: transparent !important; }}
 
-@media (max-width: 640px) {{
-  h1 {{ font-size: 1.45rem !important; }}
-  .np-hero-title {{ font-size: 1.35rem; }}
-  .block-container {{ padding-left: 0.9rem !important; padding-right: 0.9rem !important; }}
+/* Wrap metric / button rows on narrow screens */
+@media (max-width: 720px) {{
+  div[data-testid="stHorizontalBlock"] {{
+    flex-wrap: wrap !important;
+    row-gap: 0.55rem !important;
+  }}
+  div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
+    min-width: calc(50% - 0.4rem) !important;
+    flex: 1 1 calc(50% - 0.4rem) !important;
+  }}
+}}
+@media (max-width: 420px) {{
+  div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
+    min-width: 100% !important;
+    flex: 1 1 100% !important;
+  }}
 }}
 </style>
 """,
@@ -444,3 +444,26 @@ def section_start(title: str = "") -> None:
 
 def section_end() -> None:
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_subnav(options: list[str], state_key: str = "dash_view", default: str | None = None) -> str:
+    """Segmented control via buttons; returns the selected label."""
+    if default is None:
+        default = options[0]
+    if st.session_state.get(state_key) not in options:
+        st.session_state[state_key] = default
+
+    cols = st.columns(len(options), gap="small")
+    for i, label in enumerate(options):
+        active = st.session_state[state_key] == label
+        with cols[i]:
+            if st.button(
+                label,
+                key=f"{state_key}_{label}",
+                type="primary" if active else "secondary",
+                use_container_width=True,
+            ):
+                if not active:
+                    st.session_state[state_key] = label
+                    st.rerun()
+    return st.session_state[state_key]
