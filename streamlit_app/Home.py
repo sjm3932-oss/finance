@@ -155,14 +155,12 @@ def _oauth_login_url() -> str | None:
         return None
 
 
-def render_top_right_auth(*, logged_in: bool) -> None:
-    """Fixed top-right login / logout control."""
+def render_auth_above_menu(*, logged_in: bool) -> None:
+    """Login / logout control placed above the menu (easy to tap)."""
     if logged_in:
-        st.markdown('<div class="np-top-auth-slot">', unsafe_allow_html=True)
-        if st.button("로그아웃", key="top_logout", type="secondary"):
+        if st.button("로그아웃", key="home_logout", type="secondary", use_container_width=True):
             logout_and_clear()
             st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
         return
 
     url = _oauth_login_url()
@@ -174,10 +172,7 @@ def render_top_right_auth(*, logged_in: bool) -> None:
         st.error("로그인을 준비할 수 없습니다.")
         return
 
-    st.markdown(
-        f'<a class="np-top-auth-btn" href="{url}" target="_self" rel="noopener">Google로 로그인</a>',
-        unsafe_allow_html=True,
-    )
+    st.link_button("Google로 로그인", url, type="primary", use_container_width=True)
 
 
 def render_menu_index(*, can_navigate: bool) -> None:
@@ -187,7 +182,7 @@ def render_menu_index(*, can_navigate: bool) -> None:
     if can_navigate:
         st.caption("항목을 누르면 해당 화면으로 이동합니다.")
     else:
-        st.caption("오른쪽 위 **Google로 로그인** 후 메뉴를 눌러 이동하세요.")
+        st.caption("위에서 로그인하면 메뉴로 이동할 수 있습니다.")
 
     for i, item in enumerate(MENU_ITEMS, start=1):
         label = f"{i}. {item['title']}  —  {item['desc']}"
@@ -208,8 +203,8 @@ def render_menu_index(*, can_navigate: bool) -> None:
 
 
 def home_logged_out() -> None:
-    render_top_right_auth(logged_in=False)
-    page_hero("홈", "부부 공동 자산 관리 — 메뉴를 선택해 시작하세요.")
+    page_hero("홈", "부부 공동 자산 관리 — 로그인 후 메뉴를 선택하세요.")
+    render_auth_above_menu(logged_in=False)
     render_menu_index(can_navigate=False)
 
 
@@ -218,9 +213,9 @@ def home_logged_in() -> None:
     app_user = st.session_state.app_user or {}
     name = app_user.get("display_name") or (user.email or "회원")
 
-    render_top_right_auth(logged_in=True)
     page_hero("홈", "메뉴를 눌러 원하는 화면으로 이동하세요.")
     user_chip(str(name), user.email or "")
+    render_auth_above_menu(logged_in=True)
     render_menu_index(can_navigate=True)
 
 
