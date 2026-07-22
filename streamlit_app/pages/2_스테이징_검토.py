@@ -16,8 +16,11 @@ if str(ROOT) not in sys.path:
 
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.ui_ko import STATUS_KO, localize_flow_df, rename_columns  # noqa: E402
+from lib.theme import apply_theme, page_hero  # noqa: E402
 
-st.set_page_config(page_title="스테이징 검토", layout="wide")
+
+st.set_page_config(page_title="스테이징 검토", page_icon="💚", layout="wide")
+apply_theme(max_width=960)
 
 
 def _signed_url(client, path: str) -> str | None:
@@ -43,10 +46,7 @@ def _signed_url(client, path: str) -> str | None:
 
 
 def main() -> None:
-    st.title("스테이징 검토")
-    st.caption(
-        "사람 검토: 대기/실패 항목을 수정하고 승인하면 매매·보유에 반영됩니다."
-    )
+    page_hero("스테이징 검토", "대기·실패 항목을 수정하고 승인하면 매매·보유에 반영됩니다.")
 
     user, client = require_auth()
     ensure_profile(user, client)

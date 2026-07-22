@@ -18,12 +18,15 @@ if str(ROOT) not in sys.path:
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.gemini_client import GeminiError, parse_screenshot  # noqa: E402
 from lib.ui_ko import ACCOUNT_TYPE_KO  # noqa: E402
+from lib.theme import apply_theme, page_hero  # noqa: E402
 
-st.set_page_config(page_title="OCR 업로드", layout="wide")
+
+st.set_page_config(page_title="OCR 업로드", page_icon="💚", layout="wide")
+apply_theme(max_width=900)
 
 
 def main() -> None:
-    st.title("OCR 업로드")
+    page_hero("OCR 업로드", "스크린샷 → AI 파싱 → 스테이징(대기/실패)")
     st.caption("스크린샷 → AI 파싱 → 스테이징(대기/실패)")
 
     user, client = require_auth()

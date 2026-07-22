@@ -15,22 +15,15 @@ if str(ROOT) not in sys.path:
 
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.ui_ko import rename_columns  # noqa: E402
+from lib.theme import apply_theme, page_hero  # noqa: E402
 
-st.set_page_config(page_title="세금 리포트", layout="wide")
 
-st.markdown(
-    """
-<style>
-  .block-container { padding-top: 1rem; max-width: 900px; }
-  div.stButton > button { width: 100%; min-height: 2.8rem; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+st.set_page_config(page_title="세금 리포트", page_icon="💚", layout="wide")
+apply_theme(max_width=900)
 
 
 def main() -> None:
-    st.title("세금 리포트")
+    page_hero("세금 리포트", "해외주식 양도소득세 추정 — 기본공제 250만원 · 세율 22%")
     st.caption("해외주식 양도소득세 추정 — 기본공제 250만원 · 세율 22%")
 
     user, client = require_auth()

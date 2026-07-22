@@ -19,8 +19,11 @@ if str(ROOT) not in sys.path:
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.supabase_client import PUBLIC_APP_URL, SUPABASE_URL, get_service_client  # noqa: E402
 from lib.ui_ko import rename_columns  # noqa: E402
+from lib.theme import apply_theme, page_hero  # noqa: E402
 
-st.set_page_config(page_title="알림·작업", layout="wide")
+
+st.set_page_config(page_title="알림·작업", page_icon="💚", layout="wide")
+apply_theme(max_width=900)
 
 VAPID_PUBLIC = os.getenv("VAPID_PUBLIC_KEY", "")
 
@@ -48,8 +51,7 @@ def _invoke(name: str, token: str) -> dict:
 
 
 def main() -> None:
-    st.title("알림·작업")
-    st.caption("웹 푸시 구독 · 아침 브리핑/시세/백업 수동 실행")
+    page_hero("알림·작업", "웹 푸시 구독 · 아침 브리핑/시세/백업 수동 실행")
 
     user, client = require_auth()
     ensure_profile(user, client)
@@ -64,9 +66,9 @@ def main() -> None:
         sw_url = "/app/static/sw.js"
         html = f"""
 <!DOCTYPE html>
-<html><body style="font-family:sans-serif;padding:8px;">
-<button id="btn" style="width:100%;min-height:48px;font-size:16px;">알림 구독</button>
-<pre id="out" style="white-space:pre-wrap;font-size:12px;"></pre>
+<html><body style="font-family:Pretendard,sans-serif;padding:4px;margin:0;background:transparent;">
+<button id="btn" style="width:100%;min-height:48px;font-size:16px;font-weight:700;border:none;border-radius:14px;color:#fff;background:linear-gradient(180deg,#03C75A,#02B350);box-shadow:0 8px 20px rgba(3,199,90,.28);cursor:pointer;">알림 구독</button>
+<pre id="out" style="white-space:pre-wrap;font-size:12px;color:#6B7280;"></pre>
 <script>
 const vapidPublicKey = {json.dumps(VAPID_PUBLIC)};
 const accessToken = {json.dumps(access)};

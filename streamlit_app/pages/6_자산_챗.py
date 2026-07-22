@@ -19,18 +19,11 @@ from lib.wealth_context import (  # noqa: E402
     fetch_recent_chat_logs,
     logs_to_chat_turns,
 )
+from lib.theme import apply_theme, page_hero  # noqa: E402
 
-st.set_page_config(page_title="자산 챗", layout="wide")
 
-st.markdown(
-    """
-<style>
-  .block-container { padding-top: 1rem; max-width: 900px; }
-  div.stButton > button { width: 100%; min-height: 2.6rem; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+st.set_page_config(page_title="자산 챗", page_icon="💚", layout="wide")
+apply_theme(max_width=900)
 
 
 def _reload_context(client) -> None:
@@ -56,10 +49,9 @@ def _hydrate_from_logs(client) -> None:
 
 
 def main() -> None:
-    st.title("자산 챗")
-    st.caption(
-        "자산 DB + 이전 대화 로그를 함께 보고 맥락을 이어갑니다. "
-        "숫자는 최신 포트폴리오가 우선입니다."
+    page_hero(
+        "자산 챗",
+        "자산 DB + 이전 대화 로그를 함께 봅니다. 숫자는 최신 포트폴리오가 우선입니다.",
     )
 
     user, client = require_auth()

@@ -21,18 +21,11 @@ from lib.ui_ko import (  # noqa: E402
     localize_flow_df,
     rename_columns,
 )
+from lib.theme import apply_theme, page_hero  # noqa: E402
 
-st.set_page_config(page_title="자산 흐름", layout="wide")
 
-st.markdown(
-    """
-<style>
-  .block-container { padding-top: 1rem; max-width: 1100px; }
-  div.stButton > button { width: 100%; min-height: 2.6rem; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+st.set_page_config(page_title="자산 흐름", page_icon="💚", layout="wide")
+apply_theme(max_width=1100)
 
 CASH_INCOME_CATS = ["월급", "사업소득", "이자", "기타수입"]
 CASH_EXPENSE_CATS = ["생활비", "주거", "식비", "교통", "보험", "세금납부", "이체/저축", "기타지출"]
@@ -383,8 +376,7 @@ def tab_pnl(client) -> None:
 
 
 def main() -> None:
-    st.title("자산 흐름")
-    st.caption("매매 · 배당 · 현금흐름 · 부채 · 실현/평가손익 — 모든 자산 흐름 기록")
+    page_hero("자산 흐름", "매매 · 배당 · 현금흐름 · 부채 · 실현/평가손익")
 
     user, client = require_auth()
     ensure_profile(user, client)

@@ -19,25 +19,11 @@ from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.market_data import STALE_HOURS, fetch_usdkrw, is_stale, refresh_tickers  # noqa: E402
 from lib.supabase_client import get_service_client  # noqa: E402
 from lib.ui_ko import rename_columns  # noqa: E402
+from lib.theme import CHART_COLORS, CHART_LAYOUT, PRIMARY, apply_theme, page_hero  # noqa: E402
 
-st.set_page_config(page_title="대시보드", layout="wide")
 
-st.markdown(
-    """
-<style>
-  .block-container { padding-top: 1rem; max-width: 1100px; }
-  div.stButton > button { width: 100%; min-height: 2.8rem; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-CHART_LAYOUT = dict(
-    margin=dict(l=8, r=8, t=40, b=8),
-    height=320,
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-    hovermode="x unified",
-)
+st.set_page_config(page_title="대시보드", page_icon="💚", layout="wide")
+apply_theme(max_width=1100)
 
 
 def _fmt_money(v, currency="KRW") -> str:
@@ -111,8 +97,7 @@ def _load_daily_totals(client, days: int = 90) -> pd.DataFrame:
 
 
 def main() -> None:
-    st.title("대시보드")
-    st.caption("일별 자산 스냅샷 · 총자산/종목별 추이 · 특정일·특정종목 상세")
+    page_hero("대시보드", "일별 스냅샷 · 총자산/종목별 추이 · 특정일·종목 상세")
 
     user, client = require_auth()
     ensure_profile(user, client)
@@ -230,6 +215,7 @@ def main() -> None:
                 y=tdf["total_investment"],
                 name="투자자산",
                 mode="lines+markers",
+                line=dict(color=PRIMARY, width=3),
             )
         )
         fig_total.add_trace(
@@ -238,6 +224,7 @@ def main() -> None:
                 y=tdf["net_assets"],
                 name="순자산",
                 mode="lines+markers",
+                line=dict(color="#019C46", width=2.5),
             )
         )
         if "total_debt" in tdf.columns:
@@ -247,6 +234,7 @@ def main() -> None:
                     y=tdf["total_debt"],
                     name="부채",
                     mode="lines+markers",
+                    line=dict(color="#94A3B8", width=2, dash="dot"),
                 )
             )
         fig_total.update_layout(**CHART_LAYOUT, yaxis_title="평가액(원)", xaxis_title="날짜")
@@ -267,6 +255,7 @@ def main() -> None:
                 y="market_value_krw",
                 color="ticker",
                 markers=True,
+                color_discrete_sequence=CHART_COLORS,
                 labels={
                     "snapshot_date": "날짜",
                     "market_value_krw": "평가액(원)",
@@ -286,6 +275,7 @@ def main() -> None:
                 x="snapshot_date",
                 y="market_value_krw",
                 color="ticker",
+                color_discrete_sequence=CHART_COLORS,
                 labels={
                     "snapshot_date": "날짜",
                     "market_value_krw": "평가액(원)",
@@ -333,8 +323,14 @@ def main() -> None:
                     names="ticker",
                     values="market_value_krw",
                     title=f"{pick_date} 자산 구성",
+                    color_discrete_sequence=CHART_COLORS,
                 )
-                fig_pie.update_layout(margin=dict(l=8, r=8, t=40, b=8), height=340)
+                fig_pie.update_layout(
+                    margin=dict(l=8, r=8, t=40, b=8),
+                    height=340,
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font=dict(family="Pretendard, Noto Sans KR, sans-serif", color="#1A1A1A"),
+                )
                 st.plotly_chart(fig_pie, use_container_width=True, config={"responsive": True})
         else:
             row = day_df.iloc[0]

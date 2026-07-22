@@ -17,34 +17,19 @@ from lib.supabase_client import (  # noqa: E402
     ALLOWED_EMAILS,
     ConfigError,
     PUBLIC_APP_URL,
-    SUPABASE_URL,
     get_anon_client,
     is_email_allowed,
     upsert_app_user,
 )
+from lib.theme import apply_theme, page_hero, user_chip  # noqa: E402
 
 st.set_page_config(
     page_title="부부 자산 마스터",
-    page_icon="💰",
+    page_icon="💚",
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-# Mobile-friendly spacing / tap targets
-st.markdown(
-    """
-<style>
-  .block-container { padding-top: 1rem; padding-bottom: 2rem; max-width: 900px; }
-  div.stButton > button { width: 100%; min-height: 3rem; }
-  div.stLinkButton > a { width: 100%; min-height: 3rem; display:flex; align-items:center; justify-content:center; }
-  @media (max-width: 640px) {
-    h1 { font-size: 1.6rem !important; }
-    .block-container { padding-left: 1rem; padding-right: 1rem; }
-  }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+apply_theme(max_width=920)
 
 
 def _handle_oauth_callback() -> None:
@@ -118,12 +103,11 @@ def _ensure_allowed_and_profile() -> bool:
 
 
 def login_panel() -> None:
-    st.title("부부 자산 마스터")
-    st.caption("부부 공동 자산 관리")
-    st.write(
-        "Google 계정으로 로그인하세요. "
-        f"허용된 이메일만 접근할 수 있습니다 (허용 {len(ALLOWED_EMAILS)}명)."
+    page_hero(
+        "함께 모으는 우리의 자산",
+        "Google로 간편하게 로그인하고 부부 공동 자산을 관리하세요.",
     )
+    st.caption(f"허용된 이메일만 접근할 수 있습니다 (허용 {len(ALLOWED_EMAILS)}명).")
     st.info("한 번 로그인하면 브라우저에 로그인 상태가 유지됩니다 (최대 60일).")
 
     try:
@@ -186,25 +170,33 @@ def login_panel() -> None:
 def home() -> None:
     user = st.session_state.user
     app_user = st.session_state.app_user or {}
-    st.title("부부 자산 마스터")
-    st.success(f"**{app_user.get('display_name', user.email)}** 님으로 로그인됨 (`{user.email}`)")
+    name = app_user.get("display_name") or (user.email or "회원")
+
+    page_hero(
+        "오늘의 자산 한눈에",
+        "왼쪽 메뉴에서 업로드·대시보드·흐름·챗을 바로 시작하세요.",
+    )
+    user_chip(str(name), user.email or "")
 
     st.markdown(
         """
-### 메뉴 안내
-1. **OCR 업로드** — 잔고 스크린샷 → AI 파싱 → 스테이징(대기)
-2. **스테이징 검토** — 검토/수정 후 승인 → 보유·매매 반영
-3. **대시보드** — 시세·순자산·종목별 추이
-4. **세금 리포트** — 해외주식 양도세 추정 (기본공제 250만원 · 22%)
-5. **알림·작업** — 푸시 구독 · 브리핑/백업 수동 실행
-6. **자산 챗** — 내 자산 데이터 기준 AI 대화
-7. **자산 흐름** — 매매·배당·현금·부채·손익 기록
-
-왼쪽 사이드바에서 페이지를 선택하세요.
-"""
+<div class="np-section">
+  <h3>바로가기</h3>
+  <div class="np-menu-grid">
+    <div class="np-menu-item"><div class="np-menu-num">1</div><div class="np-menu-body"><strong>OCR 업로드</strong><span>잔고 스크린샷 → AI 파싱 → 스테이징</span></div></div>
+    <div class="np-menu-item"><div class="np-menu-num">2</div><div class="np-menu-body"><strong>스테이징 검토</strong><span>검토·수정 후 승인하면 보유·매매 반영</span></div></div>
+    <div class="np-menu-item"><div class="np-menu-num">3</div><div class="np-menu-body"><strong>대시보드</strong><span>시세·순자산·종목별 추이</span></div></div>
+    <div class="np-menu-item"><div class="np-menu-num">4</div><div class="np-menu-body"><strong>세금 리포트</strong><span>해외주식 양도세 추정 (기본공제 250만원)</span></div></div>
+    <div class="np-menu-item"><div class="np-menu-num">5</div><div class="np-menu-body"><strong>알림·작업</strong><span>푸시 구독 · 브리핑/백업 수동 실행</span></div></div>
+    <div class="np-menu-item"><div class="np-menu-num">6</div><div class="np-menu-body"><strong>자산 챗</strong><span>내 자산 데이터 기준 AI 대화</span></div></div>
+    <div class="np-menu-item"><div class="np-menu-num">7</div><div class="np-menu-body"><strong>자산 흐름</strong><span>매매·배당·현금·부채·손익 기록</span></div></div>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
     )
 
-    if st.button("로그아웃"):
+    if st.button("로그아웃", type="secondary"):
         logout_and_clear()
         st.rerun()
 
@@ -232,8 +224,6 @@ def _await_sid_cookie_if_needed() -> None:
     st.info("로그인 상태 저장 중… 잠시만 기다려 주세요.")
     if tries < 10:
         st.rerun()
-    # Give up planting cookie after retries; in-memory + server store still work
-    # until this Streamlit session ends.
     st.session_state._cwm_await_cookie = False
     st.warning(
         "브라우저 쿠키 저장이 지연되고 있습니다. "
