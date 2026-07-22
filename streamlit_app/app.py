@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from lib.auth import logout_and_clear, remember_login  # noqa: E402
+from lib.session_persist import ensure_persistent_login, persist_session_tokens  # noqa: E402
 from lib.supabase_client import (  # noqa: E402
     ALLOWED_EMAILS,
     ConfigError,
@@ -45,64 +47,31 @@ st.markdown(
 )
 
 
-def _init_session() -> None:
-    st.session_state.setdefault("access_token", None)
-    st.session_state.setdefault("refresh_token", None)
-    st.session_state.setdefault("user", None)
-    st.session_state.setdefault("app_user", None)
-
-
-def _logout() -> None:
-    try:
-        client = get_anon_client()
-        client.auth.sign_out()
-    except Exception:
-        pass
-    for key in ("access_token", "refresh_token", "user", "app_user"):
-        st.session_state[key] = None
-
-
 def _handle_oauth_callback() -> None:
     """Capture tokens from URL hash/query after Supabase Google redirect."""
     params = st.query_params
-    # PKCE / code flow
     code = params.get("code")
-    if code and not st.session_state.access_token:
+    if code and not st.session_state.get("access_token"):
         try:
             client = get_anon_client()
             session = client.auth.exchange_code_for_session({"auth_code": code})
             if session and session.session:
-                st.session_state.access_token = session.session.access_token
-                st.session_state.refresh_token = session.session.refresh_token
-                st.session_state.user = session.session.user
+                remember_login(
+                    session.session.access_token,
+                    session.session.refresh_token,
+                    session.session.user,
+                )
                 st.query_params.clear()
+                st.rerun()
         except Exception as exc:
             st.error(f"OAuth code exchange failed: {exc}")
 
-    # Implicit / hash-style params sometimes surfaced as query by hosts
     access = params.get("access_token")
     refresh = params.get("refresh_token")
-    if access and not st.session_state.access_token:
-        st.session_state.access_token = access
-        st.session_state.refresh_token = refresh
+    if access and not st.session_state.get("access_token"):
+        remember_login(access, refresh, None)
         st.query_params.clear()
-
-
-def _restore_user() -> None:
-    if st.session_state.user or not st.session_state.access_token:
-        return
-    try:
-        client = get_anon_client()
-        if st.session_state.refresh_token:
-            client.auth.set_session(
-                st.session_state.access_token,
-                st.session_state.refresh_token,
-            )
-        user_resp = client.auth.get_user(st.session_state.access_token)
-        st.session_state.user = user_resp.user
-    except Exception as exc:
-        st.warning(f"Session restore failed: {exc}")
-        _logout()
+        st.rerun()
 
 
 def _ensure_allowed_and_profile() -> bool:
@@ -116,7 +85,7 @@ def _ensure_allowed_and_profile() -> bool:
             "Only couple emails listed in ALLOWED_EMAILS may use this app."
         )
         if st.button("Sign out", key="denied_signout"):
-            _logout()
+            logout_and_clear()
             st.rerun()
         return False
 
@@ -128,8 +97,6 @@ def _ensure_allowed_and_profile() -> bool:
                 st.session_state.access_token,
                 st.session_state.refresh_token,
             )
-            # Prefers register_couple_user RPC (security definer + allow-list).
-            # Optional service-role fallback for broken RLS bootstraps.
             try:
                 st.session_state.app_user = upsert_app_user(client, user)
             except Exception:
@@ -143,6 +110,8 @@ def _ensure_allowed_and_profile() -> bool:
                 f"Ensure migrations are applied and keys are set. Details: {exc}"
             )
             return False
+    # Keep cookies in sync after successful session
+    persist_session_tokens()
     return True
 
 
@@ -153,6 +122,7 @@ def login_panel() -> None:
         "Google 계정으로 로그인하세요. "
         f"허용 이메일만 접근할 수 있습니다 ({len(ALLOWED_EMAILS)}명 allow-list)."
     )
+    st.info("한 번 로그인하면 브라우저에 로그인 상태가 유지됩니다 (최대 60일).")
 
     try:
         client = get_anon_client()
@@ -203,8 +173,7 @@ def login_panel() -> None:
             if not access:
                 st.error("access_token required")
             else:
-                st.session_state.access_token = access
-                st.session_state.refresh_token = refresh or None
+                remember_login(access, refresh or None, None)
                 st.rerun()
 
     st.caption(f"App URL: {PUBLIC_APP_URL} · Supabase: {SUPABASE_URL}")
@@ -231,16 +200,15 @@ def home() -> None:
     )
 
     if st.button("Sign out"):
-        _logout()
+        logout_and_clear()
         st.rerun()
 
 
 def main() -> None:
-    _init_session()
+    ensure_persistent_login()
     _handle_oauth_callback()
-    _restore_user()
 
-    if not st.session_state.access_token or not st.session_state.user:
+    if not st.session_state.get("access_token") or not st.session_state.get("user"):
         login_panel()
         return
 
@@ -253,6 +221,4 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 else:
-    # Streamlit multipage runs module as script without __main__ guard sometimes;
-    # always run main for pages entry via import side-effects avoided — call main().
     main()
