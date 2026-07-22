@@ -7,12 +7,12 @@ import os
 import re
 from typing import Any
 
-from dotenv import load_dotenv
+from lib.env_boot import env, hydrate_env
 
-load_dotenv()
+hydrate_env()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_API_KEY = env("GEMINI_API_KEY")
+GEMINI_MODEL = env("GEMINI_MODEL", "gemini-2.5-flash")
 
 OCR_PROMPT = """You are a financial OCR assistant for a Korean couple's portfolio tracker.
 Extract holdings, trades, and/or dividends from this brokerage/bank screenshot.

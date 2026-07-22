@@ -2,41 +2,36 @@
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from typing import Any
 
-from dotenv import load_dotenv
 from supabase import Client, create_client
 
-load_dotenv(override=False)
+from lib.env_boot import app_base_url, env, hydrate_env
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://lsqkixysysfhywipmrky.supabase.co").rstrip("/")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+hydrate_env()
+
+SUPABASE_URL = env("SUPABASE_URL", "https://lsqkixysysfhywipmrky.supabase.co").rstrip("/")
+SUPABASE_ANON_KEY = env("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_ROLE_KEY = env("SUPABASE_SERVICE_ROLE_KEY")
 ALLOWED_EMAILS = {
     e.strip().lower()
-    for e in os.getenv("ALLOWED_EMAILS", "").split(",")
+    for e in env("ALLOWED_EMAILS").split(",")
     if e.strip()
 }
 
 
 def get_public_app_url() -> str:
-    """Live Streamlit origin (tunnel). Prefer for asset absolute links."""
-    load_dotenv(override=True)
-    return os.getenv("PUBLIC_APP_URL", "http://localhost:8501").rstrip("/")
+    """Canonical public origin (production Streamlit URL or localhost)."""
+    return app_base_url()
 
 
 def get_stable_app_url() -> str:
-    """Stable entry/OAuth redirect (Supabase Edge gateway). Never a trycloudflare host."""
-    load_dotenv(override=True)
-    return os.getenv(
-        "STABLE_APP_URL",
-        "https://lsqkixysysfhywipmrky.supabase.co/functions/v1/app-gateway",
-    ).rstrip("/")
+    """OAuth redirect URL — same as public app URL in proper deployments."""
+    return app_base_url()
 
 
-# Back-compat for importers; prefer getters.
+# Back-compat for importers
 PUBLIC_APP_URL = get_public_app_url()
 STABLE_APP_URL = get_stable_app_url()
 
@@ -46,6 +41,16 @@ class ConfigError(RuntimeError):
 
 
 def require_env() -> None:
+    hydrate_env()
+    global SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, ALLOWED_EMAILS
+    SUPABASE_URL = env("SUPABASE_URL", "https://lsqkixysysfhywipmrky.supabase.co").rstrip("/")
+    SUPABASE_ANON_KEY = env("SUPABASE_ANON_KEY")
+    SUPABASE_SERVICE_ROLE_KEY = env("SUPABASE_SERVICE_ROLE_KEY")
+    ALLOWED_EMAILS = {
+        e.strip().lower()
+        for e in env("ALLOWED_EMAILS").split(",")
+        if e.strip()
+    }
     missing = []
     if not SUPABASE_URL:
         missing.append("SUPABASE_URL")
@@ -54,7 +59,7 @@ def require_env() -> None:
     if missing:
         raise ConfigError(
             "Missing required env vars: " + ", ".join(missing)
-            + ". Copy .env.example to .env and fill in secrets."
+            + ". Set Streamlit Cloud Secrets or copy .env.example to .env."
         )
 
 
@@ -70,7 +75,6 @@ def get_user_client(access_token: str, refresh_token: str | None = None) -> Clie
     if refresh_token:
         client.auth.set_session(access_token, refresh_token)
     else:
-        # Fallback: attach bearer for PostgREST/Storage calls
         client.postgrest.auth(access_token)
     return client
 
@@ -87,7 +91,6 @@ def is_email_allowed(email: str | None) -> bool:
     if not email:
         return False
     if not ALLOWED_EMAILS:
-        # Fail closed when allow-list is empty
         return False
     return email.strip().lower() in ALLOWED_EMAILS
 
@@ -103,11 +106,7 @@ def display_name_from_user(user: Any) -> str:
 
 
 def upsert_app_user(client: Client, user: Any) -> dict[str, Any]:
-    """Ensure public.users row exists for the authenticated auth.users id.
-
-    Prefers the security-definer RPC `register_couple_user` (allow-list enforced).
-    Falls back to direct upsert for older schemas.
-    """
+    """Ensure public.users row exists for the authenticated auth.users id."""
     display_name = display_name_from_user(user)
     try:
         result = client.rpc(

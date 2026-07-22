@@ -13,14 +13,16 @@ if str(ROOT) not in sys.path:
 
 from lib.auth import logout_and_clear, remember_login  # noqa: E402
 from lib.session_persist import ensure_persistent_login  # noqa: E402
+from lib.env_boot import app_base_url, hydrate_env  # noqa: E402
 from lib.supabase_client import (  # noqa: E402
     ConfigError,
     get_anon_client,
-    get_public_app_url,
     get_stable_app_url,
     is_email_allowed,
     upsert_app_user,
 )
+
+hydrate_env()
 from lib.theme import apply_theme, page_hero, user_chip  # noqa: E402
 
 st.set_page_config(
@@ -203,10 +205,15 @@ def render_menu_index(*, can_navigate: bool) -> None:
 
 def home_logged_out() -> None:
     page_hero("홈", "부부 공동 자산 관리 — 로그인 후 메뉴를 선택하세요.")
-    st.caption(
-        "고정 접속 주소(북마크용): "
-        f"{get_stable_app_url()}"
-    )
+    base = app_base_url()
+    if "trycloudflare.com" in base or "pinggy" in base or "app-gateway" in base or "localhost" in base:
+        st.warning(
+            "지금은 임시 환경입니다. 모바일에서 안정적으로 쓰려면 "
+            "**Streamlit Community Cloud**에 배포해 고정 주소(`*.streamlit.app`)를 쓰세요. "
+            "방법은 저장소의 `DEPLOY.md`를 참고하세요."
+        )
+    else:
+        st.caption(f"접속 주소: {base}")
     render_auth_above_menu(logged_in=False)
     render_menu_index(can_navigate=False)
 

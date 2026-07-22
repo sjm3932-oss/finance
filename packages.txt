@@ -1,0 +1,2 @@
+# Streamlit Community Cloud — optional apt packages
+# (Pillow wheels usually suffice; keep empty unless build fails)

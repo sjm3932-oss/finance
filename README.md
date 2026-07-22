@@ -4,6 +4,9 @@
 
 **Supabase:** https://lsqkixysysfhywipmrky.supabase.co
 
+> **모바일/실사용 배포:** 임시 터널(Cloudflare/Pinggy)은 쓰지 마세요.  
+> 고정 URL이 필요합니다 → [`DEPLOY.md`](./DEPLOY.md) (Streamlit Community Cloud).
+
 ## MVP 범위 (기획서 1~4단계)
 
 1. PostgreSQL 스키마 + RLS + OCR 커밋 트리거
