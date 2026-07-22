@@ -61,6 +61,8 @@ def _handle_oauth_callback() -> None:
                     session.session.refresh_token,
                     session.session.user,
                 )
+                st.session_state._cwm_await_cookie = True
+                st.session_state._cwm_cookie_tries = 0
                 st.query_params.clear()
                 st.rerun()
         except Exception as exc:
@@ -70,6 +72,8 @@ def _handle_oauth_callback() -> None:
     refresh = params.get("refresh_token")
     if access and not st.session_state.get("access_token"):
         remember_login(access, refresh, None)
+        st.session_state._cwm_await_cookie = True
+        st.session_state._cwm_cookie_tries = 0
         st.query_params.clear()
         st.rerun()
 
@@ -172,6 +176,8 @@ def login_panel() -> None:
                 st.error("액세스 토큰이 필요합니다")
             else:
                 remember_login(access, refresh or None, None)
+                st.session_state._cwm_await_cookie = True
+                st.session_state._cwm_cookie_tries = 0
                 st.rerun()
 
     st.caption(f"앱 주소: {PUBLIC_APP_URL}")
@@ -203,9 +209,43 @@ def home() -> None:
         st.rerun()
 
 
+def _await_sid_cookie_if_needed() -> None:
+    """After login, keep rewriting the short sid cookie until the browser has it."""
+    if not st.session_state.get("_cwm_await_cookie"):
+        return
+    sid = st.session_state.get("cwm_sid")
+    if not sid or not st.session_state.get("access_token"):
+        st.session_state._cwm_await_cookie = False
+        return
+
+    from lib.session_persist import read_sid_cookie, write_sid_cookie
+
+    if read_sid_cookie() == sid:
+        st.session_state._cwm_await_cookie = False
+        st.session_state._cwm_cookie_tries = 0
+        return
+
+    st.session_state._cwm_force_cookie_write = True
+    write_sid_cookie(sid)
+    tries = int(st.session_state.get("_cwm_cookie_tries") or 0) + 1
+    st.session_state._cwm_cookie_tries = tries
+    st.info("로그인 상태 저장 중… 잠시만 기다려 주세요.")
+    if tries < 10:
+        st.rerun()
+    # Give up planting cookie after retries; in-memory + server store still work
+    # until this Streamlit session ends.
+    st.session_state._cwm_await_cookie = False
+    st.warning(
+        "브라우저 쿠키 저장이 지연되고 있습니다. "
+        "이 탭에서는 유지되지만, 새로고침 후에도 유지되지 않으면 "
+        "브라우저 쿠키를 허용한 뒤 다시 로그인해 주세요."
+    )
+
+
 def main() -> None:
     ensure_persistent_login()
     _handle_oauth_callback()
+    _await_sid_cookie_if_needed()
 
     if not st.session_state.get("access_token") or not st.session_state.get("user"):
         login_panel()

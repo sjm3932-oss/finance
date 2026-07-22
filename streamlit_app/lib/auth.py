@@ -54,7 +54,16 @@ def logout_and_clear() -> None:
         get_anon_client().auth.sign_out()
     except Exception:
         pass
-    for key in ("access_token", "refresh_token", "user", "app_user"):
+    try:
+        from lib import session_store
+        from lib.session_persist import read_sid_cookie
+
+        sid = st.session_state.get("cwm_sid") or read_sid_cookie()
+        if sid:
+            session_store.delete_tokens(sid)
+    except Exception:
+        pass
+    for key in ("access_token", "refresh_token", "user", "app_user", "cwm_sid", "_cwm_auth_fatal"):
         st.session_state[key] = None
     try:
         clear_auth_cookies()
@@ -65,6 +74,8 @@ def logout_and_clear() -> None:
 def remember_login(access_token: str, refresh_token: str | None, user=None) -> None:
     st.session_state.access_token = access_token
     st.session_state.refresh_token = refresh_token
+    st.session_state._cwm_auth_fatal = None
+    st.session_state._cwm_force_cookie_write = True
     if user is not None:
         st.session_state.user = user
     persist_session_tokens()
