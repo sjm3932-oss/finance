@@ -17,6 +17,7 @@ from lib.supabase_client import (  # noqa: E402
     ConfigError,
     get_anon_client,
     get_public_app_url,
+    get_stable_app_url,
     is_email_allowed,
     upsert_app_user,
 )
@@ -134,7 +135,8 @@ def _ensure_allowed_and_profile() -> bool:
 def _oauth_login_url() -> str | None:
     try:
         client = get_anon_client()
-        redirect_to = get_public_app_url()
+        # OAuth must return to the stable gateway — never a rotating trycloudflare host.
+        redirect_to = get_stable_app_url()
         result = client.auth.sign_in_with_oauth(
             {
                 "provider": "google",
@@ -201,6 +203,10 @@ def render_menu_index(*, can_navigate: bool) -> None:
 
 def home_logged_out() -> None:
     page_hero("홈", "부부 공동 자산 관리 — 로그인 후 메뉴를 선택하세요.")
+    st.caption(
+        "고정 접속 주소(북마크용): "
+        f"{get_stable_app_url()}"
+    )
     render_auth_above_menu(logged_in=False)
     render_menu_index(can_navigate=False)
 

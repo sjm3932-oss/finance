@@ -22,13 +22,23 @@ ALLOWED_EMAILS = {
 
 
 def get_public_app_url() -> str:
-    """Live app URL for OAuth redirect (re-reads .env so tunnel swaps apply)."""
+    """Live Streamlit origin (tunnel). Prefer for asset absolute links."""
     load_dotenv(override=True)
     return os.getenv("PUBLIC_APP_URL", "http://localhost:8501").rstrip("/")
 
 
-# Back-compat for importers; prefer get_public_app_url() for OAuth.
+def get_stable_app_url() -> str:
+    """Stable entry/OAuth redirect (Supabase Edge gateway). Never a trycloudflare host."""
+    load_dotenv(override=True)
+    return os.getenv(
+        "STABLE_APP_URL",
+        "https://lsqkixysysfhywipmrky.supabase.co/functions/v1/app-gateway",
+    ).rstrip("/")
+
+
+# Back-compat for importers; prefer getters.
 PUBLIC_APP_URL = get_public_app_url()
+STABLE_APP_URL = get_stable_app_url()
 
 
 class ConfigError(RuntimeError):

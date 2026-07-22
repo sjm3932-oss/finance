@@ -26,3 +26,7 @@ additional_redirect_urls = ["http://localhost:8501"]
 [storage]
 enabled = true
 file_size_limit = "50MiB"
+
+[functions.app-gateway]
+verify_jwt = false
+
