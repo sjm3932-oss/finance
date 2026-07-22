@@ -370,71 +370,46 @@ def _table_by_ticker(df: pd.DataFrame, value_col: str, *, use_krw: bool) -> None
         if c == "종목":
             continue
         disp[c] = disp[c].map(lambda v: _fmt(float(v), use_krw=use_krw))
-    st.markdown("##### 종목별 상세")
     st.dataframe(disp, use_container_width=True, hide_index=True)
 
 
 def render_total_realized_pnl(client, *, compact: bool = False) -> None:
-    """Monthly realized P&L with period buttons and kind/ticker breakdown."""
+    """손익: KPI + 월별 종류 stacked 차트 1개 + 종목 표 1개."""
     df_all = load_total_realized(client)
     if df_all.empty:
-        st.info(
-            "실현손익 데이터가 없습니다. 매도·배당·이자(현금수입/부채이자)가 쌓이면 여기에 합산됩니다."
-        )
+        st.info("실현손익 데이터가 없습니다. 매도·배당·이자가 쌓이면 여기에 표시됩니다.")
         return
 
     value_col, unit, use_krw, rate = _value_setup(df_all, client)
-
     if use_krw and rate:
-        st.caption(f"환율 {rate:,.2f}원 환산 · 월별 집계 · 기간 버튼으로 조회")
+        st.caption(f"환율 {rate:,.2f}원 환산 · 월별")
     elif (df_all["currency"] == "USD").any() and not use_krw:
-        st.caption("환율 없음 · 통화별 단순합 · 월별 집계")
-    else:
-        st.caption("월별 집계 · 기간 버튼으로 조회")
+        st.caption("환율 없음 · 통화별 단순합 · 월별")
 
-    # —— compact (overview / asset flows) ——
-    if compact:
-        months = period_radio(key="realized_pnl_period_compact", default="1년")
-        df = filter_by_period(df_all, months)
-        if df.empty:
-            st.info("선택한 기간에 실현손익이 없습니다.")
-            return
-        _kpi_row(df, value_col, unit, use_krw=use_krw)
-        monthly = _monthly_totals(df, value_col)
-        left, right = st.columns(2, gap="small")
-        with left:
-            _chart_cumulative_total(monthly, value_col, unit, height=240)
-        with right:
-            _chart_period_change(monthly, value_col, unit, height=240)
-        return
+    key = "realized_pnl_period_compact" if compact else "dash_period_pnl"
+    months = period_radio(key=key, default="1년")
 
-    # —— full view: filters in one row, content in tabs ——
-    f1, f2, f3 = st.columns([1.4, 1, 1], gap="small")
-    with f1:
-        months = period_radio(key="realized_pnl_period", default="1년")
-    with f2:
-        scope = st.radio(
-            "보기",
-            options=["전체", "종목"],
-            horizontal=True,
-            key="realized_pnl_scope",
-        )
     tickers = _ticker_options(df_all)
     selected_ticker: str | None = None
-    with f3:
+    if not compact:
+        c1, c2 = st.columns([1.2, 1], gap="small")
+        with c1:
+            scope = st.radio("범위", ["전체", "종목"], horizontal=True, key="realized_pnl_scope")
+        with c2:
+            if scope == "종목":
+                if not tickers:
+                    st.warning("종목별 실현 기록이 없습니다.")
+                    return
+                selected_ticker = st.selectbox("종목", tickers, key="realized_pnl_ticker")
+            else:
+                st.write("")
         if scope == "종목":
-            if not tickers:
-                st.warning("종목 기록 없음")
-                return
-            selected_ticker = st.selectbox("종목", tickers, key="realized_pnl_ticker", label_visibility="collapsed")
+            scoped = df_all[
+                (df_all["asset_ref"] == selected_ticker)
+                & (df_all["pnl_kind"].isin(["trade_realized", "dividend"]))
+            ].copy()
         else:
-            st.caption("전체 합산")
-
-    if scope == "종목":
-        scoped = df_all[
-            (df_all["asset_ref"] == selected_ticker)
-            & (df_all["pnl_kind"].isin(["trade_realized", "dividend"]))
-        ].copy()
+            scoped = df_all
     else:
         scoped = df_all
 
@@ -444,62 +419,20 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
         return
 
     _kpi_row(df, value_col, unit, use_krw=use_krw)
-    monthly = _monthly_totals(df, value_col)
 
-    tab_trend, tab_kind, tab_ticker = st.tabs(["증감·누적", "종류 구분", "종목별"])
-    with tab_trend:
-        c1, c2 = st.columns(2, gap="small")
-        with c1:
-            _chart_cumulative_total(monthly, value_col, unit, height=280)
-        with c2:
-            _chart_period_change(monthly, value_col, unit, height=280)
+    # Single chart: monthly stacked by kind
+    _chart_monthly_by_kind(df, value_col, unit, height=280 if not compact else 240)
 
-    with tab_kind:
-        k1, k2 = st.columns(2, gap="small")
-        with k1:
-            _chart_cumulative_by_kind(df, value_col, unit, height=280)
-        with k2:
-            _chart_monthly_by_kind(df, value_col, unit, height=280)
-
-    with tab_ticker:
-        if scope == "전체":
-            t1, t2 = st.columns(2, gap="small")
-            with t1:
-                _chart_by_ticker(df, value_col, unit, use_krw=use_krw, height=280)
-            with t2:
-                _chart_ticker_by_kind(df, value_col, unit, height=280)
-            _table_by_ticker(df, value_col, use_krw=use_krw)
-        else:
-            by_kind = (
-                df.groupby("pnl_kind_ko", as_index=False)[value_col]
-                .sum()
-                .rename(columns={value_col: "합계"})
-            )
-            kinds = [k for k in KIND_ORDER if k in set(by_kind["pnl_kind_ko"])]
-            cmap = _kind_color_map(kinds)
-            left, right = st.columns([1, 1.1], gap="small")
-            with left:
-                fig = go.Figure(
-                    go.Bar(
-                        x=by_kind["pnl_kind_ko"],
-                        y=by_kind["합계"],
-                        marker_color=[cmap.get(k, PRIMARY) for k in by_kind["pnl_kind_ko"]],
-                        text=[_fmt(v, use_krw=use_krw) for v in by_kind["합계"]],
-                        textposition="auto",
-                    )
-                )
-                apply_chart_layout(
-                    fig,
-                    260,
-                    title=f"{selected_ticker} · 종류별",
-                    yaxis_title=unit,
-                    xaxis_title="",
-                    showlegend=False,
-                )
-                show_plotly(fig)
-            with right:
-                st.dataframe(
-                    by_kind.rename(columns={"pnl_kind_ko": "구분"}),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+    # Single table: by ticker (or kind when single ticker)
+    if selected_ticker:
+        by_kind = (
+            df.groupby("pnl_kind_ko", as_index=False)[value_col]
+            .sum()
+            .rename(columns={"pnl_kind_ko": "구분", value_col: "합계"})
+            .sort_values("합계", ascending=False)
+        )
+        disp = by_kind.copy()
+        disp["합계"] = disp["합계"].map(lambda v: _fmt(float(v), use_krw=use_krw))
+        st.dataframe(disp, use_container_width=True, hide_index=True)
+    else:
+        _table_by_ticker(df, value_col, use_krw=use_krw)

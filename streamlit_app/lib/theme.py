@@ -463,6 +463,52 @@ div[data-testid="stVerticalBlockBorderWrapper"] {{
   font-size: 0.72rem;
   margin-bottom: 0.1rem;
 }}
+.np-hold-list {{
+  background: #fff;
+  border: 1px solid var(--np-line);
+  border-radius: 16px;
+  overflow: hidden;
+  margin: 0.35rem 0 0.75rem;
+}}
+.np-hold-row {{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--np-line);
+}}
+.np-hold-row:last-child {{ border-bottom: none; }}
+.np-hold-left {{ min-width: 0; }}
+.np-hold-ticker {{
+  font-weight: 800;
+  font-size: 0.98rem;
+  letter-spacing: -0.03em;
+  color: var(--np-ink);
+}}
+.np-hold-meta {{
+  color: var(--np-muted);
+  font-size: 0.78rem;
+  margin-top: 0.12rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}}
+.np-hold-right {{ text-align: right; flex-shrink: 0; }}
+.np-hold-value {{
+  font-weight: 800;
+  font-size: 0.98rem;
+  letter-spacing: -0.03em;
+}}
+.np-hold-ret {{
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-top: 0.1rem;
+}}
+.np-hold-ret.up {{ color: #E11D48; }}
+.np-hold-ret.down {{ color: #2563EB; }}
+.np-hold-ret.flat {{ color: var(--np-muted); }}
+
 .np-networth {{
   background: #fff;
   border: 1px solid var(--np-line);

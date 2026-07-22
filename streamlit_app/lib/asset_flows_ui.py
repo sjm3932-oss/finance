@@ -1,4 +1,4 @@
-"""Asset-flow charts + compact entry forms (used inside Dashboard)."""
+"""Ledger / transaction view (거래) — no realized-PnL charts (those live under 손익)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from datetime import date
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 
 from lib.chart_period import filter_by_period, period_radio
@@ -35,7 +34,7 @@ def _fmt(n, ccy="KRW"):
     return f"${v:,.2f}" if ccy == "USD" else f"₩{v:,.0f}"
 
 
-def _load_flows(client, limit: int = 400) -> pd.DataFrame:
+def _load_flows(client, limit: int = 500) -> pd.DataFrame:
     rows = (
         client.table("v_asset_flows")
         .select("*")
@@ -50,193 +49,87 @@ def _load_flows(client, limit: int = 400) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df["event_date"] = pd.to_datetime(df["event_date"], errors="coerce")
     df["amount"] = pd.to_numeric(df.get("amount"), errors="coerce")
-    df["realized_pnl"] = pd.to_numeric(df.get("realized_pnl"), errors="coerce")
-    df["flow_kind_ko"] = df["flow_kind"].map(lambda x: FLOW_KIND_KO.get(x, x) if isinstance(x, str) else x)
+    df["flow_kind_ko"] = df["flow_kind"].map(
+        lambda x: FLOW_KIND_KO.get(x, x) if isinstance(x, str) else x
+    )
     return df
 
 
 def render_flow_charts(client) -> None:
-    """Chart-first overview of trades / dividends / cash / debt / PnL."""
-    from lib.realized_pnl_ui import render_total_realized_pnl
-
-    st.markdown("##### 실현손익 합산")
-    render_total_realized_pnl(client, compact=True)
-    st.divider()
-
-    months = period_radio(key="asset_flow_chart_period", default="1년")
+    """거래 원장: 기간 KPI + 월별 막대 1개 + 타임라인 표 (손익 차트 없음)."""
+    months = period_radio(key="dash_period_trades", default="1년")
     df = filter_by_period(_load_flows(client), months, date_col="event_date")
-    realized = client.table("v_realized_pnl").select("*").execute().data or []
-    unrealized = client.table("v_unrealized_pnl").select("*").execute().data or []
-
-    if df.empty and not realized and not unrealized:
-        st.info("아직 자산 흐름 기록이 없습니다. 「기록하기」에서 입력하세요.")
-        return
 
     if df.empty:
-        st.info("선택한 기간에 자산 흐름 기록이 없습니다.")
-        # Still show unrealized (current) below
+        st.info("선택한 기간에 거래 기록이 없습니다. 「입력」에서 등록하세요.")
+        return
+
+    trade_n = int((df["flow_kind"] == "trade").sum())
+    div_sum = float(df.loc[df["flow_kind"] == "dividend", "amount"].sum() or 0)
+    subtype = df.get("flow_subtype")
+    if subtype is not None:
+        sub = subtype.astype(str)
+        cash_in = float(
+            df.loc[(df["flow_kind"] == "cash_flow") & sub.str.startswith("income"), "amount"].sum()
+            or 0
+        )
+        cash_out = float(
+            df.loc[(df["flow_kind"] == "cash_flow") & sub.str.startswith("expense"), "amount"].sum()
+            or 0
+        )
     else:
-        trade_n = int((df["flow_kind"] == "trade").sum())
-        div_sum = float(df.loc[df["flow_kind"] == "dividend", "amount"].sum() or 0)
-        subtype = df.get("flow_subtype")
-        if subtype is not None:
-            sub = subtype.astype(str)
-            cash_in = float(
-                df.loc[(df["flow_kind"] == "cash_flow") & sub.str.startswith("income"), "amount"].sum() or 0
-            )
-            cash_out = float(
-                df.loc[(df["flow_kind"] == "cash_flow") & sub.str.startswith("expense"), "amount"].sum() or 0
-            )
-        else:
-            cash_in = cash_out = 0.0
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("매매 건수", f"{trade_n:,}")
-        k2.metric("배당 합계", _fmt(div_sum, "USD") if div_sum else "—")
-        k3.metric("현금 수입", _fmt(cash_in, "KRW") if cash_in else "—")
-        k4.metric("현금 지출", _fmt(cash_out, "KRW") if cash_out else "—")
+        cash_in = cash_out = 0.0
 
-    if not df.empty:
-        tab_flow, tab_money, tab_pnl = st.tabs(["흐름 구성", "금액·거래", "손익"])
-        with tab_flow:
-            c1, c2 = st.columns(2, gap="small")
-            with c1:
-                kind_counts = (
-                    df.dropna(subset=["flow_kind_ko"])
-                    .groupby("flow_kind_ko", as_index=False)
-                    .size()
-                    .rename(columns={"size": "건수"})
-                )
-                if not kind_counts.empty:
-                    fig = px.pie(
-                        kind_counts,
-                        names="flow_kind_ko",
-                        values="건수",
-                        color_discrete_sequence=CHART_COLORS,
-                        hole=0.5,
-                    )
-                    fig.update_layout(**chart_layout(240, with_title=True), title="흐름 구성")
-                    show_plotly(fig)
-            with c2:
-                tmp = df.dropna(subset=["event_date"]).copy()
-                if not tmp.empty:
-                    tmp["월"] = tmp["event_date"].dt.to_period("M").astype(str)
-                    monthly = (
-                        tmp.groupby(["월", "flow_kind_ko"], as_index=False)
-                        .size()
-                        .rename(columns={"size": "건수"})
-                    )
-                    fig = px.bar(
-                        monthly,
-                        x="월",
-                        y="건수",
-                        color="flow_kind_ko",
-                        color_discrete_sequence=CHART_COLORS,
-                        barmode="stack",
-                    )
-                    fig.update_layout(**chart_layout(240, with_title=True), title="월별 활동", legend_title_text="")
-                    show_plotly(fig)
+    k1, k2, k3, k4 = st.columns(4, gap="small")
+    k1.metric("매매 건수", f"{trade_n:,}")
+    k2.metric("배당 합계", _fmt(div_sum, "USD") if div_sum else "—")
+    k3.metric("현금 수입", _fmt(cash_in, "KRW") if cash_in else "—")
+    k4.metric("현금 지출", _fmt(cash_out, "KRW") if cash_out else "—")
 
-        with tab_money:
-            money = df[df["flow_kind"].isin(["dividend", "cash_flow", "debt"])].dropna(
-                subset=["event_date", "amount"]
-            )
-            trades = df[df["flow_kind"] == "trade"].dropna(subset=["asset_ref", "amount"])
-            m1, m2 = st.columns(2, gap="small")
-            with m1:
-                if not money.empty:
-                    money = money.sort_values("event_date")
-                    money["종류"] = money["flow_kind_ko"]
-                    fig = px.bar(
-                        money,
-                        x="event_date",
-                        y="amount",
-                        color="종류",
-                        color_discrete_sequence=CHART_COLORS,
-                        labels={"event_date": "일자", "amount": "금액"},
-                    )
-                    fig.update_layout(**chart_layout(260, with_title=True), title="입출금·배당·부채")
-                    show_plotly(fig)
-                else:
-                    st.info("금액 흐름이 없습니다.")
-            with m2:
-                if not trades.empty:
-                    by_ticker = (
-                        trades.groupby("asset_ref", as_index=False)["amount"]
-                        .sum()
-                        .sort_values("amount", ascending=False)
-                        .head(12)
-                    )
-                    fig = px.bar(
-                        by_ticker,
-                        x="asset_ref",
-                        y="amount",
-                        color_discrete_sequence=[PRIMARY],
-                        labels={"asset_ref": "티커", "amount": "거래대금"},
-                    )
-                    fig.update_layout(**chart_layout(260, with_title=True), title="종목별 거래대금")
-                    show_plotly(fig)
-                else:
-                    st.info("매매 기록이 없습니다.")
+    kinds = ["전체"] + sorted(
+        [k for k in df["flow_kind_ko"].dropna().astype(str).unique().tolist() if k]
+    )
+    kind = st.radio("종류", kinds, horizontal=True, key="trade_kind_filter")
+    view = df if kind == "전체" else df[df["flow_kind_ko"] == kind]
 
-        with tab_pnl:
-            p1, p2 = st.columns(2, gap="small")
-            with p1:
-                if realized:
-                    rdf = pd.DataFrame(realized)
-                    rdf["realized_pnl"] = pd.to_numeric(rdf.get("realized_pnl"), errors="coerce")
-                    if "ticker" in rdf.columns:
-                        g = rdf.groupby("ticker", as_index=False)["realized_pnl"].sum().sort_values("realized_pnl")
-                        fig = go.Figure(
-                            go.Bar(
-                                x=g["realized_pnl"],
-                                y=g["ticker"],
-                                orientation="h",
-                                marker_color=[PRIMARY if v >= 0 else "#FF6B6B" for v in g["realized_pnl"]],
-                            )
-                        )
-                        fig.update_layout(**chart_layout(260, with_title=True), title="실현손익 (종목)", xaxis_title="손익")
-                        show_plotly(fig)
-                    total = rdf["realized_pnl"].sum()
-                    st.caption(f"실현손익 합계: {total:,.2f}")
-                else:
-                    st.info("실현손익 데이터가 없습니다.")
-            with p2:
-                if unrealized:
-                    udf = pd.DataFrame(unrealized)
-                    udf["unrealized_pnl"] = pd.to_numeric(udf.get("unrealized_pnl"), errors="coerce")
-                    if "ticker" in udf.columns:
-                        g = udf.groupby("ticker", as_index=False)["unrealized_pnl"].sum().sort_values("unrealized_pnl")
-                        fig = go.Figure(
-                            go.Bar(
-                                x=g["unrealized_pnl"],
-                                y=g["ticker"],
-                                orientation="h",
-                                marker_color=[PRIMARY if v >= 0 else "#FF6B6B" for v in g["unrealized_pnl"]],
-                            )
-                        )
-                        fig.update_layout(**chart_layout(260, with_title=True), title="평가손익 (종목)", xaxis_title="손익")
-                        show_plotly(fig)
-                    total = udf["unrealized_pnl"].sum()
-                    st.caption(f"평가손익 합계: {total:,.2f}")
-                else:
-                    st.info("평가손익 데이터가 없습니다.")
-    else:
-        # no period flows — still show unrealized if any
-        if unrealized:
-            udf = pd.DataFrame(unrealized)
-            udf["unrealized_pnl"] = pd.to_numeric(udf.get("unrealized_pnl"), errors="coerce")
-            if "ticker" in udf.columns:
-                g = udf.groupby("ticker", as_index=False)["unrealized_pnl"].sum().sort_values("unrealized_pnl")
-                fig = go.Figure(
-                    go.Bar(
-                        x=g["unrealized_pnl"],
-                        y=g["ticker"],
-                        orientation="h",
-                        marker_color=[PRIMARY if v >= 0 else "#FF6B6B" for v in g["unrealized_pnl"]],
-                    )
-                )
-                fig.update_layout(**chart_layout(260, with_title=True), title="평가손익 (종목)", xaxis_title="손익")
-                show_plotly(fig)
+    # One monthly activity chart
+    tmp = view.dropna(subset=["event_date"]).copy()
+    if not tmp.empty:
+        tmp["월"] = tmp["event_date"].dt.to_period("M").astype(str)
+        monthly = (
+            tmp.groupby(["월", "flow_kind_ko"], as_index=False)
+            .size()
+            .rename(columns={"size": "건수"})
+        )
+        fig = px.bar(
+            monthly,
+            x="월",
+            y="건수",
+            color="flow_kind_ko",
+            color_discrete_sequence=CHART_COLORS,
+            barmode="stack",
+            labels={"flow_kind_ko": "종류"},
+        )
+        fig.update_layout(**chart_layout(240, with_title=True), title="월별 거래 건수", legend_title_text="")
+        show_plotly(fig)
+
+    # Timeline table (Toss-like ledger, not raw dump of every column)
+    rows = view.sort_values("event_date", ascending=False).copy()
+    display = pd.DataFrame(
+        {
+            "일자": rows["event_date"].dt.strftime("%Y-%m-%d"),
+            "종류": rows["flow_kind_ko"],
+            "종목/항목": rows.get("asset_ref", pd.Series([""] * len(rows))).fillna(""),
+            "금액": rows["amount"],
+            "통화": rows.get("currency", pd.Series(["KRW"] * len(rows))).fillna(""),
+            "메모": rows.get("memo", pd.Series([""] * len(rows))).fillna("")
+            if "memo" in rows.columns
+            else "",
+        }
+    )
+    st.caption(f"{len(display):,}건")
+    st.dataframe(display, use_container_width=True, hide_index=True, height=420)
+
 
 def _ocr_block(client, user, accounts, *, doc_type: str, key_prefix: str, label: str) -> None:
     """OCR upload block that stages to ocr_staging for later review/approve."""

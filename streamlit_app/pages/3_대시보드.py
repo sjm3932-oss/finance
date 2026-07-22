@@ -35,7 +35,7 @@ from lib.theme import (  # noqa: E402
 st.set_page_config(page_title="대시보드", page_icon="💚", layout="wide")
 apply_theme(max_width=1280)
 
-VIEWS = ["한눈에", "종목", "실현손익", "자산 흐름", "기록하기"]
+VIEWS = ["홈", "보유", "손익", "거래", "입력"]
 
 
 def _fmt_money(v, currency="KRW") -> str:
@@ -234,7 +234,62 @@ def _toolbar(client, tickers: list[str]) -> None:
         st.caption(f"시세 {STALE_HOURS:.0f}시간 초과 시 「시세 지연」")
 
 
-def view_overview(client, live_rows, total_usd, total_krw, total_debt, any_stale) -> None:
+def _html_escape(s: str) -> str:
+    return (
+        str(s)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _fmt_qty(q) -> str:
+    if q is None:
+        return "—"
+    try:
+        n = float(q)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{n:,.4f}".rstrip("0").rstrip(".")
+
+
+def _holding_rows_html(items: list[dict]) -> str:
+    """Toss-style holding list (not a raw DB table)."""
+    parts = ['<div class="np-hold-list">']
+    for it in items:
+        ticker = _html_escape(it.get("ticker") or "")
+        name = _html_escape(it.get("name") or it.get("ticker") or "")
+        meta = _html_escape(it.get("meta") or "")
+        value = _html_escape(it.get("value_label") or "—")
+        ret = it.get("return_%")
+        if ret is None:
+            ret_cls, ret_txt = "flat", "—"
+        elif ret > 0.05:
+            ret_cls, ret_txt = "up", f"+{ret:.2f}%"
+        elif ret < -0.05:
+            ret_cls, ret_txt = "down", f"{ret:.2f}%"
+        else:
+            ret_cls, ret_txt = "flat", f"{ret:.2f}%"
+        meta_bit = f" · {meta}" if meta else ""
+        parts.append(
+            '<div class="np-hold-row">'
+            '<div class="np-hold-left">'
+            f'<div class="np-hold-ticker">{ticker}</div>'
+            f'<div class="np-hold-meta">{name}{meta_bit}</div>'
+            "</div>"
+            '<div class="np-hold-right">'
+            f'<div class="np-hold-value">{value}</div>'
+            f'<div class="np-hold-ret {ret_cls}">{ret_txt}</div>'
+            "</div>"
+            "</div>"
+        )
+    parts.append("</div>")
+    return "\n".join(parts)
+
+
+def view_home(client, live_rows, total_usd, total_krw, total_debt, any_stale) -> None:
+    """홈: 순자산 + 추이 1개 + 상위 보유 리스트."""
     net_krw = (total_krw - total_debt) if total_krw else None
     networth_banner(
         "추정 순자산",
@@ -246,380 +301,166 @@ def view_overview(client, live_rows, total_usd, total_krw, total_debt, any_stale
     m2.metric("투자자산 (원)", _fmt_money(total_krw, "KRW") if total_krw else "—")
     m3.metric("부채", _fmt_money(total_debt, "KRW"))
     if any_stale:
-        st.warning("일부 시세가 지연되었습니다.")
+        st.caption("일부 시세가 지연되었습니다. 상단에서 시세를 새로고침하세요.")
 
-    tab_asset, tab_pnl, tab_ret = st.tabs(["자산 추이", "실현손익", "수익률"])
-
-    with tab_asset:
-        f1, f2 = st.columns([2, 1], gap="small")
-        with f1:
-            months = period_radio(key="overview_chart_period", default="1년")
-        with f2:
-            st.caption("드래그 줌 없음 · 기간 버튼으로 조회")
-        tdf = filter_by_period(_load_daily_totals(client), months, date_col="snapshot_date")
-        hdf = filter_by_period(_load_holding_snaps(client), months, date_col="snapshot_date")
-
-        left, right = st.columns([1.35, 1], gap="small")
-        with left:
-            if tdf.empty:
-                st.info("선택한 기간에 스냅샷이 없습니다.")
-            else:
-                fig = go.Figure()
-                fig.add_trace(
-                    go.Scatter(
-                        x=tdf["snapshot_date"],
-                        y=tdf["total_investment"],
-                        name="투자자산",
-                        mode="lines",
-                        line=dict(color=PRIMARY, width=2.5),
-                    )
-                )
-                fig.add_trace(
-                    go.Scatter(
-                        x=tdf["snapshot_date"],
-                        y=tdf["net_assets"],
-                        name="순자산",
-                        mode="lines",
-                        line=dict(color="#019C46", width=2),
-                    )
-                )
-                if "total_debt" in tdf.columns:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=tdf["snapshot_date"],
-                            y=tdf["total_debt"],
-                            name="부채",
-                            mode="lines",
-                            line=dict(color="#94A3B8", width=1.5, dash="dot"),
-                        )
-                    )
-                fig.update_layout(**chart_layout(260), yaxis_title="원", title="총자산 추이")
-                show_plotly(fig)
-        with right:
-            by_ticker: dict[str, float] = {}
-            for r in live_rows:
-                if r.get("value") is None:
-                    continue
-                by_ticker[r["ticker"]] = by_ticker.get(r["ticker"], 0.0) + float(r["value"])
-            if by_ticker:
-                pdf = pd.DataFrame([{"ticker": k, "value": v} for k, v in by_ticker.items()])
-                fig = px.pie(
-                    pdf,
-                    names="ticker",
-                    values="value",
-                    color_discrete_sequence=CHART_COLORS,
-                    hole=0.5,
-                )
-                fig.update_layout(**chart_layout(260, with_title=True), title="보유 구성")
-                show_plotly(fig)
-            elif not hdf.empty:
-                latest = hdf["snapshot_date"].max()
-                day = (
-                    hdf[hdf["snapshot_date"] == latest]
-                    .dropna(subset=["market_value_krw"])
-                    .groupby("ticker", as_index=False)["market_value_krw"]
-                    .sum()
-                )
-                if not day.empty:
-                    fig = px.pie(
-                        day,
-                        names="ticker",
-                        values="market_value_krw",
-                        color_discrete_sequence=CHART_COLORS,
-                        hole=0.5,
-                    )
-                    fig.update_layout(**chart_layout(260, with_title=True), title=str(latest.date()) if hasattr(latest, "date") else str(latest))
-                    show_plotly(fig)
-                else:
-                    st.info("구성 데이터가 없습니다.")
-            else:
-                st.info("보유 종목이 없습니다.")
-
-    with tab_pnl:
-        render_total_realized_pnl(client, compact=True)
-
-    with tab_ret:
-        if live_rows:
-            groups: dict[str, list] = {}
-            for r in live_rows:
-                groups.setdefault(r["ticker"], []).append(r)
-            agg = [_aggregate_ticker(v) for v in groups.values()]
-            rdf = pd.DataFrame(agg).dropna(subset=["return_%"])
-            if not rdf.empty:
-                c_chart, c_table = st.columns([1.2, 1], gap="small")
-                with c_chart:
-                    rdf_sorted = rdf.sort_values("return_%")
-                    fig = go.Figure(
-                        go.Bar(
-                            x=rdf_sorted["return_%"],
-                            y=rdf_sorted["ticker"],
-                            orientation="h",
-                            marker_color=[PRIMARY if v >= 0 else "#FF6B6B" for v in rdf_sorted["return_%"]],
-                            text=[f"{v:.1f}%" for v in rdf_sorted["return_%"]],
-                            textposition="auto",
-                        )
-                    )
-                    fig.update_layout(**chart_layout(max(220, 26 * len(rdf_sorted) + 70)), xaxis_title="수익률(%)", title="종목 수익률")
-                    show_plotly(fig)
-                with c_table:
-                    show = rdf.sort_values("return_%", ascending=False)[
-                        ["ticker", "qty", "value", "return_%", "ccy"]
-                    ].rename(
-                        columns={
-                            "ticker": "종목",
-                            "qty": "수량",
-                            "value": "평가액",
-                            "return_%": "수익률(%)",
-                            "ccy": "통화",
-                        }
-                    )
-                    st.dataframe(show, use_container_width=True, hide_index=True, height=min(420, 48 * len(show) + 40))
-            else:
-                st.info("수익률을 계산할 보유가 없습니다.")
-        else:
-            st.info("보유 종목이 없습니다.")
-
-
-def view_tickers(client, live_rows) -> None:
-    """All tickers or one ticker; always show per-account rows + cross-account totals."""
-    months = period_radio(key="ticker_chart_period", default="1년")
-    hdf = filter_by_period(_load_holding_snaps(client), months, date_col="snapshot_date")
-    amap = _account_map(client)
-    if not hdf.empty and "account_id" in hdf.columns:
-        hdf = hdf.copy()
-        hdf["account_id"] = hdf["account_id"].astype(str)
-        hdf["institution"] = hdf["account_id"].map(lambda i: amap.get(i, "계좌"))
-        hdf["series"] = hdf.apply(
-            lambda r: f"{r['ticker']} · {r['institution']}", axis=1
+    months = period_radio(key="dash_period_home", default="1년")
+    tdf = filter_by_period(_load_daily_totals(client), months, date_col="snapshot_date")
+    if not tdf.empty:
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=tdf["snapshot_date"],
+                y=tdf["net_assets"],
+                name="순자산",
+                mode="lines",
+                line=dict(color=PRIMARY, width=2.5),
+                fill="tozeroy",
+                fillcolor="rgba(3,199,90,0.10)",
+            )
         )
-
-    tickers = sorted({r["ticker"] for r in live_rows}) or (
-        sorted(hdf["ticker"].unique().tolist()) if not hdf.empty else []
-    )
-    if not tickers and not live_rows:
-        st.info("표시할 종목이 없습니다.")
-        return
-
-    pick = st.selectbox(
-        "종목 보기",
-        options=["(전체)"] + tickers,
-        help="전체를 한눈에 보거나, 한 종목을 골라 계좌별·합계를 확인하세요.",
-    )
-
-    if pick == "(전체)":
-        _view_all_tickers(live_rows, hdf)
+        fig.update_layout(**chart_layout(220, with_title=True), title="순자산 추이", yaxis_title="원")
+        show_plotly(fig)
     else:
-        _view_one_ticker(pick, live_rows, hdf)
+        st.info("스냅샷이 없습니다. 「오늘 스냅샷」을 눌러 시작하세요.")
 
-
-def _view_all_tickers(live_rows: list[dict], hdf: pd.DataFrame) -> None:
     groups: dict[str, list] = {}
     for r in live_rows:
         groups.setdefault(r["ticker"], []).append(r)
-
-    summary_rows = []
-    for ticker, rows in sorted(groups.items()):
+    preview = []
+    for ticker, rows in groups.items():
         tot = _aggregate_ticker(rows)
-        summary_rows.append(
+        preview.append(
             {
-                "티커": ticker,
-                "종목명": tot.get("name"),
-                "계좌수": tot.get("accounts"),
-                "합산수량": tot.get("qty"),
-                "가중평균단가": tot.get("avg"),
-                "현재가": tot.get("price"),
-                "합산평가액": tot.get("value"),
-                "수익률(%)": tot.get("return_%"),
-                "통화": tot.get("ccy"),
+                "ticker": ticker,
+                "name": tot.get("name") or ticker,
+                "meta": f"{tot.get('accounts', 1)}개 계좌",
+                "value_label": _fmt_money(tot.get("value"), tot.get("ccy") or "USD"),
+                "return_%": tot.get("return_%"),
+                "sort": float(tot.get("value") or 0),
             }
         )
-    detail_rows = [
-        {
-            "티커": r["ticker"],
-            "계좌": r.get("institution"),
-            "수량": r.get("qty"),
-            "평균단가": r.get("avg"),
-            "현재가": r.get("price"),
-            "평가액": r.get("value"),
-            "수익률(%)": r.get("return_%"),
-            "통화": r.get("ccy"),
-            "시세": r.get("시세"),
-        }
-        for r in sorted(live_rows, key=lambda x: (x["ticker"], x.get("institution") or ""))
-    ]
-
-    tab_list, tab_chart = st.tabs(["보유 현황", "평가액 추이"])
-    with tab_list:
-        c1, c2 = st.columns(2, gap="small")
-        with c1:
-            st.caption("종목 합계")
-            if summary_rows:
-                st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True, height=360)
-            else:
-                st.info("합계 데이터가 없습니다.")
-        with c2:
-            st.caption("계좌별 상세")
-            if detail_rows:
-                st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True, height=360)
-            else:
-                st.info("상세 데이터가 없습니다.")
-
-    with tab_chart:
-        if hdf.empty or "market_value_krw" not in hdf.columns:
-            st.info("선택한 기간에 스냅샷이 없습니다.")
-            return
-        plot_df = hdf.dropna(subset=["market_value_krw"]).copy()
-        if plot_df.empty:
-            st.info("선택한 기간에 스냅샷이 없습니다.")
-            return
-        left, right = st.columns(2, gap="small")
-        with left:
-            color_col = "series" if "series" in plot_df.columns else "ticker"
-            fig = px.line(
-                plot_df,
-                x="snapshot_date",
-                y="market_value_krw",
-                color=color_col,
-                markers=False,
-                color_discrete_sequence=CHART_COLORS,
-                labels={
-                    "snapshot_date": "날짜",
-                    "market_value_krw": "평가액(원)",
-                    color_col: "종목·계좌",
-                },
-            )
-            fig.update_layout(**chart_layout(280, with_title=True), title="계좌·종목별")
-            show_plotly(fig)
-        with right:
-            summed = (
-                plot_df.groupby(["snapshot_date", "ticker"], as_index=False)["market_value_krw"]
-                .sum()
-            )
-            fig2 = px.line(
-                summed,
-                x="snapshot_date",
-                y="market_value_krw",
-                color="ticker",
-                markers=False,
-                color_discrete_sequence=CHART_COLORS,
-                labels={
-                    "snapshot_date": "날짜",
-                    "market_value_krw": "평가액(원)",
-                    "ticker": "종목",
-                },
-            )
-            fig2.update_layout(**chart_layout(280, with_title=True), title="종목 합산")
-            show_plotly(fig2)
+    preview.sort(key=lambda x: x["sort"], reverse=True)
+    st.caption("보유 상위")
+    if preview:
+        st.markdown(_holding_rows_html(preview[:8]), unsafe_allow_html=True)
+    else:
+        st.info("보유 종목이 없습니다.")
 
 
-def _view_one_ticker(ticker: str, live_rows: list[dict], hdf: pd.DataFrame) -> None:
-    rows = [r for r in live_rows if r["ticker"] == ticker]
-    if not rows and not hdf.empty:
-        snap = hdf[hdf["ticker"] == ticker]
-        if snap.empty:
-            st.info("이 종목 데이터가 없습니다.")
-            return
+def view_holdings(client, live_rows) -> None:
+    """보유: 토스식 조회 리스트 (DB 테이블 직접 노출 없음)."""
+    if not live_rows:
+        st.info("표시할 보유가 없습니다.")
+        return
 
-    tot = _aggregate_ticker(rows) if rows else {}
+    institutions = sorted({r.get("institution") or "계좌" for r in live_rows})
+    c1, c2, c3 = st.columns([1.4, 1, 1], gap="small")
+    with c1:
+        q = st.text_input("검색", placeholder="티커 또는 종목명", label_visibility="collapsed")
+    with c2:
+        acct = st.selectbox("계좌", ["전체"] + institutions, label_visibility="collapsed")
+    with c3:
+        sort_by = st.selectbox("정렬", ["평가액", "수익률", "가나다"], label_visibility="collapsed")
+
+    rows = live_rows
+    if acct != "전체":
+        rows = [r for r in rows if (r.get("institution") or "계좌") == acct]
+    if q:
+        qq = q.strip().lower()
+        rows = [
+            r
+            for r in rows
+            if qq in str(r.get("ticker") or "").lower()
+            or qq in str(r.get("name") or "").lower()
+        ]
+
+    groups: dict[str, list] = {}
+    for r in rows:
+        groups.setdefault(r["ticker"], []).append(r)
+
+    items = []
+    for ticker, gro in groups.items():
+        tot = _aggregate_ticker(gro)
+        items.append(
+            {
+                "ticker": ticker,
+                "name": tot.get("name") or ticker,
+                "meta": f"{_fmt_qty(tot.get('qty'))}주 · {tot.get('accounts', 1)}계좌",
+                "value_label": _fmt_money(tot.get("value"), tot.get("ccy") or "USD"),
+                "return_%": tot.get("return_%"),
+                "value": float(tot.get("value") or 0),
+                "ret": float(tot.get("return_%") if tot.get("return_%") is not None else -9999),
+                "accounts": gro,
+                "tot": tot,
+            }
+        )
+
+    if sort_by == "평가액":
+        items.sort(key=lambda x: x["value"], reverse=True)
+    elif sort_by == "수익률":
+        items.sort(key=lambda x: x["ret"], reverse=True)
+    else:
+        items.sort(key=lambda x: x["ticker"])
+
+    st.caption(f"{len(items)}종목")
+    st.markdown(_holding_rows_html(items), unsafe_allow_html=True)
+
+    tickers = [i["ticker"] for i in items]
+    if not tickers:
+        st.info("검색 결과가 없습니다.")
+        return
+
+    pick = st.selectbox("상세 보기", tickers, key="hold_detail_ticker")
+    chosen = next(i for i in items if i["ticker"] == pick)
+    tot = chosen["tot"]
     a, b, c, d = st.columns(4, gap="small")
-    a.metric(
-        "합산 수량",
-        f"{float(tot['qty']):,.4f}".rstrip("0").rstrip(".") if tot.get("qty") is not None else "—",
-    )
-    b.metric("현재가", _fmt_money(tot.get("price"), tot.get("ccy") or "USD"))
-    c.metric("합산 평가액", _fmt_money(tot.get("value"), tot.get("ccy") or "USD"))
-    d.metric(
-        "합산 수익률",
-        f"{tot['return_%']:.2f}%" if tot.get("return_%") is not None else "—",
-    )
+    a.metric("수량", _fmt_qty(tot.get("qty")))
+    b.metric("평균단가", _fmt_money(tot.get("avg"), tot.get("ccy") or "USD"))
+    c.metric("현재가", _fmt_money(tot.get("price"), tot.get("ccy") or "USD"))
+    d.metric("수익률", f"{tot['return_%']:.2f}%" if tot.get("return_%") is not None else "—")
 
-    tab_acc, tab_chart = st.tabs(["계좌별", "추이"])
-    with tab_acc:
-        if not rows:
-            st.info("계좌별 보유가 없습니다.")
-        else:
-            detail = [
-                {
-                    "계좌": r.get("institution") or "계좌",
-                    "수량": r.get("qty"),
-                    "평균단가": r.get("avg"),
-                    "평가액": r.get("value"),
-                    "수익률(%)": r.get("return_%"),
-                }
-                for r in sorted(rows, key=lambda x: x.get("institution") or "")
-            ]
-            st.dataframe(pd.DataFrame(detail), use_container_width=True, hide_index=True)
+    acc_items = []
+    for r in sorted(chosen["accounts"], key=lambda x: x.get("institution") or ""):
+        acc_items.append(
+            {
+                "ticker": r.get("institution") or "계좌",
+                "name": pick,
+                "meta": f"{_fmt_qty(r.get('qty'))}주 · 평단 {_fmt_money(r.get('avg'), r.get('ccy') or 'USD')}",
+                "value_label": _fmt_money(r.get("value"), r.get("ccy") or "USD"),
+                "return_%": r.get("return_%"),
+            }
+        )
+    st.caption("계좌별")
+    st.markdown(_holding_rows_html(acc_items), unsafe_allow_html=True)
 
-    with tab_chart:
-        if hdf.empty:
-            st.info("선택한 기간에 스냅샷이 없습니다.")
-            return
-        one = hdf[hdf["ticker"] == ticker].sort_values("snapshot_date")
-        if one.empty:
-            st.info("선택한 기간에 스냅샷이 없습니다.")
-            return
-        left, right = st.columns(2, gap="small")
-        with left:
-            if "institution" in one.columns and one["account_id"].nunique() > 1:
-                fig = px.line(
-                    one.dropna(subset=["market_value_krw"]),
-                    x="snapshot_date",
-                    y="market_value_krw",
-                    color="institution",
-                    markers=False,
-                    color_discrete_sequence=CHART_COLORS,
-                    labels={
-                        "snapshot_date": "날짜",
-                        "market_value_krw": "평가액(원)",
-                        "institution": "계좌",
-                    },
-                )
-                fig.update_layout(**chart_layout(260, with_title=True), title=f"{ticker} 계좌별")
-                show_plotly(fig)
-            else:
-                st.caption("단일 계좌 · 합산 차트만 표시")
-        with right:
-            summed = (
-                one.groupby("snapshot_date", as_index=False)
-                .agg(
-                    market_value_krw=("market_value_krw", "sum"),
-                    price=("price", "mean"),
-                )
-                .sort_values("snapshot_date")
-            )
-            fig = go.Figure()
-            fig.add_trace(
-                go.Scatter(
-                    x=summed["snapshot_date"],
-                    y=summed["market_value_krw"],
-                    name="합산 평가액(원)",
-                    mode="lines",
-                    line=dict(color=PRIMARY, width=2.5),
-                    yaxis="y1",
-                )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=summed["snapshot_date"],
-                    y=summed["price"],
-                    name="가격",
-                    mode="lines",
-                    line=dict(color="#00A3FF", width=2),
-                    yaxis="y2",
-                )
-            )
-            fig.update_layout(
-                **chart_layout(260, with_title=True),
-                title=f"{ticker} 합산",
-                yaxis=dict(title="평가액(원)", fixedrange=True),
-                yaxis2=dict(title="가격", overlaying="y", side="right", fixedrange=True),
-            )
-            show_plotly(fig)
+    months = period_radio(key="dash_period_holdings", default="1년")
+    hdf = filter_by_period(_load_holding_snaps(client), months, date_col="snapshot_date")
+    if hdf.empty or "market_value_krw" not in hdf.columns:
+        st.caption("선택한 기간에 평가액 추이가 없습니다.")
+        return
+    one = hdf[hdf["ticker"] == pick].sort_values("snapshot_date")
+    if one.empty:
+        st.caption("이 종목의 추이 데이터가 없습니다.")
+        return
+    summed = one.groupby("snapshot_date", as_index=False)["market_value_krw"].sum()
+    fig = go.Figure(
+        go.Scatter(
+            x=summed["snapshot_date"],
+            y=summed["market_value_krw"],
+            mode="lines",
+            line=dict(color=PRIMARY, width=2.5),
+            fill="tozeroy",
+            fillcolor="rgba(3,199,90,0.10)",
+            name="평가액(원)",
+        )
+    )
+    fig.update_layout(**chart_layout(220, with_title=True), title=f"{pick} 평가액", yaxis_title="원")
+    show_plotly(fig)
 
 
 def main() -> None:
-    page_hero("대시보드", "한눈에 보는 부부 자산", compact=True)
-    view = render_subnav(VIEWS, state_key="dash_view", default="한눈에")
+    page_hero("대시보드", "홈 · 보유 · 손익 · 거래 · 입력", compact=True)
+    view = render_subnav(VIEWS, state_key="dash_view", default="홈")
 
     user, client = require_auth()
     ensure_profile(user, client)
@@ -628,16 +469,16 @@ def main() -> None:
     tickers = sorted({h["ticker"] for h in holdings})
     live_rows, total_usd, total_krw, total_debt, any_stale = _live_holdings(client, holdings)
 
-    if view in ("한눈에", "종목"):
+    if view in ("홈", "보유"):
         _toolbar(client, tickers)
 
-    if view == "한눈에":
-        view_overview(client, live_rows, total_usd, total_krw, total_debt, any_stale)
-    elif view == "종목":
-        view_tickers(client, live_rows)
-    elif view == "실현손익":
+    if view == "홈":
+        view_home(client, live_rows, total_usd, total_krw, total_debt, any_stale)
+    elif view == "보유":
+        view_holdings(client, live_rows)
+    elif view == "손익":
         render_total_realized_pnl(client, compact=False)
-    elif view == "자산 흐름":
+    elif view == "거래":
         render_flow_charts(client)
     else:
         render_flow_forms(client, user)
