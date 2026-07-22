@@ -89,3 +89,18 @@ streamlit run streamlit_app/app.py
 ```
 
 Approving a staging row fires `commit_ocr_staging` (BEFORE UPDATE trigger).
+
+## Scheduling / Push / Backup (phases 7–8)
+
+pg_cron jobs (KST):
+
+| Job | Schedule | Action |
+|---|---|---|
+| `cwm_daily_snapshot` | 00:00 | `compute_daily_snapshot()` |
+| `cwm_refresh_prices` | hourly :15 | Edge `refresh-prices` |
+| `cwm_morning_briefing` | 08:00 | Edge `morning-briefing` (Gemini + Web Push) |
+| `cwm_nightly_backup` | 01:00 | Edge `nightly-backup` → Storage `backups/` (7-day retention) |
+
+In the app: **Notifications** page to subscribe to Web Push and run jobs manually.
+
+Function secrets (set via `supabase secrets set`): `GEMINI_API_KEY`, `VAPID_*`, `PUBLIC_APP_URL`.

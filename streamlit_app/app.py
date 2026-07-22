@@ -223,6 +223,7 @@ def home() -> None:
 2. **Review Staging** — 검토/수정 후 승인 → 트리거가 `trades` / `holdings`에 커밋
 3. **Dashboard** — 시세 새로고침 · 순자산/수익률
 4. **Tax Report** — 해외주식 양도세 추정 (250만원 공제 · 22%)
+5. **Notifications** — Web Push 구독 · 브리핑/백업 수동 실행
 
 사이드바에서 페이지를 선택하세요.
 """
