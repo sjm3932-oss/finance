@@ -15,7 +15,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 OCR_PROMPT = """You are a financial OCR assistant for a Korean couple's portfolio tracker.
-Extract holdings and/or trades from this brokerage/bank screenshot.
+Extract holdings, trades, and/or dividends from this brokerage/bank screenshot.
 
 Return ONLY valid JSON (no markdown) with this schema:
 {
@@ -28,7 +28,19 @@ Return ONLY valid JSON (no markdown) with this schema:
       "trade_type": "buy" | "sell",
       "price": number,
       "quantity": number,
+      "fee": number,
+      "currency": "KRW" | "USD",
       "reason": "string or empty"
+    }
+  ],
+  "dividends": [
+    {
+      "pay_date": "YYYY-MM-DD",
+      "ticker": "string",
+      "name": "string",
+      "amount": number,
+      "currency": "KRW" | "USD",
+      "memo": "string or empty"
     }
   ],
   "holdings_snapshot": [
@@ -44,11 +56,20 @@ Return ONLY valid JSON (no markdown) with this schema:
 
 Rules:
 - Prefer holdings_snapshot when the screen shows balances/positions.
-- Prefer trades when the screen shows buy/sell history.
-- Use empty arrays when a section is not visible.
-- Numbers must be plain JSON numbers (no commas).
-- If nothing can be parsed, return {"trades":[],"holdings_snapshot":[],"error":"unreadable"}.
+- Prefer trades when the screen shows buy/sell / order history.
+- Prefer dividends when the screen shows dividend / 배당 / 입금 내역 for dividends.
+- Fill every section that is visible; use empty arrays when not visible.
+- Numbers must be plain JSON numbers (no commas, no currency symbols).
+- Tickers stay as Latin symbols (e.g. TQQQ, TSLA). Korean names go in "name".
+- If nothing can be parsed, return {"trades":[],"dividends":[],"holdings_snapshot":[],"error":"unreadable"}.
 """
+
+DOC_TYPE_HINTS = {
+    "holdings": "This screenshot is mainly a holdings/balance screen. Focus on holdings_snapshot.",
+    "trades": "This screenshot is mainly a trade/order history. Focus on trades (buy/sell).",
+    "dividends": "This screenshot is mainly dividend / 배당 payout history. Focus on dividends.",
+    "auto": "Detect whether this is holdings, trades, dividends, or a mix, and fill matching arrays.",
+}
 
 
 class GeminiError(RuntimeError):
@@ -75,7 +96,11 @@ def _extract_json(text: str) -> dict[str, Any]:
     return data
 
 
-def parse_screenshot(image_bytes: bytes, mime_type: str = "image/png") -> dict[str, Any]:
+def parse_screenshot(
+    image_bytes: bytes,
+    mime_type: str = "image/png",
+    doc_type: str = "auto",
+) -> dict[str, Any]:
     if not GEMINI_API_KEY:
         raise GeminiError("GEMINI_API_KEY is not set")
 
@@ -87,9 +112,12 @@ def parse_screenshot(image_bytes: bytes, mime_type: str = "image/png") -> dict[s
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(GEMINI_MODEL)
 
+    hint = DOC_TYPE_HINTS.get(doc_type, DOC_TYPE_HINTS["auto"])
+    prompt = OCR_PROMPT + f"\n\nDocument hint: {hint}\n"
+
     response = model.generate_content(
         [
-            OCR_PROMPT,
+            prompt,
             {"mime_type": mime_type, "data": image_bytes},
         ],
         generation_config={"temperature": 0.1},
@@ -100,12 +128,10 @@ def parse_screenshot(image_bytes: bytes, mime_type: str = "image/png") -> dict[s
         raise GeminiError("Empty response from Gemini Vision")
 
     parsed = _extract_json(text)
-    parsed.setdefault("trades", [])
-    parsed.setdefault("holdings_snapshot", [])
-    if not isinstance(parsed["trades"], list):
-        parsed["trades"] = []
-    if not isinstance(parsed["holdings_snapshot"], list):
-        parsed["holdings_snapshot"] = []
+    for key in ("trades", "dividends", "holdings_snapshot"):
+        parsed.setdefault(key, [])
+        if not isinstance(parsed[key], list):
+            parsed[key] = []
     return parsed
 
 

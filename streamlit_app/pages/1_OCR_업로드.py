@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import json
-import mimetypes
 import sys
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 import streamlit as st
@@ -16,18 +13,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from lib.auth import ensure_profile, require_auth  # noqa: E402
-from lib.gemini_client import GeminiError, parse_screenshot  # noqa: E402
-from lib.ui_ko import ACCOUNT_TYPE_KO  # noqa: E402
+from lib.ocr_upload import DOC_TYPES, stage_screenshot  # noqa: E402
 from lib.theme import apply_theme, page_hero  # noqa: E402
-
+from lib.ui_ko import ACCOUNT_TYPE_KO  # noqa: E402
 
 st.set_page_config(page_title="OCR 업로드", page_icon="💚", layout="wide")
 apply_theme(max_width=1120)
 
 
 def main() -> None:
-    page_hero("OCR 업로드", "스크린샷 → AI 파싱 → 스테이징(대기/실패)")
-    st.caption("스크린샷 → AI 파싱 → 스테이징(대기/실패)")
+    page_hero("OCR 업로드", "잔고 · 매매 · 배당 스크린샷 → AI 파싱 → 스테이징")
 
     user, client = require_auth()
     ensure_profile(user, client)
@@ -76,77 +71,50 @@ def main() -> None:
         format_func=lambda i: account_labels[i],
     )
 
+    doc_type = st.selectbox(
+        "문서 종류",
+        options=list(DOC_TYPES.keys()),
+        format_func=lambda k: DOC_TYPES[k],
+        index=0,
+        help="매매·배당·잔고를 각각 찍어도 되고, 자동 인식도 가능합니다.",
+    )
+
     uploaded = st.file_uploader(
-        "잔고 / 매매 스크린샷",
+        "스크린샷 (잔고 / 매매 / 배당)",
         type=["png", "jpg", "jpeg", "webp", "gif"],
     )
 
     if uploaded and st.button("파싱 및 스테이징", type="primary"):
-        image_bytes = uploaded.getvalue()
-        mime = uploaded.type or mimetypes.guess_type(uploaded.name)[0] or "image/png"
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        object_path = f"{user.id}/{stamp}_{uuid.uuid4().hex}_{uploaded.name}"
-
-        with st.spinner("이미지 저장 중…"):
-            storage = client.storage.from_("ocr-screenshots")
+        with st.spinner("이미지 저장 · AI 파싱 중…"):
             try:
-                storage.upload(
-                    object_path,
-                    image_bytes,
-                    file_options={"content-type": mime, "upsert": "false"},
+                created, status, parsed_json, error_msg = stage_screenshot(
+                    client,
+                    user_id=str(user.id),
+                    account_id=selected_account,
+                    image_bytes=uploaded.getvalue(),
+                    filename=uploaded.name,
+                    mime_type=uploaded.type,
+                    doc_type=doc_type,
                 )
             except Exception as exc:
-                st.error(f"이미지 저장 실패: {exc}")
+                st.error(f"업로드/파싱 실패: {exc}")
                 st.stop()
-            image_url = object_path
 
-        parsed_json = {
-            "account_id": selected_account,
-            "trades": [],
-            "holdings_snapshot": [],
-        }
-        status = "pending"
-        error_msg = None
-
-        with st.spinner("AI 파싱 중…"):
-            try:
-                parsed = parse_screenshot(image_bytes, mime_type=mime)
-                parsed["account_id"] = selected_account
-                parsed_json = parsed
-                if (
-                    parsed.get("error") == "unreadable"
-                    and not parsed.get("trades")
-                    and not parsed.get("holdings_snapshot")
-                ):
-                    status = "failed"
-                    error_msg = "Gemini가 스크린샷을 읽을 수 없습니다"
-            except GeminiError as exc:
-                status = "failed"
-                error_msg = str(exc)
-                parsed_json = {
-                    "account_id": selected_account,
-                    "trades": [],
-                    "holdings_snapshot": [],
-                    "error": str(exc),
-                }
-
-        row = {
-            "uploaded_by": str(user.id),
-            "image_url": image_url,
-            "parsed_json": parsed_json,
-            "status": status,
-        }
-        insert = client.table("ocr_staging").insert(row).execute()
-        created = (insert.data or [None])[0]
+        n_trades = len(parsed_json.get("trades") or [])
+        n_divs = len(parsed_json.get("dividends") or [])
+        n_hold = len(parsed_json.get("holdings_snapshot") or [])
 
         if status == "failed":
-            st.error(f"실패로 스테이징됨: {error_msg}. 다시 업로드하거나 나중에 수정하세요.")
+            st.error(f"실패로 스테이징됨: {error_msg}. 다시 업로드하거나 스테이징에서 수정하세요.")
         else:
-            st.success(f"대기로 스테이징됨: `{created['id'] if created else '완료'}`")
+            st.success(
+                f"대기로 스테이징됨 · 매매 {n_trades} · 배당 {n_divs} · 잔고 {n_hold} "
+                f"(`{created['id'] if created else '완료'}`)"
+            )
 
         st.subheader("파싱 결과")
         st.code(json.dumps(parsed_json, ensure_ascii=False, indent=2), language="json")
-        st.info("다음: **스테이징 검토** 페이지에서 검토 후 승인하세요.")
+        st.info("다음: **스테이징 검토**에서 확인 후 승인하세요. 매매·배당도 OCR과 수기 입력을 함께 쓸 수 있습니다.")
 
 
 main()

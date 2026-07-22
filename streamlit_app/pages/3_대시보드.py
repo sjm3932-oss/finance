@@ -260,7 +260,7 @@ def view_overview(client, live_rows, total_usd, total_krw, total_debt, any_stale
                     color_discrete_sequence=CHART_COLORS,
                     hole=0.45,
                 )
-                fig.update_layout(**chart_layout(300), title=str(latest))
+                fig.update_layout(**chart_layout(300, with_title=True), title=str(latest))
                 show_plotly(fig)
             else:
                 st.info("구성 차트를 그릴 데이터가 없습니다.")
@@ -273,7 +273,7 @@ def view_overview(client, live_rows, total_usd, total_krw, total_debt, any_stale
                 color_discrete_sequence=CHART_COLORS,
                 hole=0.45,
             )
-            fig.update_layout(**chart_layout(300), title="실시간 평가")
+            fig.update_layout(**chart_layout(300, with_title=True), title="실시간 평가")
             show_plotly(fig)
         else:
             st.info("보유 종목이 없습니다.")
@@ -343,7 +343,7 @@ def view_tickers(client, live_rows) -> None:
         )
     )
     fig.update_layout(
-        **chart_layout(320),
+        **chart_layout(320, with_title=True),
         title=f"{pick} 일별 추이",
         yaxis=dict(title="평가액(원)"),
         yaxis2=dict(title="가격", overlaying="y", side="right"),

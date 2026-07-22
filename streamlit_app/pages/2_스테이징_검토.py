@@ -46,7 +46,7 @@ def _signed_url(client, path: str) -> str | None:
 
 
 def main() -> None:
-    page_hero("스테이징 검토", "대기·실패 항목을 수정하고 승인하면 매매·보유에 반영됩니다.")
+    page_hero("스테이징 검토", "대기·실패 항목을 수정하고 승인하면 매매·배당·보유에 반영됩니다.")
 
     user, client = require_auth()
     ensure_profile(user, client)
@@ -149,10 +149,19 @@ def main() -> None:
         st.stop()
 
     if approve:
-        st.success("승인됨. 매매/보유 확인 중…")
+        st.success("승인됨. 매매·배당·보유 확인 중…")
         trades = (
             client.table("trades")
             .select("id, ticker, trade_type, quantity, price, trade_date, created_at")
+            .eq("account_id", account_id)
+            .order("created_at", desc=True)
+            .limit(20)
+            .execute()
+            .data
+        )
+        dividends = (
+            client.table("dividends")
+            .select("pay_date,ticker,name,amount,currency,memo,created_at")
             .eq("account_id", account_id)
             .order("created_at", desc=True)
             .limit(20)
@@ -168,6 +177,8 @@ def main() -> None:
         )
         st.subheader("최근 매매")
         st.dataframe(localize_flow_df(trades or []), use_container_width=True)
+        st.subheader("최근 배당")
+        st.dataframe(rename_columns(pd.DataFrame(dividends or [])), use_container_width=True)
         st.subheader("보유")
         st.dataframe(rename_columns(pd.DataFrame(holdings or [])), use_container_width=True)
     elif reject:

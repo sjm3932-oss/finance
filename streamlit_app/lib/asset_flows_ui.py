@@ -67,9 +67,18 @@ def render_flow_charts(client) -> None:
     # KPI strip
     if not df.empty:
         trade_n = int((df["flow_kind"] == "trade").sum())
-        div_sum = df.loc[df["flow_kind"] == "dividend", "amount"].sum()
-        cash_in = df.loc[(df["flow_kind"] == "cash_flow") & (df["flow_subtype"].astype(str).str.startswith("income")), "amount"].sum()
-        cash_out = df.loc[(df["flow_kind"] == "cash_flow") & (df["flow_subtype"].astype(str).str.startswith("expense")), "amount"].sum()
+        div_sum = float(df.loc[df["flow_kind"] == "dividend", "amount"].sum() or 0)
+        subtype = df.get("flow_subtype")
+        if subtype is not None:
+            sub = subtype.astype(str)
+            cash_in = float(
+                df.loc[(df["flow_kind"] == "cash_flow") & sub.str.startswith("income"), "amount"].sum() or 0
+            )
+            cash_out = float(
+                df.loc[(df["flow_kind"] == "cash_flow") & sub.str.startswith("expense"), "amount"].sum() or 0
+            )
+        else:
+            cash_in = cash_out = 0.0
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("매매 건수", f"{trade_n:,}")
         k2.metric("배당 합계", _fmt(div_sum, "USD") if div_sum else "—")
@@ -93,7 +102,7 @@ def render_flow_charts(client) -> None:
                     color_discrete_sequence=CHART_COLORS,
                     hole=0.45,
                 )
-                fig.update_layout(**chart_layout(260), title="흐름 구성")
+                fig.update_layout(**chart_layout(260, with_title=True), title="흐름 구성")
                 show_plotly(fig)
         with c2:
             # Monthly activity (count)
@@ -113,7 +122,7 @@ def render_flow_charts(client) -> None:
                     color_discrete_sequence=CHART_COLORS,
                     barmode="stack",
                 )
-                fig.update_layout(**chart_layout(260), title="월별 활동", legend_title_text="")
+                fig.update_layout(**chart_layout(260, with_title=True), title="월별 활동", legend_title_text="")
                 show_plotly(fig)
 
         # Amount trend for cash + dividends (by currency separately if needed)
@@ -129,7 +138,7 @@ def render_flow_charts(client) -> None:
                 color_discrete_sequence=CHART_COLORS,
                 labels={"event_date": "일자", "amount": "금액"},
             )
-            fig.update_layout(**chart_layout(280), title="최근 입출금·배당·부채")
+            fig.update_layout(**chart_layout(280, with_title=True), title="최근 입출금·배당·부채")
             show_plotly(fig)
 
         trades = df[df["flow_kind"] == "trade"].dropna(subset=["asset_ref", "amount"])
@@ -147,7 +156,7 @@ def render_flow_charts(client) -> None:
                 color_discrete_sequence=[PRIMARY],
                 labels={"asset_ref": "티커", "amount": "거래대금"},
             )
-            fig.update_layout(**chart_layout(280), title="종목별 거래대금")
+            fig.update_layout(**chart_layout(280, with_title=True), title="종목별 거래대금")
             show_plotly(fig)
 
     # PnL charts
@@ -166,7 +175,7 @@ def render_flow_charts(client) -> None:
                         marker_color=[PRIMARY if v >= 0 else "#FF6B6B" for v in g["realized_pnl"]],
                     )
                 )
-                fig.update_layout(**chart_layout(280), title="실현손익 (종목)", xaxis_title="손익")
+                fig.update_layout(**chart_layout(280, with_title=True), title="실현손익 (종목)", xaxis_title="손익")
                 show_plotly(fig)
             total = rdf["realized_pnl"].sum()
             st.caption(f"실현손익 합계(표시통화 단순합): {total:,.2f}")
@@ -186,7 +195,7 @@ def render_flow_charts(client) -> None:
                         marker_color=[PRIMARY if v >= 0 else "#FF6B6B" for v in g["unrealized_pnl"]],
                     )
                 )
-                fig.update_layout(**chart_layout(280), title="평가손익 (종목)", xaxis_title="손익")
+                fig.update_layout(**chart_layout(280, with_title=True), title="평가손익 (종목)", xaxis_title="손익")
                 show_plotly(fig)
             total = udf["unrealized_pnl"].sum()
             st.caption(f"평가손익 합계(표시통화 단순합): {total:,.2f}")
@@ -194,12 +203,64 @@ def render_flow_charts(client) -> None:
             st.info("평가손익 데이터가 없습니다.")
 
 
+def _ocr_block(client, user, accounts, *, doc_type: str, key_prefix: str, label: str) -> None:
+    """OCR upload block that stages to ocr_staging for later review/approve."""
+    from lib.ocr_upload import stage_screenshot
+
+    st.markdown(f"##### OCR로 {label}")
+    st.caption("스크린샷을 올리면 스테이징으로 들어가고, **스테이징 검토**에서 승인하면 반영됩니다.")
+    if not accounts:
+        st.warning("먼저 계좌를 만들어 주세요. (OCR 업로드 또는 아래 안내)")
+        return
+    amap = {a["id"]: f"{a['institution']} ({a.get('currency', '')})" for a in accounts}
+    account_id = st.selectbox(
+        "대상 계좌",
+        options=list(amap),
+        format_func=lambda i: amap[i],
+        key=f"{key_prefix}_ocr_account",
+    )
+    uploaded = st.file_uploader(
+        f"{label} 스크린샷",
+        type=["png", "jpg", "jpeg", "webp", "gif"],
+        key=f"{key_prefix}_ocr_file",
+    )
+    if uploaded and st.button(f"OCR 파싱 · 스테이징", type="primary", key=f"{key_prefix}_ocr_go"):
+        with st.spinner("이미지 저장 · AI 파싱 중…"):
+            try:
+                created, status, parsed, err = stage_screenshot(
+                    client,
+                    user_id=str(user.id),
+                    account_id=account_id,
+                    image_bytes=uploaded.getvalue(),
+                    filename=uploaded.name,
+                    mime_type=uploaded.type,
+                    doc_type=doc_type,
+                )
+            except Exception as exc:
+                st.error(f"실패: {exc}")
+                return
+        n_t = len(parsed.get("trades") or [])
+        n_d = len(parsed.get("dividends") or [])
+        n_h = len(parsed.get("holdings_snapshot") or [])
+        if status == "failed":
+            st.error(f"스테이징 실패: {err}")
+        else:
+            st.success(
+                f"스테이징 완료 · 매매 {n_t} · 배당 {n_d} · 잔고 {n_h} "
+                f"→ **스테이징 검토**에서 승인하세요."
+            )
+
+
 def render_flow_forms(client, user) -> None:
-    """Compact entry forms for trades / dividends / cash / debt."""
+    """OCR + manual entry for trades/dividends; manual for cash/debt."""
     accounts = _accounts(client)
+    st.info("매매·배당은 **OCR 스크린샷**과 **수기 입력**을 함께 사용할 수 있습니다.")
     tabs = st.tabs(["매매", "배당", "현금", "부채"])
 
     with tabs[0]:
+        _ocr_block(client, user, accounts, doc_type="trades", key_prefix="trade", label="매매")
+        st.divider()
+        st.markdown("##### 수기로 매매 입력")
         if not accounts:
             st.warning("먼저 OCR 업로드에서 계좌를 만드세요.")
         else:
@@ -244,6 +305,9 @@ def render_flow_forms(client, user) -> None:
                             st.error(f"실패: {exc}")
 
     with tabs[1]:
+        _ocr_block(client, user, accounts, doc_type="dividends", key_prefix="div", label="배당")
+        st.divider()
+        st.markdown("##### 수기로 배당 입력")
         amap = {a["id"]: a["institution"] for a in accounts} if accounts else {}
         with st.form("dash_div_form"):
             account_id = st.selectbox(
@@ -351,7 +415,6 @@ def render_flow_forms(client, user) -> None:
             dmap = {
                 d["id"]: f"{d['lender']} (잔액 ₩{float(d['principal']):,.0f})" for d in debts
             }
-            # Debt composition chart
             ddf = pd.DataFrame(debts)
             ddf["principal"] = pd.to_numeric(ddf["principal"], errors="coerce")
             fig = px.pie(
@@ -361,7 +424,7 @@ def render_flow_forms(client, user) -> None:
                 color_discrete_sequence=CHART_COLORS,
                 hole=0.4,
             )
-            fig.update_layout(**chart_layout(260), title="부채 구성")
+            fig.update_layout(**chart_layout(280, with_title=True), title="부채 구성")
             show_plotly(fig)
 
             with st.form("dash_debt_tx"):

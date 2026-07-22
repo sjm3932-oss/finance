@@ -28,36 +28,92 @@ CHART_COLORS = [
 ]
 
 CHART_LAYOUT = dict(
-    margin=dict(l=4, r=4, t=40, b=4),
-    height=280,
+    margin=dict(l=12, r=12, t=28, b=88),
+    height=300,
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     font=dict(family="Pretendard, Noto Sans KR, sans-serif", color=INK, size=12),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(size=11)),
+    legend=dict(
+        orientation="h",
+        yanchor="top",
+        y=-0.22,
+        x=0,
+        xanchor="left",
+        font=dict(size=11),
+        bgcolor="rgba(0,0,0,0)",
+    ),
+    title=dict(
+        font=dict(size=14, color=INK, family="Pretendard, Noto Sans KR, sans-serif"),
+        x=0,
+        xanchor="left",
+        y=0.98,
+        yanchor="top",
+        pad=dict(t=0, b=12, l=0, r=0),
+    ),
     hovermode="x unified",
     colorway=CHART_COLORS,
     autosize=True,
+    separatethousands=True,
 )
 
 
-def chart_layout(height: int = 280, **extra) -> dict:
+def chart_layout(height: int = 300, *, with_title: bool = False, **extra) -> dict:
+    """Safe defaults so title / legend / plot never overlap."""
     layout = {**CHART_LAYOUT, "height": height}
+    # Extra headroom when Plotly draws its own title
+    if with_title or extra.get("title"):
+        layout["margin"] = {**layout["margin"], "t": 56}
+        layout["height"] = max(height, 320)
     layout.update(extra)
+    # Keep legend under the plot even if caller overrides partially
+    leg = {**CHART_LAYOUT["legend"], **(extra.get("legend") or {})}
+    if "y" not in (extra.get("legend") or {}):
+        leg["y"] = -0.22
+        leg["yanchor"] = "top"
+    layout["legend"] = leg
     return layout
 
 
-def show_plotly(fig) -> None:
-    """Render Plotly figure fluidly for any viewport width."""
-    fig.update_layout(autosize=True)
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-        config={
+def show_plotly(fig, *, key: str | None = None) -> None:
+    """Render Plotly figure with spacing that avoids title/legend collisions."""
+    # Normalize layout after caller updates
+    has_title = bool(getattr(fig.layout, "title", None) and getattr(fig.layout.title, "text", None))
+    base = chart_layout(
+        height=int(fig.layout.height or 300) if fig.layout.height else 300,
+        with_title=has_title,
+    )
+    # Don't clobber axes the caller set — merge carefully
+    fig.update_layout(
+        margin=base["margin"],
+        legend=base["legend"],
+        paper_bgcolor=base["paper_bgcolor"],
+        plot_bgcolor=base["plot_bgcolor"],
+        font=base["font"],
+        autosize=True,
+        hovermode=base.get("hovermode", "x unified"),
+    )
+    if has_title:
+        fig.update_layout(
+            title=dict(
+                font=base["title"]["font"],
+                x=0,
+                xanchor="left",
+                y=0.98,
+                yanchor="top",
+                pad=dict(t=0, b=14, l=0, r=0),
+            )
+        )
+    kwargs = {
+        "use_container_width": True,
+        "config": {
             "responsive": True,
             "displayModeBar": False,
             "scrollZoom": False,
         },
-    )
+    }
+    if key:
+        kwargs["key"] = key
+    st.plotly_chart(fig, **kwargs)
 
 
 def apply_theme(*, max_width: int = 1120) -> None:
@@ -274,6 +330,26 @@ div[data-testid="stPlotlyChart"],
 .js-plotly-plot, .plotly, .plot-container {{
   width: 100% !important;
   max-width: 100% !important;
+}}
+div[data-testid="stPlotlyChart"] {{
+  margin: 0.35rem 0 1.4rem 0 !important;
+  padding-top: 0.15rem !important;
+  overflow: visible !important;
+}}
+/* Streamlit section titles above charts — keep clear gap */
+.stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
+.stMarkdown h4, .stMarkdown h5, .stMarkdown h6,
+[data-testid="stMarkdownContainer"] h5 {{
+  margin-top: 0.85rem !important;
+  margin-bottom: 0.65rem !important;
+  line-height: 1.35 !important;
+}}
+/* Avoid stacked title+chart feeling cramped inside columns */
+div[data-testid="column"] div[data-testid="stPlotlyChart"] {{
+  margin-bottom: 1.6rem !important;
+}}
+div[data-testid="stVerticalBlockBorderWrapper"] {{
+  overflow: visible !important;
 }}
 
 .np-hero {{
