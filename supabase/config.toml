@@ -1,0 +1,28 @@
+# Couples Wealth Master — Supabase local/CLI config
+# Remote project: https://lsqkixysysfhywipmrky.supabase.co
+
+project_id = "lsqkixysysfhywipmrky"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:8501"
+additional_redirect_urls = ["http://localhost:8501"]
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
