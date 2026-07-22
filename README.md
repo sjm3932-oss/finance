@@ -48,6 +48,16 @@ insert into public.allowed_emails (email) values
 on conflict do nothing;
 ```
 
+### Dummy demo data
+
+After the couple user has logged in once, replace OCR uploads / sparse ledger rows with a rich demo dataset (accounts, trades with realized P&L, dividends, cash flows, debt, monthly snapshots):
+
+```bash
+.venv/bin/python scripts/seed_dummy_data.py
+```
+
+This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tables for `sjm3932@gmail.com`. Re-run anytime to reset.
+
 ### Supabase Auth
 
 1. Enable Google provider in Authentication → Providers
