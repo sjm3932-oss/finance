@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 from lib.supabase_client import (  # noqa: E402
     ALLOWED_EMAILS,
     ConfigError,
+    PUBLIC_APP_URL,
     SUPABASE_URL,
     get_anon_client,
     is_email_allowed,
@@ -24,6 +25,23 @@ st.set_page_config(
     page_title="Couples Wealth Master",
     page_icon="💰",
     layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# Mobile-friendly spacing / tap targets
+st.markdown(
+    """
+<style>
+  .block-container { padding-top: 1rem; padding-bottom: 2rem; max-width: 900px; }
+  div.stButton > button { width: 100%; min-height: 3rem; }
+  div.stLinkButton > a { width: 100%; min-height: 3rem; display:flex; align-items:center; justify-content:center; }
+  @media (max-width: 640px) {
+    h1 { font-size: 1.6rem !important; }
+    .block-container { padding-left: 1rem; padding-right: 1rem; }
+  }
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
 
@@ -145,31 +163,28 @@ def login_panel() -> None:
 
     redirect_to = st.text_input(
         "OAuth redirect URL",
-        value="http://localhost:8501",
-        help="Supabase Auth → URL Configuration에 동일 주소를 등록하세요.",
+        value=PUBLIC_APP_URL,
+        help="모바일/공개 접속 시 PUBLIC_APP_URL(터널 주소)과 같아야 합니다.",
     )
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Continue with Google", type="primary"):
-            try:
-                result = client.auth.sign_in_with_oauth(
-                    {
-                        "provider": "google",
-                        "options": {"redirect_to": redirect_to},
-                    }
-                )
-                url = getattr(result, "url", None) or (result.get("url") if isinstance(result, dict) else None)
-                if url:
-                    st.markdown(f"[Google 로그인 계속하기]({url})")
-                    st.link_button("Open Google OAuth", url)
-                else:
-                    st.error("Could not start OAuth — check Supabase Google provider settings.")
-            except Exception as exc:
-                st.error(f"OAuth start failed: {exc}")
+    if st.button("Continue with Google", type="primary"):
+        try:
+            result = client.auth.sign_in_with_oauth(
+                {
+                    "provider": "google",
+                    "options": {"redirect_to": redirect_to},
+                }
+            )
+            url = getattr(result, "url", None) or (result.get("url") if isinstance(result, dict) else None)
+            if url:
+                st.link_button("Open Google OAuth", url, type="primary")
+                st.markdown(f"[또는 이 링크를 탭하세요]({url})")
+            else:
+                st.error("Could not start OAuth — check Supabase Google provider settings.")
+        except Exception as exc:
+            st.error(f"OAuth start failed: {exc}")
 
-    with col2:
-        st.write("또는 개발용 이메일 매직 링크")
+    with st.expander("개발용: 이메일 매직 링크 / 토큰"):
         email = st.text_input("Email (must be in ALLOWED_EMAILS)")
         if st.button("Send magic link"):
             if not is_email_allowed(email):
@@ -182,9 +197,6 @@ def login_panel() -> None:
                     st.success("Magic link sent (if email auth is enabled).")
                 except Exception as exc:
                     st.error(f"Magic link failed: {exc}")
-
-    st.divider()
-    with st.expander("Paste session tokens (local/dev fallback)"):
         access = st.text_input("access_token", type="password")
         refresh = st.text_input("refresh_token", type="password")
         if st.button("Use tokens"):
@@ -195,7 +207,7 @@ def login_panel() -> None:
                 st.session_state.refresh_token = refresh or None
                 st.rerun()
 
-    st.caption(f"Supabase: {SUPABASE_URL}")
+    st.caption(f"App URL: {PUBLIC_APP_URL} · Supabase: {SUPABASE_URL}")
 
 
 def home() -> None:

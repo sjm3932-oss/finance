@@ -14,6 +14,7 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://lsqkixysysfhywipmrky.supabase.co").rstrip("/")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+PUBLIC_APP_URL = os.getenv("PUBLIC_APP_URL", "http://localhost:8501").rstrip("/")
 ALLOWED_EMAILS = {
     e.strip().lower()
     for e in os.getenv("ALLOWED_EMAILS", "").split(",")
