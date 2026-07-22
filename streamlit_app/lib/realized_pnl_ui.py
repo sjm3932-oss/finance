@@ -386,11 +386,11 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
     value_col, unit, use_krw, rate = _value_setup(df_all, client)
 
     if use_krw and rate:
-        st.caption(f"달러 항목은 현재 환율 {rate:,.2f}원으로 환산했습니다. · 월별 집계")
+        st.caption(f"환율 {rate:,.2f}원 환산 · 월별 집계 · 기간 버튼으로 조회")
     elif (df_all["currency"] == "USD").any() and not use_krw:
-        st.caption("환율(USDKRW)이 없어 통화별 단순합으로 표시합니다. · 월별 집계")
+        st.caption("환율 없음 · 통화별 단순합 · 월별 집계")
     else:
-        st.caption("월별 집계 · 기간은 아래 버튼으로 선택")
+        st.caption("월별 집계 · 기간 버튼으로 조회")
 
     # —— compact (overview / asset flows) ——
     if compact:
@@ -401,35 +401,40 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
             return
         _kpi_row(df, value_col, unit, use_krw=use_krw)
         monthly = _monthly_totals(df, value_col)
-        left, right = st.columns(2, gap="medium")
+        left, right = st.columns(2, gap="small")
         with left:
-            _chart_cumulative_total(monthly, value_col, unit, height=280)
+            _chart_cumulative_total(monthly, value_col, unit, height=240)
         with right:
-            _chart_period_change(monthly, value_col, unit, height=280)
+            _chart_period_change(monthly, value_col, unit, height=240)
         return
 
-    # —— full view ——
-    months = period_radio(key="realized_pnl_period", default="1년")
+    # —— full view: filters in one row, content in tabs ——
+    f1, f2, f3 = st.columns([1.4, 1, 1], gap="small")
+    with f1:
+        months = period_radio(key="realized_pnl_period", default="1년")
+    with f2:
+        scope = st.radio(
+            "보기",
+            options=["전체", "종목"],
+            horizontal=True,
+            key="realized_pnl_scope",
+        )
     tickers = _ticker_options(df_all)
-    scope = st.radio(
-        "보기",
-        options=["전체", "종목"],
-        horizontal=True,
-        key="realized_pnl_scope",
-        help="전체 합산 또는 특정 종목의 매매·배당 실현손익",
-    )
-
     selected_ticker: str | None = None
+    with f3:
+        if scope == "종목":
+            if not tickers:
+                st.warning("종목 기록 없음")
+                return
+            selected_ticker = st.selectbox("종목", tickers, key="realized_pnl_ticker", label_visibility="collapsed")
+        else:
+            st.caption("전체 합산")
+
     if scope == "종목":
-        if not tickers:
-            st.warning("종목별 실현손익(매매·배당) 기록이 아직 없습니다.")
-            return
-        selected_ticker = st.selectbox("종목", tickers, key="realized_pnl_ticker")
         scoped = df_all[
             (df_all["asset_ref"] == selected_ticker)
             & (df_all["pnl_kind"].isin(["trade_realized", "dividend"]))
         ].copy()
-        st.caption(f"**{selected_ticker}** — 매매실현과 배당만 표시합니다.")
     else:
         scoped = df_all
 
@@ -441,48 +446,60 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
     _kpi_row(df, value_col, unit, use_krw=use_krw)
     monthly = _monthly_totals(df, value_col)
 
-    st.markdown("##### 증감 · 누적 (월별)")
-    c1, c2 = st.columns(2, gap="medium")
-    with c1:
-        _chart_cumulative_total(monthly, value_col, unit, height=320)
-    with c2:
-        _chart_period_change(monthly, value_col, unit, height=320)
+    tab_trend, tab_kind, tab_ticker = st.tabs(["증감·누적", "종류 구분", "종목별"])
+    with tab_trend:
+        c1, c2 = st.columns(2, gap="small")
+        with c1:
+            _chart_cumulative_total(monthly, value_col, unit, height=280)
+        with c2:
+            _chart_period_change(monthly, value_col, unit, height=280)
 
-    st.markdown("##### 종류 구분 (매매 · 배당 · 이자)")
-    _chart_cumulative_by_kind(df, value_col, unit, height=320)
-    _chart_monthly_by_kind(df, value_col, unit, height=320)
+    with tab_kind:
+        k1, k2 = st.columns(2, gap="small")
+        with k1:
+            _chart_cumulative_by_kind(df, value_col, unit, height=280)
+        with k2:
+            _chart_monthly_by_kind(df, value_col, unit, height=280)
 
-    if scope == "전체":
-        st.markdown("##### 종목별")
-        t1, t2 = st.columns(2, gap="medium")
-        with t1:
-            _chart_by_ticker(df, value_col, unit, use_krw=use_krw, height=320)
-        with t2:
-            _chart_ticker_by_kind(df, value_col, unit, height=320)
-        _table_by_ticker(df, value_col, use_krw=use_krw)
-    else:
-        by_kind = (
-            df.groupby("pnl_kind_ko", as_index=False)[value_col]
-            .sum()
-            .rename(columns={value_col: "합계"})
-        )
-        kinds = [k for k in KIND_ORDER if k in set(by_kind["pnl_kind_ko"])]
-        cmap = _kind_color_map(kinds)
-        fig = go.Figure(
-            go.Bar(
-                x=by_kind["pnl_kind_ko"],
-                y=by_kind["합계"],
-                marker_color=[cmap.get(k, PRIMARY) for k in by_kind["pnl_kind_ko"]],
-                text=[_fmt(v, use_krw=use_krw) for v in by_kind["합계"]],
-                textposition="auto",
+    with tab_ticker:
+        if scope == "전체":
+            t1, t2 = st.columns(2, gap="small")
+            with t1:
+                _chart_by_ticker(df, value_col, unit, use_krw=use_krw, height=280)
+            with t2:
+                _chart_ticker_by_kind(df, value_col, unit, height=280)
+            _table_by_ticker(df, value_col, use_krw=use_krw)
+        else:
+            by_kind = (
+                df.groupby("pnl_kind_ko", as_index=False)[value_col]
+                .sum()
+                .rename(columns={value_col: "합계"})
             )
-        )
-        apply_chart_layout(
-            fig,
-            280,
-            title=f"{selected_ticker} · 종류별 실현손익",
-            yaxis_title=unit,
-            xaxis_title="",
-            showlegend=False
-        )
-        show_plotly(fig)
+            kinds = [k for k in KIND_ORDER if k in set(by_kind["pnl_kind_ko"])]
+            cmap = _kind_color_map(kinds)
+            left, right = st.columns([1, 1.1], gap="small")
+            with left:
+                fig = go.Figure(
+                    go.Bar(
+                        x=by_kind["pnl_kind_ko"],
+                        y=by_kind["합계"],
+                        marker_color=[cmap.get(k, PRIMARY) for k in by_kind["pnl_kind_ko"]],
+                        text=[_fmt(v, use_krw=use_krw) for v in by_kind["합계"]],
+                        textposition="auto",
+                    )
+                )
+                apply_chart_layout(
+                    fig,
+                    260,
+                    title=f"{selected_ticker} · 종류별",
+                    yaxis_title=unit,
+                    xaxis_title="",
+                    showlegend=False,
+                )
+                show_plotly(fig)
+            with right:
+                st.dataframe(
+                    by_kind.rename(columns={"pnl_kind_ko": "구분"}),
+                    use_container_width=True,
+                    hide_index=True,
+                )

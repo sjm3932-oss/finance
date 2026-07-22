@@ -39,18 +39,18 @@ TITLE_DEFAULTS = dict(
 )
 
 CHART_LAYOUT = dict(
-    margin=dict(l=12, r=12, t=28, b=88),
-    height=300,
+    margin=dict(l=8, r=8, t=24, b=56),
+    height=260,
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="Pretendard, Noto Sans KR, sans-serif", color=INK, size=12),
+    font=dict(family="Pretendard, Noto Sans KR, sans-serif", color=INK, size=11),
     legend=dict(
         orientation="h",
         yanchor="top",
-        y=-0.22,
+        y=-0.18,
         x=0,
         xanchor="left",
-        font=dict(size=11),
+        font=dict(size=10),
         bgcolor="rgba(0,0,0,0)",
     ),
     hovermode="x unified",
@@ -69,8 +69,8 @@ def chart_layout(height: int = 300, *, with_title: bool = False, **extra) -> dic
     layout = {**CHART_LAYOUT, "height": height}
     # Extra headroom when Plotly draws its own title
     if with_title or extra.get("title"):
-        layout["margin"] = {**layout["margin"], "t": 56}
-        layout["height"] = max(height, 320)
+        layout["margin"] = {**layout["margin"], "t": 44}
+        layout["height"] = max(height, 280)
     layout.update(extra)
     # String titles → styled title dict; leave dict titles as-is
     if "title" in layout and isinstance(layout["title"], str):
@@ -78,7 +78,7 @@ def chart_layout(height: int = 300, *, with_title: bool = False, **extra) -> dic
     # Keep legend under the plot even if caller overrides partially
     leg = {**CHART_LAYOUT["legend"], **(extra.get("legend") or {})}
     if "y" not in (extra.get("legend") or {}):
-        leg["y"] = -0.22
+        leg["y"] = -0.18
         leg["yanchor"] = "top"
     layout["legend"] = leg
     # Belt-and-suspenders: never leave an accidental duplicate-prone empty title
@@ -193,12 +193,25 @@ html, body, [class*="css"] {{
 }}
 
 .block-container {{
-  padding-top: clamp(0.75rem, 2vw, 1.25rem) !important;
-  padding-bottom: clamp(1.5rem, 4vw, 3rem) !important;
-  padding-left: clamp(0.75rem, 3vw, 2rem) !important;
-  padding-right: clamp(0.75rem, 3vw, 2rem) !important;
+  padding-top: clamp(0.45rem, 1.5vw, 0.85rem) !important;
+  padding-bottom: clamp(1.2rem, 3vw, 2.2rem) !important;
+  padding-left: clamp(0.65rem, 2.5vw, 1.5rem) !important;
+  padding-right: clamp(0.65rem, 2.5vw, 1.5rem) !important;
   max-width: min({max_width}px, 100%) !important;
   width: 100% !important;
+}}
+
+/* Toss-like density: less vertical whitespace between blocks */
+div[data-testid="stVerticalBlock"] > div {{
+  gap: 0.35rem !important;
+}}
+div[data-testid="stHorizontalBlock"] {{
+  gap: 0.65rem !important;
+}}
+hr {{
+  margin: 0.45rem 0 !important;
+  border: none !important;
+  border-top: 1px solid var(--np-line) !important;
 }}
 
 section[data-testid="stSidebar"] {{
@@ -312,39 +325,66 @@ div[data-baseweb="select"]:focus-within > div {{
 }}
 
 div[data-testid="stMetric"] {{
-  background: var(--np-surface);
-  border: 1px solid rgba(3,199,90,0.12);
-  border-radius: 16px;
-  padding: clamp(0.75rem, 2vw, 1rem) clamp(0.8rem, 2vw, 1.1rem);
-  box-shadow: 0 6px 18px rgba(26, 26, 26, 0.04);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  background: #fff;
+  border: 1px solid var(--np-line);
+  border-radius: 14px;
+  padding: 0.55rem 0.75rem 0.6rem !important;
+  box-shadow: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   height: 100%;
 }}
 div[data-testid="stMetric"]:hover {{
-  transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(3, 199, 90, 0.12);
+  transform: none;
+  border-color: rgba(3,199,90,0.35);
+  box-shadow: 0 6px 16px rgba(3, 199, 90, 0.08);
 }}
 div[data-testid="stMetric"] label {{
   color: var(--np-muted) !important;
   font-weight: 600 !important;
-  font-size: clamp(0.75rem, 2vw, 0.88rem) !important;
+  font-size: 0.72rem !important;
 }}
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
   color: var(--np-ink) !important;
   font-weight: 800 !important;
-  letter-spacing: -0.03em;
-  font-size: clamp(1.05rem, 3.4vw, 1.55rem) !important;
+  letter-spacing: -0.04em;
+  font-size: clamp(1rem, 2.6vw, 1.28rem) !important;
   word-break: break-word;
 }}
 
+div[data-testid="stTabs"] [data-baseweb="tab-list"] {{
+  gap: 0.1rem !important;
+  border-bottom: 1px solid var(--np-line) !important;
+  overflow-x: auto !important;
+  flex-wrap: nowrap !important;
+}}
 button[data-baseweb="tab"] {{
   font-weight: 700 !important;
-  border-radius: 999px !important;
-  font-size: clamp(0.82rem, 2.2vw, 0.95rem) !important;
+  border-radius: 0 !important;
+  font-size: 0.9rem !important;
+  padding: 0.5rem 0.8rem !important;
+  color: var(--np-muted) !important;
+  background: transparent !important;
+  border-bottom: 2px solid transparent !important;
+  white-space: nowrap !important;
 }}
 button[data-baseweb="tab"][aria-selected="true"] {{
-  background: var(--np-soft) !important;
-  color: var(--np-green-deep) !important;
+  background: transparent !important;
+  color: var(--np-ink) !important;
+  border-bottom: 2px solid var(--np-green) !important;
+}}
+div[data-testid="stTabs"] [data-baseweb="tab-panel"] {{
+  padding-top: 0.7rem !important;
+}}
+
+div[data-testid="stRadio"] > div {{
+  gap: 0.3rem !important;
+  flex-wrap: wrap !important;
+}}
+div[data-testid="stRadio"] label {{
+  background: #fff !important;
+  border: 1px solid var(--np-line) !important;
+  border-radius: 999px !important;
+  padding: 0.22rem 0.7rem !important;
 }}
 
 details[data-testid="stExpander"] {{
@@ -374,21 +414,21 @@ div[data-testid="stPlotlyChart"],
   max-width: 100% !important;
 }}
 div[data-testid="stPlotlyChart"] {{
-  margin: 0.35rem 0 1.4rem 0 !important;
-  padding-top: 0.15rem !important;
+  margin: 0.15rem 0 0.55rem 0 !important;
+  padding-top: 0 !important;
   overflow: visible !important;
 }}
 /* Streamlit section titles above charts — keep clear gap */
 .stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
 .stMarkdown h4, .stMarkdown h5, .stMarkdown h6,
 [data-testid="stMarkdownContainer"] h5 {{
-  margin-top: 0.85rem !important;
-  margin-bottom: 0.65rem !important;
-  line-height: 1.35 !important;
+  margin-top: 0.35rem !important;
+  margin-bottom: 0.35rem !important;
+  line-height: 1.3 !important;
 }}
 /* Avoid stacked title+chart feeling cramped inside columns */
 div[data-testid="column"] div[data-testid="stPlotlyChart"] {{
-  margin-bottom: 1.6rem !important;
+  margin-bottom: 0.65rem !important;
 }}
 div[data-testid="stVerticalBlockBorderWrapper"] {{
   overflow: visible !important;
@@ -397,13 +437,56 @@ div[data-testid="stVerticalBlockBorderWrapper"] {{
 .np-hero {{
   position: relative;
   overflow: hidden;
-  border-radius: clamp(14px, 3vw, 22px);
-  padding: clamp(1rem, 3vw, 1.35rem) clamp(1rem, 3vw, 1.4rem);
-  margin: 0 0 clamp(0.85rem, 2vw, 1.25rem) 0;
+  border-radius: 16px;
+  padding: 0.85rem 1rem;
+  margin: 0 0 0.65rem 0;
   color: #fff;
   background: linear-gradient(135deg, {PRIMARY} 0%, {PRIMARY_DEEP} 55%, #018A3D 100%);
-  box-shadow: 0 14px 36px rgba(3, 199, 90, 0.28);
-  animation: npFadeUp 0.45s ease both;
+  box-shadow: 0 10px 28px rgba(3, 199, 90, 0.22);
+  animation: npFadeUp 0.35s ease both;
+}}
+.np-hero.np-hero-compact {{
+  padding: 0.65rem 0.9rem;
+  margin-bottom: 0.5rem;
+  border-radius: 14px;
+}}
+.np-hero.np-hero-compact .np-hero-title {{
+  font-size: 1.15rem !important;
+  margin: 0 !important;
+}}
+.np-hero.np-hero-compact .np-hero-sub {{
+  margin-top: 0.15rem;
+  opacity: 0.9;
+  font-size: 0.82rem;
+}}
+.np-hero.np-hero-compact .np-hero-brand {{
+  font-size: 0.72rem;
+  margin-bottom: 0.1rem;
+}}
+.np-networth {{
+  background: #fff;
+  border: 1px solid var(--np-line);
+  border-radius: 16px;
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.55rem;
+}}
+.np-networth-label {{
+  color: var(--np-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}}
+.np-networth-value {{
+  font-size: clamp(1.55rem, 4vw, 2rem);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  color: var(--np-ink);
+  line-height: 1.15;
+  margin-top: 0.15rem;
+}}
+.np-networth-sub {{
+  color: var(--np-muted);
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
 }}
 .np-hero::after {{
   content: "";
@@ -539,14 +622,36 @@ header[data-testid="stHeader"] {{ background: transparent !important; }}
     )
 
 
-def page_hero(title: str, subtitle: str = "", brand: str = "부부 자산 마스터") -> None:
+def page_hero(
+    title: str,
+    subtitle: str = "",
+    brand: str = "부부 자산 마스터",
+    *,
+    compact: bool = False,
+) -> None:
     sub = f'<div class="np-hero-sub">{subtitle}</div>' if subtitle else ""
+    cls = "np-hero np-hero-compact" if compact else "np-hero"
     st.markdown(
         f"""
-<div class="np-hero">
+<div class="{cls}">
   <div class="np-hero-brand">{brand}</div>
   <h1 class="np-hero-title">{title}</h1>
   {sub}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def networth_banner(label: str, value: str, sub: str = "") -> None:
+    """Toss-style large net-worth strip."""
+    sub_html = f'<div class="np-networth-sub">{sub}</div>' if sub else ""
+    st.markdown(
+        f"""
+<div class="np-networth">
+  <div class="np-networth-label">{label}</div>
+  <div class="np-networth-value">{value}</div>
+  {sub_html}
 </div>
 """,
         unsafe_allow_html=True,
