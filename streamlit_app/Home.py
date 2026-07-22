@@ -15,8 +15,8 @@ from lib.auth import logout_and_clear, remember_login  # noqa: E402
 from lib.session_persist import ensure_persistent_login  # noqa: E402
 from lib.supabase_client import (  # noqa: E402
     ConfigError,
-    PUBLIC_APP_URL,
     get_anon_client,
+    get_public_app_url,
     is_email_allowed,
     upsert_app_user,
 )
@@ -134,10 +134,11 @@ def _ensure_allowed_and_profile() -> bool:
 def _oauth_login_url() -> str | None:
     try:
         client = get_anon_client()
+        redirect_to = get_public_app_url()
         result = client.auth.sign_in_with_oauth(
             {
                 "provider": "google",
-                "options": {"redirect_to": PUBLIC_APP_URL},
+                "options": {"redirect_to": redirect_to},
             }
         )
         return getattr(result, "url", None) or (

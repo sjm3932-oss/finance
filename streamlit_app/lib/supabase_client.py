@@ -9,17 +9,26 @@ from typing import Any
 from dotenv import load_dotenv
 from supabase import Client, create_client
 
-load_dotenv()
+load_dotenv(override=False)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://lsqkixysysfhywipmrky.supabase.co").rstrip("/")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-PUBLIC_APP_URL = os.getenv("PUBLIC_APP_URL", "http://localhost:8501").rstrip("/")
 ALLOWED_EMAILS = {
     e.strip().lower()
     for e in os.getenv("ALLOWED_EMAILS", "").split(",")
     if e.strip()
 }
+
+
+def get_public_app_url() -> str:
+    """Live app URL for OAuth redirect (re-reads .env so tunnel swaps apply)."""
+    load_dotenv(override=True)
+    return os.getenv("PUBLIC_APP_URL", "http://localhost:8501").rstrip("/")
+
+
+# Back-compat for importers; prefer get_public_app_url() for OAuth.
+PUBLIC_APP_URL = get_public_app_url()
 
 
 class ConfigError(RuntimeError):
