@@ -9,6 +9,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from lib.chart_period import filter_by_period, period_radio
 from lib.theme import CHART_COLORS, PRIMARY, chart_layout, show_plotly
 from lib.ui_ko import DEBT_TX_KO, FLOW_KIND_KO, FLOW_TYPE_KO, TRADE_TYPE_KO
 
@@ -62,7 +63,8 @@ def render_flow_charts(client) -> None:
     render_total_realized_pnl(client, compact=True)
     st.divider()
 
-    df = _load_flows(client)
+    months = period_radio(key="asset_flow_chart_period", default="1년")
+    df = filter_by_period(_load_flows(client), months, date_col="event_date")
     realized = client.table("v_realized_pnl").select("*").execute().data or []
     unrealized = client.table("v_unrealized_pnl").select("*").execute().data or []
 
@@ -70,8 +72,10 @@ def render_flow_charts(client) -> None:
         st.info("아직 자산 흐름 기록이 없습니다. 「기록하기」에서 입력하세요.")
         return
 
-    # KPI strip
-    if not df.empty:
+    if df.empty:
+        st.info("선택한 기간에 자산 흐름 기록이 없습니다.")
+        # Still show unrealized (current) below
+    else:
         trade_n = int((df["flow_kind"] == "trade").sum())
         div_sum = float(df.loc[df["flow_kind"] == "dividend", "amount"].sum() or 0)
         subtype = df.get("flow_subtype")
@@ -137,14 +141,14 @@ def render_flow_charts(client) -> None:
             money = money.sort_values("event_date")
             money["종류"] = money["flow_kind_ko"]
             fig = px.bar(
-                money.tail(60),
+                money,
                 x="event_date",
                 y="amount",
                 color="종류",
                 color_discrete_sequence=CHART_COLORS,
                 labels={"event_date": "일자", "amount": "금액"},
             )
-            fig.update_layout(**chart_layout(280, with_title=True), title="최근 입출금·배당·부채")
+            fig.update_layout(**chart_layout(280, with_title=True), title="기간 입출금·배당·부채")
             show_plotly(fig)
 
         trades = df[df["flow_kind"] == "trade"].dropna(subset=["asset_ref", "amount"])

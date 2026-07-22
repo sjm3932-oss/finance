@@ -11,6 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from lib.chart_period import filter_by_period, period_radio
 from lib.theme import CHART_COLORS, PRIMARY, apply_chart_layout, show_plotly
 from lib.ui_ko import PNL_KIND_KO
 
@@ -23,22 +24,6 @@ KIND_COLORS = {
 }
 
 KIND_ORDER = ["매매실현", "배당", "이자수입", "이자비용"]
-
-# Period presets (months back from latest data month). None = all time.
-PERIOD_OPTIONS: list[tuple[str, int | None]] = [
-    ("3개월", 3),
-    ("6개월", 6),
-    ("1년", 12),
-    ("3년", 36),
-    ("전체", None),
-]
-
-# Disable drag-zoom / pan on realized-PnL charts (period buttons instead)
-_NO_DRAG = dict(
-    dragmode=False,
-    xaxis=dict(fixedrange=True),
-    yaxis=dict(fixedrange=True),
-)
 
 
 def _usdkrw(client) -> float | None:
@@ -113,36 +98,6 @@ def _value_setup(df: pd.DataFrame, client) -> tuple[str, str, bool, float | None
     return value_col, unit, use_krw, rate
 
 
-def _period_selector(*, key: str, default: str = "1년") -> int | None:
-    """Render period buttons; return months-back (None = 전체)."""
-    labels = [p[0] for p in PERIOD_OPTIONS]
-    default_idx = labels.index(default) if default in labels else 0
-    choice = st.radio(
-        "기간",
-        options=labels,
-        index=default_idx,
-        horizontal=True,
-        key=key,
-        help="드래그 줌 대신 버튼을 눌러 조회 기간을 고르세요. 데이터는 월별로 집계됩니다.",
-    )
-    mapping = dict(PERIOD_OPTIONS)
-    return mapping[choice]
-
-
-def _filter_period(df: pd.DataFrame, months: int | None) -> pd.DataFrame:
-    """Keep rows within the last N months of the latest event (inclusive)."""
-    if df.empty or months is None:
-        return df
-    tmp = df.dropna(subset=["event_date"])
-    if tmp.empty:
-        return df.iloc[0:0].copy()
-    latest = tmp["event_date"].max()
-    # Start of the month that is (months-1) before the latest month
-    end_month = latest.to_period("M").to_timestamp()
-    start = end_month - pd.DateOffset(months=months - 1)
-    return df[df["event_date"] >= start].copy()
-
-
 def _monthly_totals(df: pd.DataFrame, value_col: str) -> pd.DataFrame:
     """Aggregate to one row per calendar month."""
     tmp = df.dropna(subset=["event_date"]).copy()
@@ -211,8 +166,7 @@ def _chart_cumulative_total(monthly: pd.DataFrame, value_col: str, unit: str, *,
         height,
         title="누적 실현손익 (월별)",
         yaxis_title=unit,
-        xaxis_title="월",
-        **_NO_DRAG,
+        xaxis_title="월"
     )
     show_plotly(fig)
 
@@ -239,8 +193,7 @@ def _chart_period_change(monthly: pd.DataFrame, value_col: str, unit: str, *, he
         title="실현손익 증감 (월별)",
         yaxis_title=unit,
         xaxis_title="월",
-        showlegend=False,
-        **_NO_DRAG,
+        showlegend=False
     )
     show_plotly(fig)
 
@@ -283,8 +236,7 @@ def _chart_cumulative_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, he
         title="종류별 누적 실현손익 (월별 · 매매 · 배당 · 이자)",
         yaxis_title=unit,
         xaxis_title="월",
-        legend_title_text="",
-        **_NO_DRAG,
+        legend_title_text=""
     )
     show_plotly(fig)
 
@@ -317,8 +269,7 @@ def _chart_monthly_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, heigh
         fig,
         height,
         title="월별 실현손익 구성 (매매 · 배당 · 이자)",
-        legend_title_text="",
-        **_NO_DRAG,
+        legend_title_text=""
     )
     show_plotly(fig)
 
@@ -352,8 +303,7 @@ def _chart_by_ticker(df: pd.DataFrame, value_col: str, unit: str, *, use_krw: bo
         title="종목별 실현손익 합계",
         xaxis_title=unit,
         yaxis_title="",
-        showlegend=False,
-        **_NO_DRAG,
+        showlegend=False
     )
     show_plotly(fig)
 
@@ -390,8 +340,7 @@ def _chart_ticker_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, height
         height,
         title="종목별 · 종류별 실현손익 (매매 vs 배당)",
         legend_title_text="",
-        xaxis_title="종목",
-        **_NO_DRAG,
+        xaxis_title="종목"
     )
     show_plotly(fig)
 
@@ -445,8 +394,8 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
 
     # —— compact (overview / asset flows) ——
     if compact:
-        months = _period_selector(key="realized_pnl_period_compact", default="1년")
-        df = _filter_period(df_all, months)
+        months = period_radio(key="realized_pnl_period_compact", default="1년")
+        df = filter_by_period(df_all, months)
         if df.empty:
             st.info("선택한 기간에 실현손익이 없습니다.")
             return
@@ -460,7 +409,7 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
         return
 
     # —— full view ——
-    months = _period_selector(key="realized_pnl_period", default="1년")
+    months = period_radio(key="realized_pnl_period", default="1년")
     tickers = _ticker_options(df_all)
     scope = st.radio(
         "보기",
@@ -484,7 +433,7 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
     else:
         scoped = df_all
 
-    df = _filter_period(scoped, months)
+    df = filter_by_period(scoped, months)
     if df.empty:
         st.info("선택한 기간에 실현손익이 없습니다.")
         return
@@ -534,7 +483,6 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
             title=f"{selected_ticker} · 종류별 실현손익",
             yaxis_title=unit,
             xaxis_title="",
-            showlegend=False,
-            **_NO_DRAG,
+            showlegend=False
         )
         show_plotly(fig)

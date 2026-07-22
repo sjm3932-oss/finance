@@ -56,6 +56,7 @@ CHART_LAYOUT = dict(
     hovermode="x unified",
     colorway=CHART_COLORS,
     autosize=True,
+    dragmode=False,
 )
 
 
@@ -95,7 +96,10 @@ def apply_chart_layout(fig, height: int = 300, *, title: str | None = None, **ex
 
 
 def show_plotly(fig, *, key: str | None = None) -> None:
-    """Render Plotly figure with spacing that avoids title/legend collisions."""
+    """Render Plotly figure with spacing that avoids title/legend collisions.
+
+    Drag / box / scroll zoom are always disabled — use period radios instead.
+    """
     has_title = bool(getattr(fig.layout, "title", None) and getattr(fig.layout.title, "text", None))
     has_y2 = bool(getattr(fig.layout, "yaxis2", None) and fig.layout.yaxis2)
     height = int(fig.layout.height or 300) if fig.layout.height else 300
@@ -115,7 +119,11 @@ def show_plotly(fig, *, key: str | None = None) -> None:
         autosize=True,
         hovermode=base.get("hovermode", "x unified"),
         height=height,
+        dragmode=False,
     )
+    # Lock every cartesian axis so pinch/drag cannot zoom
+    fig.update_xaxes(fixedrange=True)
+    fig.update_yaxes(fixedrange=True)
     if has_title:
         # Restyle without rebuilding title=dict(**defaults, pad=...) —
         # Plotly merges into the existing Title and duplicate pad blows up.
@@ -131,6 +139,18 @@ def show_plotly(fig, *, key: str | None = None) -> None:
             "responsive": True,
             "displayModeBar": False,
             "scrollZoom": False,
+            "doubleClick": False,
+            "showTips": False,
+            "modeBarButtonsToRemove": [
+                "zoom2d",
+                "zoomIn2d",
+                "zoomOut2d",
+                "pan2d",
+                "select2d",
+                "lasso2d",
+                "autoScale2d",
+                "resetScale2d",
+            ],
         },
     }
     if key:

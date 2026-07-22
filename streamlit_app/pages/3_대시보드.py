@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
 
 from lib.asset_flows_ui import render_flow_charts, render_flow_forms  # noqa: E402
 from lib.auth import ensure_profile, require_auth  # noqa: E402
+from lib.chart_period import filter_by_period, period_radio  # noqa: E402
 from lib.market_data import STALE_HOURS, fetch_usdkrw, is_stale, refresh_tickers  # noqa: E402
 from lib.realized_pnl_ui import render_total_realized_pnl  # noqa: E402
 from lib.supabase_client import get_service_client  # noqa: E402
@@ -245,14 +246,15 @@ def view_overview(client, live_rows, total_usd, total_krw, total_debt, any_stale
     st.markdown("##### 실현손익 (매매·배당·이자 합산)")
     render_total_realized_pnl(client, compact=True)
 
-    tdf = _load_daily_totals(client)
-    hdf = _load_holding_snaps(client)
+    months = period_radio(key="overview_chart_period", default="1년")
+    tdf = filter_by_period(_load_daily_totals(client), months, date_col="snapshot_date")
+    hdf = filter_by_period(_load_holding_snaps(client), months, date_col="snapshot_date")
 
     left, right = st.columns(2, gap="medium")
     with left:
         st.markdown("##### 총자산 추이")
         if tdf.empty:
-            st.info("스냅샷이 없습니다. 「오늘 스냅샷」을 눌러 시작하세요.")
+            st.info("선택한 기간에 스냅샷이 없습니다. 「오늘 스냅샷」을 눌러 시작하세요.")
         else:
             fig = go.Figure()
             fig.add_trace(
@@ -354,7 +356,8 @@ def view_overview(client, live_rows, total_usd, total_krw, total_debt, any_stale
 
 def view_tickers(client, live_rows) -> None:
     """All tickers or one ticker; always show per-account rows + cross-account totals."""
-    hdf = _load_holding_snaps(client)
+    months = period_radio(key="ticker_chart_period", default="1년")
+    hdf = filter_by_period(_load_holding_snaps(client), months, date_col="snapshot_date")
     amap = _account_map(client)
     if not hdf.empty and "account_id" in hdf.columns:
         hdf = hdf.copy()
@@ -573,9 +576,9 @@ def _view_one_ticker(ticker: str, live_rows: list[dict], hdf: pd.DataFrame) -> N
     )
     fig.update_layout(
         **chart_layout(320, with_title=True),
-        title=f"{ticker} 합산 일별 추이",
-        yaxis=dict(title="평가액(원)"),
-        yaxis2=dict(title="가격", overlaying="y", side="right"),
+        title=f"{ticker} 합산 추이",
+        yaxis=dict(title="평가액(원)", fixedrange=True),
+        yaxis2=dict(title="가격", overlaying="y", side="right", fixedrange=True),
     )
     show_plotly(fig)
 
