@@ -7,6 +7,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,8 +15,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from lib.auth import ensure_profile, require_auth  # noqa: E402
+from lib.ui_ko import STATUS_KO, localize_flow_df, rename_columns  # noqa: E402
 
-st.set_page_config(page_title="Review Staging", layout="wide")
+st.set_page_config(page_title="스테이징 검토", layout="wide")
 
 
 def _signed_url(client, path: str) -> str | None:
@@ -41,18 +43,19 @@ def _signed_url(client, path: str) -> str | None:
 
 
 def main() -> None:
-    st.title("Review Staging")
+    st.title("스테이징 검토")
     st.caption(
-        "Human-in-the-loop: pending/failed 항목을 수정하고 승인하면 trades/holdings에 커밋됩니다."
+        "사람 검토: 대기/실패 항목을 수정하고 승인하면 trades/holdings에 커밋됩니다."
     )
 
     user, client = require_auth()
     ensure_profile(user, client)
 
     status_filter = st.multiselect(
-        "Status filter",
+        "상태 필터",
         options=["pending", "failed", "approved", "rejected"],
         default=["pending", "failed"],
+        format_func=lambda x: STATUS_KO.get(x, x),
     )
     query = (
         client.table("ocr_staging")
@@ -69,24 +72,27 @@ def main() -> None:
         return
 
     labels = {
-        r["id"]: f"{r['created_at']} · {r['status']} · {r['id'][:8]}"
+        r["id"]: f"{r['created_at']} · {STATUS_KO.get(r['status'], r['status'])} · {r['id'][:8]}"
         for r in rows
     }
     selected_id = st.selectbox(
-        "Staging row",
+        "스테이징 항목",
         options=list(labels.keys()),
         format_func=lambda i: labels[i],
     )
     row = next(r for r in rows if r["id"] == selected_id)
 
-    st.write(f"**Image path:** `{row['image_url']}`")
-    st.write(f"**Status:** `{row['status']}` · uploaded_by `{row['uploaded_by']}`")
+    st.write(f"**이미지 경로:** `{row['image_url']}`")
+    st.write(
+        f"**상태:** `{STATUS_KO.get(row['status'], row['status'])}` · "
+        f"업로더 `{row['uploaded_by']}`"
+    )
 
     url = _signed_url(client, row["image_url"])
     if url:
-        st.image(url, caption="Uploaded screenshot", use_container_width=True)
+        st.image(url, caption="업로드된 스크린샷", use_container_width=True)
     else:
-        st.caption("Preview unavailable (signed URL could not be created).")
+        st.caption("미리보기를 사용할 수 없습니다 (서명 URL을 만들 수 없음).")
 
     parsed = row.get("parsed_json") or {}
     if isinstance(parsed, str):
@@ -101,20 +107,20 @@ def main() -> None:
         if current_account not in account_ids and account_ids:
             current_account = account_ids[0]
         account_id = st.selectbox(
-            "account_id",
+            "계좌",
             options=account_ids or [""],
             index=(account_ids.index(current_account) if current_account in account_ids else 0),
             format_func=lambda i: f"{account_map.get(i, i)} ({i})",
         )
         json_text = st.text_area(
-            "parsed_json (editable)",
+            "파싱 JSON (수정 가능)",
             value=json.dumps(parsed, ensure_ascii=False, indent=2),
             height=360,
         )
         col1, col2, col3 = st.columns(3)
-        approve = col1.form_submit_button("Approve & commit", type="primary")
-        reject = col2.form_submit_button("Reject")
-        save_only = col3.form_submit_button("Save edits (keep status)")
+        approve = col1.form_submit_button("승인 & 커밋", type="primary")
+        reject = col2.form_submit_button("반려")
+        save_only = col3.form_submit_button("수정만 저장 (상태 유지)")
 
     if not (approve or reject or save_only):
         return
@@ -122,7 +128,7 @@ def main() -> None:
     try:
         edited = json.loads(json_text)
     except json.JSONDecodeError as exc:
-        st.error(f"Invalid JSON: {exc}")
+        st.error(f"잘못된 JSON: {exc}")
         st.stop()
 
     edited["account_id"] = account_id
@@ -139,11 +145,11 @@ def main() -> None:
     try:
         client.table("ocr_staging").update(payload).eq("id", selected_id).execute()
     except Exception as exc:
-        st.error(f"Update failed (trigger may have rolled back approval): {exc}")
+        st.error(f"업데이트 실패 (트리거가 승인을 롤백했을 수 있음): {exc}")
         st.stop()
 
     if approve:
-        st.success("Approved. Checking trades/holdings…")
+        st.success("승인됨. 매매/보유 확인 중…")
         trades = (
             client.table("trades")
             .select("id, ticker, trade_type, quantity, price, trade_date, created_at")
@@ -160,14 +166,14 @@ def main() -> None:
             .execute()
             .data
         )
-        st.subheader("Recent trades")
-        st.dataframe(trades or [], use_container_width=True)
-        st.subheader("Holdings")
-        st.dataframe(holdings or [], use_container_width=True)
+        st.subheader("최근 매매")
+        st.dataframe(localize_flow_df(trades or []), use_container_width=True)
+        st.subheader("보유")
+        st.dataframe(rename_columns(pd.DataFrame(holdings or [])), use_container_width=True)
     elif reject:
-        st.warning("Rejected.")
+        st.warning("반려되었습니다.")
     else:
-        st.success("Saved edits.")
+        st.success("수정 내용이 저장되었습니다.")
 
 
 main()

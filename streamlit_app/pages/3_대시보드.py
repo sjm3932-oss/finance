@@ -18,8 +18,9 @@ if str(ROOT) not in sys.path:
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.market_data import STALE_HOURS, fetch_usdkrw, is_stale, refresh_tickers  # noqa: E402
 from lib.supabase_client import get_service_client  # noqa: E402
+from lib.ui_ko import rename_columns  # noqa: E402
 
-st.set_page_config(page_title="Dashboard", layout="wide")
+st.set_page_config(page_title="대시보드", layout="wide")
 
 st.markdown(
     """
@@ -110,7 +111,7 @@ def _load_daily_totals(client, days: int = 90) -> pd.DataFrame:
 
 
 def main() -> None:
-    st.title("Dashboard")
+    st.title("대시보드")
     st.caption("일별 자산 스냅샷 · 총자산/종목별 추이 · 특정일·특정종목 상세")
 
     user, client = require_auth()
@@ -248,11 +249,11 @@ def main() -> None:
                     mode="lines+markers",
                 )
             )
-        fig_total.update_layout(**CHART_LAYOUT, yaxis_title="KRW", xaxis_title="날짜")
+        fig_total.update_layout(**CHART_LAYOUT, yaxis_title="평가액(원)", xaxis_title="날짜")
         fig_total.update_layout(autosize=True)
         st.plotly_chart(fig_total, use_container_width=True, config={"responsive": True})
 
-    st.subheader("종목별 평가액 추이 (KRW)")
+    st.subheader("종목별 평가액 추이")
     if hdf.empty:
         st.info("종목 스냅샷이 아직 없습니다.")
     else:
@@ -268,7 +269,7 @@ def main() -> None:
                 markers=True,
                 labels={
                     "snapshot_date": "날짜",
-                    "market_value_krw": "평가액 (KRW)",
+                    "market_value_krw": "평가액(원)",
                     "ticker": "종목",
                 },
             )
@@ -287,7 +288,7 @@ def main() -> None:
                 color="ticker",
                 labels={
                     "snapshot_date": "날짜",
-                    "market_value_krw": "평가액 (KRW)",
+                    "market_value_krw": "평가액(원)",
                     "ticker": "종목",
                 },
             )
@@ -298,7 +299,7 @@ def main() -> None:
     dates = sorted({r["snapshot_date"] for r in (hdf.to_dict("records") if not hdf.empty else [])})
     if not dates:
         # fall back to live table only
-        st.dataframe(live_rows, use_container_width=True, hide_index=True)
+        st.dataframe(rename_columns(pd.DataFrame(live_rows)), use_container_width=True, hide_index=True)
         return
 
     dcol, tcol = st.columns(2)
@@ -340,7 +341,7 @@ def main() -> None:
             a, b, c, d = st.columns(4)
             a.metric("수량", f"{float(row['quantity']):,.4f}".rstrip("0").rstrip("."))
             b.metric("종가/시세", _fmt_money(row["price"], row.get("currency") or "USD"))
-            c.metric("평가액(KRW)", _fmt_money(row["market_value_krw"], "KRW"))
+            c.metric("평가액(원)", _fmt_money(row["market_value_krw"], "KRW"))
             d.metric("수익률", f"{row['return_rate']:.2f}%" if pd.notna(row["return_rate"]) else "—")
 
             # Single-asset history chart
@@ -350,7 +351,7 @@ def main() -> None:
                 go.Scatter(
                     x=one["snapshot_date"],
                     y=one["market_value_krw"],
-                    name="평가액(KRW)",
+                    name="평가액(원)",
                     mode="lines+markers",
                     yaxis="y1",
                 )
@@ -367,8 +368,8 @@ def main() -> None:
             fig_one.update_layout(
                 **CHART_LAYOUT,
                 title=f"{pick_ticker} 일별 추이",
-                yaxis=dict(title="KRW"),
-                yaxis2=dict(title="Price", overlaying="y", side="right"),
+                yaxis=dict(title="평가액(원)"),
+                yaxis2=dict(title="가격", overlaying="y", side="right"),
             )
             st.plotly_chart(fig_one, use_container_width=True, config={"responsive": True})
 
@@ -387,10 +388,10 @@ def main() -> None:
                 "usdkrw",
             ]
         ]
-        st.dataframe(show, use_container_width=True, hide_index=True)
+        st.dataframe(rename_columns(show), use_container_width=True, hide_index=True)
 
     st.subheader("현재 보유 (실시간)")
-    st.dataframe(live_rows, use_container_width=True, hide_index=True)
+    st.dataframe(rename_columns(pd.DataFrame(live_rows)), use_container_width=True, hide_index=True)
 
 
 main()

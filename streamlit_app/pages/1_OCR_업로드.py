@@ -17,13 +17,14 @@ if str(ROOT) not in sys.path:
 
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.gemini_client import GeminiError, parse_screenshot  # noqa: E402
+from lib.ui_ko import ACCOUNT_TYPE_KO  # noqa: E402
 
-st.set_page_config(page_title="Upload OCR", layout="wide")
+st.set_page_config(page_title="OCR 업로드", layout="wide")
 
 
 def main() -> None:
-    st.title("Upload OCR")
-    st.caption("스크린샷 → Gemini Vision → ocr_staging (pending/failed)")
+    st.title("OCR 업로드")
+    st.caption("스크린샷 → Gemini Vision → ocr_staging (대기/실패)")
 
     user, client = require_auth()
     ensure_profile(user, client)
@@ -31,14 +32,18 @@ def main() -> None:
     accounts_resp = client.table("accounts").select("id, institution, account_type, currency").execute()
     accounts = accounts_resp.data or []
 
-    with st.expander("Create account (required before approve)", expanded=not accounts):
+    with st.expander("계좌 만들기 (승인 전 필요)", expanded=not accounts):
         with st.form("create_account"):
-            institution = st.text_input("Institution", placeholder="토스증권")
-            account_type = st.selectbox("Type", ["brokerage", "bank", "loan"])
-            currency = st.selectbox("Currency", ["KRW", "USD"])
-            if st.form_submit_button("Create account"):
+            institution = st.text_input("금융기관", placeholder="토스증권")
+            account_type = st.selectbox(
+                "계좌유형",
+                ["brokerage", "bank", "loan"],
+                format_func=lambda x: ACCOUNT_TYPE_KO.get(x, x),
+            )
+            currency = st.selectbox("통화", ["KRW", "USD"])
+            if st.form_submit_button("계좌 생성"):
                 if not institution.strip():
-                    st.error("Institution required")
+                    st.error("금융기관명을 입력하세요")
                 else:
                     client.table("accounts").insert(
                         {
@@ -48,7 +53,7 @@ def main() -> None:
                             "currency": currency,
                         }
                     ).execute()
-                    st.success("Account created")
+                    st.success("계좌가 생성되었습니다")
                     st.rerun()
 
     if not accounts:
@@ -56,27 +61,30 @@ def main() -> None:
         return
 
     account_labels = {
-        a["id"]: f"{a['institution']} ({a['account_type']}, {a['currency']})"
+        a["id"]: (
+            f"{a['institution']} "
+            f"({ACCOUNT_TYPE_KO.get(a['account_type'], a['account_type'])}, {a['currency']})"
+        )
         for a in accounts
     }
     selected_account = st.selectbox(
-        "Target account for this upload",
+        "이 업로드의 대상 계좌",
         options=list(account_labels.keys()),
         format_func=lambda i: account_labels[i],
     )
 
     uploaded = st.file_uploader(
-        "Balance / trade screenshot",
+        "잔고 / 매매 스크린샷",
         type=["png", "jpg", "jpeg", "webp", "gif"],
     )
 
-    if uploaded and st.button("Parse & stage", type="primary"):
+    if uploaded and st.button("파싱 & 스테이징", type="primary"):
         image_bytes = uploaded.getvalue()
         mime = uploaded.type or mimetypes.guess_type(uploaded.name)[0] or "image/png"
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         object_path = f"{user.id}/{stamp}_{uuid.uuid4().hex}_{uploaded.name}"
 
-        with st.spinner("Uploading to Storage…"):
+        with st.spinner("Storage에 업로드 중…"):
             storage = client.storage.from_("ocr-screenshots")
             try:
                 storage.upload(
@@ -85,7 +93,7 @@ def main() -> None:
                     file_options={"content-type": mime, "upsert": "false"},
                 )
             except Exception as exc:
-                st.error(f"Storage upload failed: {exc}")
+                st.error(f"Storage 업로드 실패: {exc}")
                 st.stop()
             image_url = object_path
 
@@ -97,7 +105,7 @@ def main() -> None:
         status = "pending"
         error_msg = None
 
-        with st.spinner("Calling Gemini Vision…"):
+        with st.spinner("Gemini Vision 호출 중…"):
             try:
                 parsed = parse_screenshot(image_bytes, mime_type=mime)
                 parsed["account_id"] = selected_account
@@ -108,7 +116,7 @@ def main() -> None:
                     and not parsed.get("holdings_snapshot")
                 ):
                     status = "failed"
-                    error_msg = "Gemini could not read the screenshot"
+                    error_msg = "Gemini가 스크린샷을 읽을 수 없습니다"
             except GeminiError as exc:
                 status = "failed"
                 error_msg = str(exc)
@@ -129,13 +137,13 @@ def main() -> None:
         created = (insert.data or [None])[0]
 
         if status == "failed":
-            st.error(f"Staged as failed: {error_msg}. Re-upload or edit later.")
+            st.error(f"실패로 스테이징됨: {error_msg}. 다시 업로드하거나 나중에 수정하세요.")
         else:
-            st.success(f"Staged as pending: `{created['id'] if created else 'ok'}`")
+            st.success(f"대기로 스테이징됨: `{created['id'] if created else 'ok'}`")
 
-        st.subheader("Parsed JSON")
+        st.subheader("파싱된 JSON")
         st.code(json.dumps(parsed_json, ensure_ascii=False, indent=2), language="json")
-        st.info("다음: **Review Staging** 페이지에서 검토 후 승인하세요.")
+        st.info("다음: **스테이징 검토** 페이지에서 검토 후 승인하세요.")
 
 
 main()

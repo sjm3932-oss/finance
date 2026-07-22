@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import httpx
+import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -17,8 +18,9 @@ if str(ROOT) not in sys.path:
 
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.supabase_client import PUBLIC_APP_URL, SUPABASE_URL, get_service_client  # noqa: E402
+from lib.ui_ko import rename_columns  # noqa: E402
 
-st.set_page_config(page_title="Notifications", layout="wide")
+st.set_page_config(page_title="알림·작업", layout="wide")
 
 VAPID_PUBLIC = os.getenv("VAPID_PUBLIC_KEY", "")
 
@@ -46,14 +48,14 @@ def _invoke(name: str, token: str) -> dict:
 
 
 def main() -> None:
-    st.title("Notifications & Jobs")
+    st.title("알림·작업")
     st.caption("Web Push 구독 · 아침 브리핑/시세/백업 수동 실행")
 
     user, client = require_auth()
     ensure_profile(user, client)
     access = st.session_state.get("access_token") or ""
 
-    st.subheader("Push 구독")
+    st.subheader("푸시 구독")
     if not VAPID_PUBLIC:
         st.error("VAPID_PUBLIC_KEY가 없습니다. `.env`를 확인하세요.")
     else:
@@ -111,7 +113,7 @@ async function subscribe() {{
       body: JSON.stringify(row)
     }});
     const text = await res.text();
-    out.textContent = 'status ' + res.status + '\\n' + text;
+    out.textContent = '상태 ' + res.status + '\\n' + text;
   }} catch (e) {{
     out.textContent = String(e);
   }}
@@ -134,7 +136,18 @@ document.getElementById('btn').onclick = subscribe;
     st.write(f"등록된 구독: **{len(subs)}**")
     if subs:
         st.dataframe(
-            [{"id": s["id"][:8], "endpoint": s["endpoint"][:48] + "…", "at": s["created_at"]} for s in subs],
+            rename_columns(
+                pd.DataFrame(
+                    [
+                        {
+                            "id": s["id"][:8],
+                            "endpoint": s["endpoint"][:48] + "…",
+                            "created_at": s["created_at"],
+                        }
+                        for s in subs
+                    ]
+                )
+            ),
             use_container_width=True,
             hide_index=True,
         )
@@ -171,7 +184,7 @@ document.getElementById('btn').onclick = subscribe;
         or []
     )
     st.subheader("최근 스냅샷")
-    st.dataframe(snaps, use_container_width=True, hide_index=True)
+    st.dataframe(rename_columns(pd.DataFrame(snaps)), use_container_width=True, hide_index=True)
 
     st.caption(f"PUBLIC_APP_URL={PUBLIC_APP_URL}")
 

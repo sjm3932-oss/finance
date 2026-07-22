@@ -25,7 +25,7 @@ def require_auth():
         st.warning("홈에서 먼저 로그인하세요. (한 번 로그인하면 다음부터 유지됩니다)")
         st.stop()
     if not is_email_allowed(getattr(user, "email", None)):
-        st.error("Access denied")
+        st.error("접근이 거부되었습니다")
         st.stop()
     refresh = st.session_state.get("refresh_token")
     try:
@@ -42,7 +42,7 @@ def ensure_profile(user, client):
     try:
         st.session_state.app_user = upsert_app_user(client, user)
     except Exception as exc:
-        st.error(f"Could not register user profile: {exc}")
+        st.error(f"사용자 프로필을 등록할 수 없습니다: {exc}")
         st.stop()
     return st.session_state.app_user
 

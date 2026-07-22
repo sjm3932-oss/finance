@@ -20,7 +20,7 @@ from lib.wealth_context import (  # noqa: E402
     logs_to_chat_turns,
 )
 
-st.set_page_config(page_title="Wealth Chat", layout="wide")
+st.set_page_config(page_title="자산 챗", layout="wide")
 
 st.markdown(
     """
@@ -56,7 +56,7 @@ def _hydrate_from_logs(client) -> None:
 
 
 def main() -> None:
-    st.title("Wealth Chat")
+    st.title("자산 챗")
     st.caption(
         "자산 DB + 이전 대화 로그를 함께 보고 맥락을 이어갑니다. "
         "숫자는 최신 포트폴리오가 우선입니다."
@@ -95,7 +95,7 @@ def main() -> None:
         f"최근 대화 로그 {meta.get('chat_logs', '?')}건"
     )
 
-    with st.expander("컨텍스트 미리보기 (포트폴리오 + recent_chat_logs)", expanded=False):
+    with st.expander("컨텍스트 미리보기 (포트폴리오 + 최근 대화 로그)", expanded=False):
         st.code(st.session_state.wealth_ctx_text or "", language="json")
 
     for msg in st.session_state.wealth_chat:

@@ -14,8 +14,15 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from lib.auth import ensure_profile, require_auth  # noqa: E402
+from lib.ui_ko import (  # noqa: E402
+    DEBT_TX_KO,
+    FLOW_TYPE_KO,
+    TRADE_TYPE_KO,
+    localize_flow_df,
+    rename_columns,
+)
 
-st.set_page_config(page_title="Asset Flows", layout="wide")
+st.set_page_config(page_title="자산 흐름", layout="wide")
 
 st.markdown(
     """
@@ -65,40 +72,56 @@ def tab_ledger(client) -> None:
         return
 
     kinds = sorted({r["flow_kind"] for r in rows})
-    pick = st.multiselect("종류 필터", kinds, default=kinds)
+    kind_labels = {
+        "trade": "매매",
+        "dividend": "배당",
+        "cash_flow": "현금흐름",
+        "debt": "부채",
+    }
+    pick = st.multiselect(
+        "종류 필터",
+        kinds,
+        default=kinds,
+        format_func=lambda k: kind_labels.get(k, k),
+    )
     filtered = [r for r in rows if r["flow_kind"] in pick] if pick else rows
-    df = pd.DataFrame(filtered)
+    df = localize_flow_df(filtered)
     show_cols = [
         c
         for c in [
-            "event_date",
-            "flow_kind",
-            "flow_subtype",
-            "asset_ref",
-            "amount",
-            "currency",
-            "realized_pnl",
-            "memo",
-            "source_table",
+            "발생일",
+            "흐름종류",
+            "세부유형",
+            "자산/항목",
+            "금액",
+            "통화",
+            "실현손익",
+            "메모",
+            "원천테이블",
         ]
         if c in df.columns
     ]
-    st.dataframe(df[show_cols], use_container_width=True, hide_index=True)
-    if "amount" in df.columns:
-        # Rough sum in mixed currencies — show separately
-        for ccy, g in df.groupby(df.get("currency", pd.Series(["KRW"] * len(df)))):
+    st.dataframe(df[show_cols] if show_cols else df, use_container_width=True, hide_index=True)
+    # Rough sum in mixed currencies — show separately (use original filtered rows)
+    raw = pd.DataFrame(filtered)
+    if "amount" in raw.columns:
+        for ccy, g in raw.groupby(raw.get("currency", pd.Series(["KRW"] * len(raw)))):
             st.caption(f"{ccy} 합계(필터): {_fmt(g['amount'].sum(), ccy)}")
 
 
 def tab_trade(client, user, accounts) -> None:
     st.subheader("매수 / 매도")
     if not accounts:
-        st.warning("먼저 Upload OCR에서 계좌를 만드세요.")
+        st.warning("먼저 OCR 업로드에서 계좌를 만드세요.")
         return
     amap = {a["id"]: f"{a['institution']} ({a['currency']})" for a in accounts}
     with st.form("trade_form"):
         account_id = st.selectbox("계좌", options=list(amap), format_func=lambda i: amap[i])
-        trade_type = st.selectbox("구분", ["buy", "sell"], format_func=lambda x: "매수" if x == "buy" else "매도")
+        trade_type = st.selectbox(
+            "구분",
+            ["buy", "sell"],
+            format_func=lambda x: TRADE_TYPE_KO.get(x, x),
+        )
         c1, c2 = st.columns(2)
         ticker = c1.text_input("티커", placeholder="TQQQ").strip().upper()
         trade_date = c2.date_input("일자", value=date.today())
@@ -145,7 +168,7 @@ def tab_trade(client, user, accounts) -> None:
         .data
         or []
     )
-    st.dataframe(recent, use_container_width=True, hide_index=True)
+    st.dataframe(localize_flow_df(recent), use_container_width=True, hide_index=True)
 
 
 def tab_dividend(client, user, accounts) -> None:
@@ -193,14 +216,18 @@ def tab_dividend(client, user, accounts) -> None:
         .data
         or []
     )
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rename_columns(pd.DataFrame(rows)), use_container_width=True, hide_index=True)
 
 
 def tab_cash(client, user, accounts) -> None:
     st.subheader("현금 흐름 (수입/지출)")
     amap = {a["id"]: a["institution"] for a in accounts} if accounts else {}
     with st.form("cash_form"):
-        flow_type = st.selectbox("유형", ["income", "expense"], format_func=lambda x: "수입" if x == "income" else "지출")
+        flow_type = st.selectbox(
+            "유형",
+            ["income", "expense"],
+            format_func=lambda x: FLOW_TYPE_KO.get(x, x),
+        )
         cats = CASH_INCOME_CATS if flow_type == "income" else CASH_EXPENSE_CATS
         category = st.selectbox("카테고리", cats + ["직접입력"])
         custom = st.text_input("직접 카테고리", "") if category == "직접입력" else ""
@@ -243,7 +270,7 @@ def tab_cash(client, user, accounts) -> None:
         .data
         or []
     )
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(localize_flow_df(rows), use_container_width=True, hide_index=True)
 
 
 def tab_debt(client, user) -> None:
@@ -279,7 +306,7 @@ def tab_debt(client, user) -> None:
         st.info("등록된 부채가 없습니다.")
         return
 
-    st.dataframe(debts, use_container_width=True, hide_index=True)
+    st.dataframe(rename_columns(pd.DataFrame(debts)), use_container_width=True, hide_index=True)
     dmap = {d["id"]: f"{d['lender']} (잔액 ₩{float(d['principal']):,.0f})" for d in debts}
 
     st.markdown("##### 부채 증감 기록")
@@ -288,12 +315,7 @@ def tab_debt(client, user) -> None:
         tx_type = st.selectbox(
             "유형",
             ["increase", "repayment", "decrease", "interest"],
-            format_func=lambda x: {
-                "increase": "증가(추가 차입)",
-                "repayment": "상환",
-                "decrease": "감소(기타)",
-                "interest": "이자 원금가산",
-            }[x],
+            format_func=lambda x: DEBT_TX_KO.get(x, x),
         )
         c1, c2 = st.columns(2)
         amount = c1.number_input("금액", min_value=0.0, step=10000.0, format="%.0f")
@@ -328,7 +350,7 @@ def tab_debt(client, user) -> None:
         .data
         or []
     )
-    st.dataframe(txs, use_container_width=True, hide_index=True)
+    st.dataframe(localize_flow_df(txs), use_container_width=True, hide_index=True)
 
 
 def tab_pnl(client) -> None:
@@ -340,28 +362,28 @@ def tab_pnl(client) -> None:
     with c1:
         st.markdown("**실현손익 (매도 기준)**")
         if realized:
-            st.dataframe(realized, use_container_width=True, hide_index=True)
+            st.dataframe(rename_columns(pd.DataFrame(realized)), use_container_width=True, hide_index=True)
             # sum by currency
             df = pd.DataFrame(realized)
             for ccy, g in df.groupby("currency"):
                 st.metric(f"실현합계 ({ccy})", _fmt(g["realized_pnl"].sum(), ccy))
         else:
-            st.info("매도 기록이 있으면 실현손익이 없습니다.")
+            st.info("매도 기록이 있으면 실현손익이 표시됩니다.")
     with c2:
         st.markdown("**평가손익 (현재 보유)**")
         if unrealized:
-            st.dataframe(unrealized, use_container_width=True, hide_index=True)
+            st.dataframe(rename_columns(pd.DataFrame(unrealized)), use_container_width=True, hide_index=True)
             df = pd.DataFrame(unrealized)
             total = pd.to_numeric(df.get("unrealized_pnl"), errors="coerce").sum()
             st.metric("평가손익 합계 (표시통화 단순합)", f"{total:,.2f}")
         else:
             st.info("보유 종목이 없습니다.")
 
-    st.caption("평가손익은 시세 캐시 기준입니다. Dashboard에서 시세를 갱신하세요.")
+    st.caption("평가손익은 시세 캐시 기준입니다. 대시보드에서 시세를 갱신하세요.")
 
 
 def main() -> None:
-    st.title("Asset Flows")
+    st.title("자산 흐름")
     st.caption("매매 · 배당 · 현금흐름 · 부채 · 실현/평가손익 — 모든 자산 흐름 기록")
 
     user, client = require_auth()
