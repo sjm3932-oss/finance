@@ -56,6 +56,12 @@ def _load_flows(client, limit: int = 400) -> pd.DataFrame:
 
 def render_flow_charts(client) -> None:
     """Chart-first overview of trades / dividends / cash / debt / PnL."""
+    from lib.realized_pnl_ui import render_total_realized_pnl
+
+    st.markdown("##### 실현손익 합산")
+    render_total_realized_pnl(client, compact=True)
+    st.divider()
+
     df = _load_flows(client)
     realized = client.table("v_realized_pnl").select("*").execute().data or []
     unrealized = client.table("v_unrealized_pnl").select("*").execute().data or []

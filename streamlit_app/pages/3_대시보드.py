@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
 from lib.asset_flows_ui import render_flow_charts, render_flow_forms  # noqa: E402
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.market_data import STALE_HOURS, fetch_usdkrw, is_stale, refresh_tickers  # noqa: E402
+from lib.realized_pnl_ui import render_total_realized_pnl  # noqa: E402
 from lib.supabase_client import get_service_client  # noqa: E402
 from lib.theme import (  # noqa: E402
     CHART_COLORS,
@@ -32,7 +33,7 @@ from lib.theme import (  # noqa: E402
 st.set_page_config(page_title="대시보드", page_icon="💚", layout="wide")
 apply_theme(max_width=1120)
 
-VIEWS = ["한눈에", "종목", "자산 흐름", "기록하기"]
+VIEWS = ["한눈에", "종목", "실현손익", "자산 흐름", "기록하기"]
 
 
 def _fmt_money(v, currency="KRW") -> str:
@@ -205,6 +206,9 @@ def view_overview(client, live_rows, total_usd, total_krw, total_debt, any_stale
     if any_stale:
         st.warning("일부 시세가 지연되었습니다.")
 
+    st.markdown("##### 실현손익 (매매·배당·이자 합산)")
+    render_total_realized_pnl(client, compact=True)
+
     tdf = _load_daily_totals(client)
     hdf = _load_holding_snaps(client)
 
@@ -367,7 +371,7 @@ def view_tickers(client, live_rows) -> None:
 
 
 def main() -> None:
-    page_hero("대시보드", "한눈에 · 종목 · 자산 흐름 · 기록하기")
+    page_hero("대시보드", "한눈에 · 종목 · 실현손익 · 자산 흐름 · 기록하기")
     view = render_subnav(VIEWS, state_key="dash_view", default="한눈에")
 
     user, client = require_auth()
@@ -384,6 +388,9 @@ def main() -> None:
         view_overview(client, live_rows, total_usd, total_krw, total_debt, any_stale)
     elif view == "종목":
         view_tickers(client, live_rows)
+    elif view == "실현손익":
+        st.caption("매매 실현 · 배당 · 이자수입 · 이자비용을 모두 합산한 실현손익입니다.")
+        render_total_realized_pnl(client, compact=False)
     elif view == "자산 흐름":
         render_flow_charts(client)
     else:

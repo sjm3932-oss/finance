@@ -76,21 +76,25 @@ def chart_layout(height: int = 300, *, with_title: bool = False, **extra) -> dic
 
 def show_plotly(fig, *, key: str | None = None) -> None:
     """Render Plotly figure with spacing that avoids title/legend collisions."""
-    # Normalize layout after caller updates
     has_title = bool(getattr(fig.layout, "title", None) and getattr(fig.layout.title, "text", None))
-    base = chart_layout(
-        height=int(fig.layout.height or 300) if fig.layout.height else 300,
-        with_title=has_title,
-    )
-    # Don't clobber axes the caller set — merge carefully
+    has_y2 = bool(getattr(fig.layout, "yaxis2", None) and fig.layout.yaxis2)
+    height = int(fig.layout.height or 300) if fig.layout.height else 300
+    if has_y2:
+        height = max(height, 340)
+    base = chart_layout(height=height, with_title=has_title)
+    margin = dict(base["margin"])
+    if has_y2:
+        margin["b"] = max(margin.get("b", 88), 100)
+        margin["r"] = max(margin.get("r", 12), 48)
     fig.update_layout(
-        margin=base["margin"],
+        margin=margin,
         legend=base["legend"],
         paper_bgcolor=base["paper_bgcolor"],
         plot_bgcolor=base["plot_bgcolor"],
         font=base["font"],
         autosize=True,
         hovermode=base.get("hovermode", "x unified"),
+        height=height,
     )
     if has_title:
         fig.update_layout(

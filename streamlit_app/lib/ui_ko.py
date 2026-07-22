@@ -99,6 +99,13 @@ FLOW_KIND_KO = {
     "debt": "부채",
 }
 
+PNL_KIND_KO = {
+    "trade_realized": "매매실현",
+    "dividend": "배당",
+    "interest_income": "이자수입",
+    "interest_expense": "이자비용",
+}
+
 TRADE_TYPE_KO = {"buy": "매수", "sell": "매도"}
 FLOW_TYPE_KO = {"income": "수입", "expense": "지출"}
 DEBT_TX_KO = {
