@@ -14,7 +14,6 @@ if str(ROOT) not in sys.path:
 from lib.auth import logout_and_clear, remember_login  # noqa: E402
 from lib.session_persist import ensure_persistent_login  # noqa: E402
 from lib.supabase_client import (  # noqa: E402
-    ALLOWED_EMAILS,
     ConfigError,
     PUBLIC_APP_URL,
     get_anon_client,
