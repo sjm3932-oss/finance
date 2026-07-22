@@ -1,9 +1,18 @@
 [server]
 headless = true
 enableStaticServing = true
+enableWebsocketCompression = true
+maxMessageSize = 200
 
 [browser]
 gatherUsageStats = false
+
+[runner]
+fastReruns = true
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true
 
 [theme]
 primaryColor = "#03C75A"
