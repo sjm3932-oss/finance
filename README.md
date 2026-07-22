@@ -104,3 +104,9 @@ pg_cron jobs (KST):
 In the app: **Notifications** page to subscribe to Web Push and run jobs manually.
 
 Function secrets (set via `supabase secrets set`): `GEMINI_API_KEY`, `VAPID_*`, `PUBLIC_APP_URL`.
+
+## Daily per-asset snapshots
+
+`holding_daily_snapshots` stores each holding’s quantity/price/value every day (KST).
+`compute_daily_snapshot()` writes both aggregate `daily_snapshots` and per-ticker rows.
+Dashboard charts total + per-asset trends and supports date/ticker drill-down.

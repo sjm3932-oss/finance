@@ -86,7 +86,18 @@ Deno.serve(async (_req) => {
       snapshot_date: today,
       usdkrw: fx,
     });
-    return Response.json({ ok: true, updated: rows.length, fx, errors });
+    const { data: snapshot, error: snapErr } = await supabase.rpc(
+      "compute_daily_snapshot",
+    );
+    if (snapErr) {
+      return Response.json({
+        ok: true,
+        updated: rows.length,
+        fx,
+        errors: [...errors, `snapshot: ${snapErr.message}`],
+      });
+    }
+    return Response.json({ ok: true, updated: rows.length, fx, errors, snapshot });
   } catch (e) {
     return Response.json({ ok: false, error: String(e) }, { status: 500 });
   }

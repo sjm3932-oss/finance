@@ -18,6 +18,7 @@ const TABLES = [
   "push_subscriptions",
   "allowed_emails",
   "app_settings",
+  "holding_daily_snapshots",
 ];
 
 Deno.serve(async (_req) => {
