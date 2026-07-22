@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from lib.auth import logout_and_clear, remember_login  # noqa: E402
-from lib.session_persist import ensure_persistent_login, persist_session_tokens  # noqa: E402
+from lib.session_persist import ensure_persistent_login  # noqa: E402
 from lib.supabase_client import (  # noqa: E402
     ALLOWED_EMAILS,
     ConfigError,
@@ -110,8 +110,6 @@ def _ensure_allowed_and_profile() -> bool:
                 f"Ensure migrations are applied and keys are set. Details: {exc}"
             )
             return False
-    # Keep cookies in sync after successful session
-    persist_session_tokens()
     return True
 
 
