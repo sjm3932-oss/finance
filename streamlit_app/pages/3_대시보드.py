@@ -106,6 +106,11 @@ def _load_daily_totals(client, days: int = 90) -> pd.DataFrame:
     return df
 
 
+def _account_map(client) -> dict[str, str]:
+    rows = client.table("accounts").select("id,institution").execute().data or []
+    return {str(a["id"]): a.get("institution") or "계좌" for a in rows}
+
+
 def _live_holdings(client, holdings: list[dict]) -> tuple[list[dict], float, float, float, bool]:
     prices = {
         p["ticker"]: p
@@ -113,6 +118,7 @@ def _live_holdings(client, holdings: list[dict]) -> tuple[list[dict], float, flo
     }
     usdkrw_row = prices.get("USDKRW")
     usdkrw = float(usdkrw_row["price"]) if usdkrw_row else None
+    amap = _account_map(client)
 
     total_usd = 0.0
     total_krw = 0.0
@@ -126,6 +132,8 @@ def _live_holdings(client, holdings: list[dict]) -> tuple[list[dict], float, flo
         qty = float(h.get("quantity") or 0)
         avg = float(h.get("avg_price") or 0)
         cur = h.get("currency") or (mp.get("currency") if mp else None) or "USD"
+        acct_id = str(h.get("account_id") or "")
+        inst = amap.get(acct_id, "계좌")
         mv = float(price) * qty if price is not None else None
         if mv is not None:
             if cur == "USD":
@@ -141,6 +149,9 @@ def _live_holdings(client, holdings: list[dict]) -> tuple[list[dict], float, flo
             {
                 "ticker": h["ticker"],
                 "name": h.get("name"),
+                "account_id": acct_id,
+                "institution": inst,
+                "label": f"{h['ticker']} · {inst}",
                 "qty": qty,
                 "avg": avg,
                 "price": price,
@@ -154,6 +165,31 @@ def _live_holdings(client, holdings: list[dict]) -> tuple[list[dict], float, flo
     debts = client.table("debts").select("principal").execute().data or []
     total_debt = sum(float(d.get("principal") or 0) for d in debts)
     return live_rows, total_usd, total_krw, total_debt, any_stale
+
+
+def _aggregate_ticker(rows: list[dict]) -> dict:
+    """Sum quantities/values across accounts; quantity-weighted average cost."""
+    if not rows:
+        return {}
+    qty = sum(float(r.get("qty") or 0) for r in rows)
+    cost = sum(float(r.get("qty") or 0) * float(r.get("avg") or 0) for r in rows)
+    value_rows = [r for r in rows if r.get("value") is not None]
+    value = sum(float(r["value"]) for r in value_rows) if value_rows else None
+    price = next((r.get("price") for r in rows if r.get("price") is not None), None)
+    ccy = rows[0].get("ccy") or "USD"
+    wavg = (cost / qty) if qty else None
+    ret = ((float(price) - wavg) / wavg * 100) if price is not None and wavg else None
+    return {
+        "ticker": rows[0]["ticker"],
+        "name": rows[0].get("name"),
+        "qty": qty,
+        "avg": wavg,
+        "price": price,
+        "value": value,
+        "return_%": ret,
+        "ccy": ccy,
+        "accounts": len(rows),
+    }
 
 
 def _toolbar(client, tickers: list[str]) -> None:
@@ -252,10 +288,31 @@ def view_overview(client, live_rows, total_usd, total_krw, total_debt, any_stale
 
     with right:
         st.markdown("##### 현재 구성")
-        pie_src = [r for r in live_rows if r.get("value") is not None]
-        if not pie_src and not hdf.empty:
+        # Aggregate same ticker across accounts for composition
+        by_ticker: dict[str, float] = {}
+        for r in live_rows:
+            if r.get("value") is None:
+                continue
+            by_ticker[r["ticker"]] = by_ticker.get(r["ticker"], 0.0) + float(r["value"])
+        if by_ticker:
+            pdf = pd.DataFrame([{"ticker": k, "value": v} for k, v in by_ticker.items()])
+            fig = px.pie(
+                pdf,
+                names="ticker",
+                values="value",
+                color_discrete_sequence=CHART_COLORS,
+                hole=0.45,
+            )
+            fig.update_layout(**chart_layout(300, with_title=True), title="실시간 평가 (종목 합산)")
+            show_plotly(fig)
+        elif not hdf.empty:
             latest = hdf["snapshot_date"].max()
-            day = hdf[hdf["snapshot_date"] == latest].dropna(subset=["market_value_krw"])
+            day = (
+                hdf[hdf["snapshot_date"] == latest]
+                .dropna(subset=["market_value_krw"])
+                .groupby("ticker", as_index=False)["market_value_krw"]
+                .sum()
+            )
             if not day.empty:
                 fig = px.pie(
                     day,
@@ -268,24 +325,17 @@ def view_overview(client, live_rows, total_usd, total_krw, total_debt, any_stale
                 show_plotly(fig)
             else:
                 st.info("구성 차트를 그릴 데이터가 없습니다.")
-        elif pie_src:
-            pdf = pd.DataFrame(pie_src)
-            fig = px.pie(
-                pdf,
-                names="ticker",
-                values="value",
-                color_discrete_sequence=CHART_COLORS,
-                hole=0.45,
-            )
-            fig.update_layout(**chart_layout(300, with_title=True), title="실시간 평가")
-            show_plotly(fig)
         else:
             st.info("보유 종목이 없습니다.")
 
-    # Compact return bars instead of a big table
+    # Compact return bars — blended per ticker across accounts
     if live_rows:
-        st.markdown("##### 종목 수익률")
-        rdf = pd.DataFrame(live_rows).dropna(subset=["return_%"])
+        st.markdown("##### 종목 수익률 (계좌 합산)")
+        groups: dict[str, list] = {}
+        for r in live_rows:
+            groups.setdefault(r["ticker"], []).append(r)
+        agg = [_aggregate_ticker(v) for v in groups.values()]
+        rdf = pd.DataFrame(agg).dropna(subset=["return_%"])
         if not rdf.empty:
             rdf = rdf.sort_values("return_%")
             fig = go.Figure(
@@ -303,34 +353,209 @@ def view_overview(client, live_rows, total_usd, total_krw, total_debt, any_stale
 
 
 def view_tickers(client, live_rows) -> None:
+    """All tickers or one ticker; always show per-account rows + cross-account totals."""
     hdf = _load_holding_snaps(client)
+    amap = _account_map(client)
+    if not hdf.empty and "account_id" in hdf.columns:
+        hdf = hdf.copy()
+        hdf["account_id"] = hdf["account_id"].astype(str)
+        hdf["institution"] = hdf["account_id"].map(lambda i: amap.get(i, "계좌"))
+        hdf["series"] = hdf.apply(
+            lambda r: f"{r['ticker']} · {r['institution']}", axis=1
+        )
+
     tickers = sorted({r["ticker"] for r in live_rows}) or (
         sorted(hdf["ticker"].unique().tolist()) if not hdf.empty else []
     )
-    if not tickers:
+    if not tickers and not live_rows:
         st.info("표시할 종목이 없습니다.")
         return
 
-    pick = st.selectbox("종목 선택", options=tickers)
-    row = next((r for r in live_rows if r["ticker"] == pick), None)
-    if row:
-        a, b, c, d = st.columns(4, gap="small")
-        a.metric("수량", f"{float(row['qty']):,.4f}".rstrip("0").rstrip("."))
-        b.metric("현재가", _fmt_money(row["price"], row.get("ccy") or "USD"))
-        c.metric("평가액", _fmt_money(row["value"], row.get("ccy") or "USD"))
-        d.metric("수익률", f"{row['return_%']:.2f}%" if row.get("return_%") is not None else "—")
+    pick = st.selectbox(
+        "종목 보기",
+        options=["(전체)"] + tickers,
+        help="전체를 한눈에 보거나, 한 종목을 골라 계좌별·합계를 확인하세요.",
+    )
 
-    one = hdf[hdf["ticker"] == pick].sort_values("snapshot_date") if not hdf.empty else pd.DataFrame()
+    if pick == "(전체)":
+        _view_all_tickers(live_rows, hdf)
+    else:
+        _view_one_ticker(pick, live_rows, hdf)
+
+
+def _view_all_tickers(live_rows: list[dict], hdf: pd.DataFrame) -> None:
+    st.caption("동일 종목이 여러 계좌에 있으면 계좌별로 나누고, 종목 합계도 함께 표시합니다.")
+
+    groups: dict[str, list] = {}
+    for r in live_rows:
+        groups.setdefault(r["ticker"], []).append(r)
+
+    # Summary metrics: ticker totals
+    summary_rows = []
+    for ticker, rows in sorted(groups.items()):
+        tot = _aggregate_ticker(rows)
+        summary_rows.append(
+            {
+                "티커": ticker,
+                "종목명": tot.get("name"),
+                "계좌수": tot.get("accounts"),
+                "합산수량": tot.get("qty"),
+                "가중평균단가": tot.get("avg"),
+                "현재가": tot.get("price"),
+                "합산평가액": tot.get("value"),
+                "수익률(%)": tot.get("return_%"),
+                "통화": tot.get("ccy"),
+            }
+        )
+    if summary_rows:
+        st.markdown("##### 종목 합계")
+        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+    # Per-account detail table
+    detail_rows = [
+        {
+            "티커": r["ticker"],
+            "계좌": r.get("institution"),
+            "수량": r.get("qty"),
+            "평균단가": r.get("avg"),
+            "현재가": r.get("price"),
+            "평가액": r.get("value"),
+            "수익률(%)": r.get("return_%"),
+            "통화": r.get("ccy"),
+            "시세": r.get("시세"),
+        }
+        for r in sorted(live_rows, key=lambda x: (x["ticker"], x.get("institution") or ""))
+    ]
+    if detail_rows:
+        st.markdown("##### 계좌별 상세")
+        st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
+
+    # Charts: per account-ticker series + ticker totals
+    if not hdf.empty and "market_value_krw" in hdf.columns:
+        plot_df = hdf.dropna(subset=["market_value_krw"]).copy()
+        if not plot_df.empty:
+            st.markdown("##### 계좌·종목별 평가액 추이")
+            color_col = "series" if "series" in plot_df.columns else "ticker"
+            fig = px.line(
+                plot_df,
+                x="snapshot_date",
+                y="market_value_krw",
+                color=color_col,
+                markers=True,
+                color_discrete_sequence=CHART_COLORS,
+                labels={
+                    "snapshot_date": "날짜",
+                    "market_value_krw": "평가액(원)",
+                    color_col: "종목·계좌",
+                },
+            )
+            fig.update_layout(**chart_layout(320, with_title=True), title="계좌별 라인")
+            show_plotly(fig)
+
+            st.markdown("##### 종목 합산 추이")
+            summed = (
+                plot_df.groupby(["snapshot_date", "ticker"], as_index=False)["market_value_krw"]
+                .sum()
+            )
+            fig2 = px.line(
+                summed,
+                x="snapshot_date",
+                y="market_value_krw",
+                color="ticker",
+                markers=True,
+                color_discrete_sequence=CHART_COLORS,
+                labels={
+                    "snapshot_date": "날짜",
+                    "market_value_krw": "평가액(원)",
+                    "ticker": "종목",
+                },
+            )
+            fig2.update_layout(**chart_layout(300, with_title=True), title="종목 합계 (전 계좌)")
+            show_plotly(fig2)
+
+
+def _view_one_ticker(ticker: str, live_rows: list[dict], hdf: pd.DataFrame) -> None:
+    rows = [r for r in live_rows if r["ticker"] == ticker]
+    if not rows and not hdf.empty:
+        # Fall back to snapshot-only tickers
+        snap = hdf[hdf["ticker"] == ticker]
+        if snap.empty:
+            st.info("이 종목 데이터가 없습니다.")
+            return
+
+    tot = _aggregate_ticker(rows) if rows else {}
+    st.markdown(f"##### {ticker} 합계 ({tot.get('accounts', 0)}개 계좌)")
+    a, b, c, d = st.columns(4, gap="small")
+    a.metric(
+        "합산 수량",
+        f"{float(tot['qty']):,.4f}".rstrip("0").rstrip(".") if tot.get("qty") is not None else "—",
+    )
+    b.metric("현재가", _fmt_money(tot.get("price"), tot.get("ccy") or "USD"))
+    c.metric("합산 평가액", _fmt_money(tot.get("value"), tot.get("ccy") or "USD"))
+    d.metric(
+        "합산 수익률",
+        f"{tot['return_%']:.2f}%" if tot.get("return_%") is not None else "—",
+    )
+    if tot.get("avg") is not None:
+        st.caption(f"가중평균단가: {_fmt_money(tot['avg'], tot.get('ccy') or 'USD')}")
+
+    st.markdown("##### 계좌별")
+    for r in sorted(rows, key=lambda x: x.get("institution") or ""):
+        with st.container():
+            st.markdown(f"**{r.get('institution') or '계좌'}**")
+            c1, c2, c3, c4 = st.columns(4, gap="small")
+            c1.metric("수량", f"{float(r['qty']):,.4f}".rstrip("0").rstrip("."))
+            c2.metric("평균단가", _fmt_money(r.get("avg"), r.get("ccy") or "USD"))
+            c3.metric("평가액", _fmt_money(r.get("value"), r.get("ccy") or "USD"))
+            c4.metric(
+                "수익률",
+                f"{r['return_%']:.2f}%" if r.get("return_%") is not None else "—",
+            )
+
+    if hdf.empty:
+        st.info("이 종목의 일별 스냅샷이 아직 없습니다.")
+        return
+
+    one = hdf[hdf["ticker"] == ticker].sort_values("snapshot_date")
     if one.empty:
         st.info("이 종목의 일별 스냅샷이 아직 없습니다.")
         return
 
+    # Per-account history
+    if "institution" in one.columns and one["account_id"].nunique() > 1:
+        st.markdown("##### 계좌별 평가액 추이")
+        fig = px.line(
+            one.dropna(subset=["market_value_krw"]),
+            x="snapshot_date",
+            y="market_value_krw",
+            color="institution",
+            markers=True,
+            color_discrete_sequence=CHART_COLORS,
+            labels={
+                "snapshot_date": "날짜",
+                "market_value_krw": "평가액(원)",
+                "institution": "계좌",
+            },
+        )
+        fig.update_layout(**chart_layout(300, with_title=True), title=f"{ticker} 계좌별")
+        show_plotly(fig)
+
+    # Combined total history
+    st.markdown("##### 합산 평가액 · 가격")
+    summed = (
+        one.groupby("snapshot_date", as_index=False)
+        .agg(
+            market_value_krw=("market_value_krw", "sum"),
+            price=("price", "mean"),
+        )
+        .sort_values("snapshot_date")
+    )
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=one["snapshot_date"],
-            y=one["market_value_krw"],
-            name="평가액(원)",
+            x=summed["snapshot_date"],
+            y=summed["market_value_krw"],
+            name="합산 평가액(원)",
             mode="lines+markers",
             line=dict(color=PRIMARY, width=3),
             yaxis="y1",
@@ -338,8 +563,8 @@ def view_tickers(client, live_rows) -> None:
     )
     fig.add_trace(
         go.Scatter(
-            x=one["snapshot_date"],
-            y=one["price"],
+            x=summed["snapshot_date"],
+            y=summed["price"],
             name="가격",
             mode="lines+markers",
             line=dict(color="#00A3FF", width=2),
@@ -348,26 +573,11 @@ def view_tickers(client, live_rows) -> None:
     )
     fig.update_layout(
         **chart_layout(320, with_title=True),
-        title=f"{pick} 일별 추이",
+        title=f"{ticker} 합산 일별 추이",
         yaxis=dict(title="평가액(원)"),
         yaxis2=dict(title="가격", overlaying="y", side="right"),
     )
     show_plotly(fig)
-
-    plot_df = hdf.dropna(subset=["market_value_krw"])
-    if not plot_df.empty:
-        st.markdown("##### 종목별 평가액 비교")
-        fig2 = px.line(
-            plot_df,
-            x="snapshot_date",
-            y="market_value_krw",
-            color="ticker",
-            markers=True,
-            color_discrete_sequence=CHART_COLORS,
-            labels={"snapshot_date": "날짜", "market_value_krw": "평가액(원)", "ticker": "종목"},
-        )
-        fig2.update_layout(**chart_layout(300))
-        show_plotly(fig2)
 
 
 def main() -> None:
