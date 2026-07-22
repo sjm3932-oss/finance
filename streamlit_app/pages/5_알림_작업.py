@@ -49,7 +49,7 @@ def _invoke(name: str, token: str) -> dict:
 
 def main() -> None:
     st.title("알림·작업")
-    st.caption("Web Push 구독 · 아침 브리핑/시세/백업 수동 실행")
+    st.caption("웹 푸시 구독 · 아침 브리핑/시세/백업 수동 실행")
 
     user, client = require_auth()
     ensure_profile(user, client)
@@ -57,7 +57,7 @@ def main() -> None:
 
     st.subheader("푸시 구독")
     if not VAPID_PUBLIC:
-        st.error("VAPID_PUBLIC_KEY가 없습니다. `.env`를 확인하세요.")
+        st.error("푸시 공개키가 없습니다. `.env`의 VAPID_PUBLIC_KEY를 확인하세요.")
     else:
         st.write("모바일 브라우저에서 알림을 허용한 뒤 아래 버튼으로 구독하세요.")
         # Static SW is served when enableStaticServing=true → /app/static/sw.js
@@ -84,7 +84,7 @@ async function subscribe() {{
   const out = document.getElementById('out');
   try {{
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {{
-      throw new Error('이 브라우저는 Web Push를 지원하지 않습니다');
+      throw new Error('이 브라우저는 웹 푸시를 지원하지 않습니다');
     }}
     const reg = await navigator.serviceWorker.register('{sw_url}', {{ scope: '/app/' }});
     await navigator.serviceWorker.ready;
@@ -152,7 +152,7 @@ document.getElementById('btn').onclick = subscribe;
             hide_index=True,
         )
 
-    st.subheader("수동 실행 (cron 대체 테스트)")
+    st.subheader("수동 실행 (예약 작업 대체 테스트)")
     c1, c2, c3 = st.columns(3)
     if c1.button("시세 갱신"):
         st.json(_invoke("refresh-prices", access))
@@ -186,7 +186,7 @@ document.getElementById('btn').onclick = subscribe;
     st.subheader("최근 스냅샷")
     st.dataframe(rename_columns(pd.DataFrame(snaps)), use_container_width=True, hide_index=True)
 
-    st.caption(f"PUBLIC_APP_URL={PUBLIC_APP_URL}")
+    st.caption(f"앱 공개 주소: {PUBLIC_APP_URL}")
 
 
 main()

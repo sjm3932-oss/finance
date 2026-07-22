@@ -90,8 +90,8 @@ def main() -> None:
     meta = st.session_state.get("wealth_ctx_meta") or {}
     st.info(
         f"근거: 보유 {meta.get('holdings', '?')}종 · "
-        f"USD/KRW {meta.get('usdkrw', '—')} · "
-        f"평가(USD) ≈ {meta.get('approx_investment_usd', '—')} · "
+        f"달러원환율 {meta.get('usdkrw', '—')} · "
+        f"평가(달러) ≈ {meta.get('approx_investment_usd', '—')} · "
         f"최근 대화 로그 {meta.get('chat_logs', '?')}건"
     )
 

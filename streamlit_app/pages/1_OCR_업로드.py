@@ -24,7 +24,7 @@ st.set_page_config(page_title="OCR 업로드", layout="wide")
 
 def main() -> None:
     st.title("OCR 업로드")
-    st.caption("스크린샷 → Gemini Vision → ocr_staging (대기/실패)")
+    st.caption("스크린샷 → AI 파싱 → 스테이징(대기/실패)")
 
     user, client = require_auth()
     ensure_profile(user, client)
@@ -57,7 +57,7 @@ def main() -> None:
                     st.rerun()
 
     if not accounts:
-        st.info("계좌를 하나 만든 뒤 업로드하세요. (승인 시 account_id 필요)")
+        st.info("계좌를 하나 만든 뒤 업로드하세요. (승인 시 계좌 선택이 필요합니다)")
         return
 
     account_labels = {
@@ -78,13 +78,13 @@ def main() -> None:
         type=["png", "jpg", "jpeg", "webp", "gif"],
     )
 
-    if uploaded and st.button("파싱 & 스테이징", type="primary"):
+    if uploaded and st.button("파싱 및 스테이징", type="primary"):
         image_bytes = uploaded.getvalue()
         mime = uploaded.type or mimetypes.guess_type(uploaded.name)[0] or "image/png"
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         object_path = f"{user.id}/{stamp}_{uuid.uuid4().hex}_{uploaded.name}"
 
-        with st.spinner("Storage에 업로드 중…"):
+        with st.spinner("이미지 저장 중…"):
             storage = client.storage.from_("ocr-screenshots")
             try:
                 storage.upload(
@@ -93,7 +93,7 @@ def main() -> None:
                     file_options={"content-type": mime, "upsert": "false"},
                 )
             except Exception as exc:
-                st.error(f"Storage 업로드 실패: {exc}")
+                st.error(f"이미지 저장 실패: {exc}")
                 st.stop()
             image_url = object_path
 
@@ -105,7 +105,7 @@ def main() -> None:
         status = "pending"
         error_msg = None
 
-        with st.spinner("Gemini Vision 호출 중…"):
+        with st.spinner("AI 파싱 중…"):
             try:
                 parsed = parse_screenshot(image_bytes, mime_type=mime)
                 parsed["account_id"] = selected_account
@@ -139,9 +139,9 @@ def main() -> None:
         if status == "failed":
             st.error(f"실패로 스테이징됨: {error_msg}. 다시 업로드하거나 나중에 수정하세요.")
         else:
-            st.success(f"대기로 스테이징됨: `{created['id'] if created else 'ok'}`")
+            st.success(f"대기로 스테이징됨: `{created['id'] if created else '완료'}`")
 
-        st.subheader("파싱된 JSON")
+        st.subheader("파싱 결과")
         st.code(json.dumps(parsed_json, ensure_ascii=False, indent=2), language="json")
         st.info("다음: **스테이징 검토** 페이지에서 검토 후 승인하세요.")
 

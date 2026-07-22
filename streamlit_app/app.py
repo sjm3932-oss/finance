@@ -24,7 +24,7 @@ from lib.supabase_client import (  # noqa: E402
 )
 
 st.set_page_config(
-    page_title="Couples Wealth Master",
+    page_title="부부 자산 마스터",
     page_icon="💰",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -64,7 +64,7 @@ def _handle_oauth_callback() -> None:
                 st.query_params.clear()
                 st.rerun()
         except Exception as exc:
-            st.error(f"OAuth code exchange failed: {exc}")
+            st.error(f"로그인 코드 교환 실패: {exc}")
 
     access = params.get("access_token")
     refresh = params.get("refresh_token")
@@ -81,10 +81,10 @@ def _ensure_allowed_and_profile() -> bool:
     email = (user.email or "").lower()
     if not is_email_allowed(email):
         st.error(
-            f"Access denied for `{email}`. "
-            "Only couple emails listed in ALLOWED_EMAILS may use this app."
+            f"`{email}` 은(는) 접근할 수 없습니다. "
+            "허용 이메일에 등록된 부부 계정만 사용할 수 있습니다."
         )
-        if st.button("Sign out", key="denied_signout"):
+        if st.button("로그아웃", key="denied_signout"):
             logout_and_clear()
             st.rerun()
         return False
@@ -106,19 +106,19 @@ def _ensure_allowed_and_profile() -> bool:
                 st.session_state.app_user = upsert_app_user(svc, user)
         except Exception as exc:
             st.error(
-                "Could not register user profile in public.users. "
-                f"Ensure migrations are applied and keys are set. Details: {exc}"
+                "사용자 프로필 등록에 실패했습니다. "
+                f"마이그레이션과 키 설정을 확인하세요. 상세: {exc}"
             )
             return False
     return True
 
 
 def login_panel() -> None:
-    st.title("Couples Wealth Master")
-    st.caption("부부 공동 자산 관리 — Sovereign MVP")
+    st.title("부부 자산 마스터")
+    st.caption("부부 공동 자산 관리")
     st.write(
         "Google 계정으로 로그인하세요. "
-        f"허용 이메일만 접근할 수 있습니다 ({len(ALLOWED_EMAILS)}명 allow-list)."
+        f"허용된 이메일만 접근할 수 있습니다 (허용 {len(ALLOWED_EMAILS)}명)."
     )
     st.info("한 번 로그인하면 브라우저에 로그인 상태가 유지됩니다 (최대 60일).")
 
@@ -130,12 +130,12 @@ def login_panel() -> None:
         return
 
     redirect_to = st.text_input(
-        "OAuth redirect URL",
+        "로그인 후 돌아갈 주소",
         value=PUBLIC_APP_URL,
         help="모바일/공개 접속 시 PUBLIC_APP_URL(터널 주소)과 같아야 합니다.",
     )
 
-    if st.button("Continue with Google", type="primary"):
+    if st.button("Google로 계속", type="primary"):
         try:
             result = client.auth.sign_in_with_oauth(
                 {
@@ -145,60 +145,60 @@ def login_panel() -> None:
             )
             url = getattr(result, "url", None) or (result.get("url") if isinstance(result, dict) else None)
             if url:
-                st.link_button("Open Google OAuth", url, type="primary")
+                st.link_button("Google 로그인 열기", url, type="primary")
                 st.markdown(f"[또는 이 링크를 탭하세요]({url})")
             else:
-                st.error("Could not start OAuth — check Supabase Google provider settings.")
+                st.error("로그인을 시작할 수 없습니다. Supabase Google 설정을 확인하세요.")
         except Exception as exc:
-            st.error(f"OAuth start failed: {exc}")
+            st.error(f"로그인 시작 실패: {exc}")
 
     with st.expander("개발용: 이메일 매직 링크 / 토큰"):
-        email = st.text_input("Email (must be in ALLOWED_EMAILS)")
-        if st.button("Send magic link"):
+        email = st.text_input("이메일 (허용 목록에 있어야 함)")
+        if st.button("매직 링크 보내기"):
             if not is_email_allowed(email):
-                st.error("Email not in ALLOWED_EMAILS")
+                st.error("허용되지 않은 이메일입니다")
             else:
                 try:
                     client.auth.sign_in_with_otp(
                         {"email": email, "options": {"email_redirect_to": redirect_to}}
                     )
-                    st.success("Magic link sent (if email auth is enabled).")
+                    st.success("매직 링크를 보냈습니다 (이메일 로그인이 켜져 있는 경우).")
                 except Exception as exc:
-                    st.error(f"Magic link failed: {exc}")
-        access = st.text_input("access_token", type="password")
-        refresh = st.text_input("refresh_token", type="password")
-        if st.button("Use tokens"):
+                    st.error(f"매직 링크 실패: {exc}")
+        access = st.text_input("액세스 토큰", type="password")
+        refresh = st.text_input("리프레시 토큰", type="password")
+        if st.button("토큰으로 로그인"):
             if not access:
-                st.error("access_token required")
+                st.error("액세스 토큰이 필요합니다")
             else:
                 remember_login(access, refresh or None, None)
                 st.rerun()
 
-    st.caption(f"App URL: {PUBLIC_APP_URL} · Supabase: {SUPABASE_URL}")
+    st.caption(f"앱 주소: {PUBLIC_APP_URL}")
 
 
 def home() -> None:
     user = st.session_state.user
     app_user = st.session_state.app_user or {}
-    st.title("Couples Wealth Master")
-    st.success(f"Signed in as **{app_user.get('display_name', user.email)}** (`{user.email}`)")
+    st.title("부부 자산 마스터")
+    st.success(f"**{app_user.get('display_name', user.email)}** 님으로 로그인됨 (`{user.email}`)")
 
     st.markdown(
         """
-### MVP 코어 루프
-1. **Upload OCR** — 잔고 스크린샷 업로드 → Gemini 파싱 → `ocr_staging` (pending)
-2. **Review Staging** — 검토/수정 후 승인 → 트리거가 `trades` / `holdings`에 커밋
-3. **Dashboard** — 시세 새로고침 · 순자산/수익률
-4. **Tax Report** — 해외주식 양도세 추정 (250만원 공제 · 22%)
-5. **Notifications** — Web Push 구독 · 브리핑/백업 수동 실행
-6. **Wealth Chat** — 내 자산 데이터만 근거로 Gemini와 자유 대화
-7. **Asset Flows** — 매매·배당·현금·부채·손익 전 흐름 기록
+### 메뉴 안내
+1. **OCR 업로드** — 잔고 스크린샷 → AI 파싱 → 스테이징(대기)
+2. **스테이징 검토** — 검토/수정 후 승인 → 보유·매매 반영
+3. **대시보드** — 시세·순자산·종목별 추이
+4. **세금 리포트** — 해외주식 양도세 추정 (기본공제 250만원 · 22%)
+5. **알림·작업** — 푸시 구독 · 브리핑/백업 수동 실행
+6. **자산 챗** — 내 자산 데이터 기준 AI 대화
+7. **자산 흐름** — 매매·배당·현금·부채·손익 기록
 
-사이드바에서 페이지를 선택하세요.
+왼쪽 사이드바에서 페이지를 선택하세요.
 """
     )
 
-    if st.button("Sign out"):
+    if st.button("로그아웃"):
         logout_and_clear()
         st.rerun()
 

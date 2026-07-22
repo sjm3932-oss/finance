@@ -123,7 +123,7 @@ def main() -> None:
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("시세 새로고침", type="primary"):
-            with st.spinner("Yahoo / Frankfurter…"):
+            with st.spinner("시세·환율 조회 중…"):
                 rows, errors = refresh_tickers(tickers)
                 writer = client
                 try:
@@ -143,7 +143,7 @@ def main() -> None:
                         {"snapshot_date": date.today().isoformat(), "usdkrw": usdkrw},
                         on_conflict="snapshot_date",
                     ).execute()
-                    st.success(f"시세 {len(rows)}종 · USD/KRW {usdkrw:,.2f}")
+                    st.success(f"시세 {len(rows)}종 · 달러원환율 {usdkrw:,.2f}")
                 except Exception as exc:
                     st.warning(f"환율 실패: {exc}")
                 for e in errors:
@@ -156,7 +156,7 @@ def main() -> None:
             st.success(snap)
             st.rerun()
     with c3:
-        st.caption(f"시세 {STALE_HOURS:.0f}h 초과 시 「시세 지연」")
+        st.caption(f"시세 {STALE_HOURS:.0f}시간 초과 시 「시세 지연」")
 
     # Live metrics
     prices = {
@@ -199,7 +199,7 @@ def main() -> None:
                 "return_%": ret,
                 "value": mv,
                 "ccy": cur,
-                "시세": "지연" if stale else ("없음" if price is None else "OK"),
+                "시세": "지연" if stale else ("없음" if price is None else "정상"),
             }
         )
 
@@ -208,8 +208,8 @@ def main() -> None:
     net_krw = (total_krw - total_debt) if total_krw else None
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("투자자산 (USD)", _fmt_money(total_usd, "USD") if total_usd else "—")
-    m2.metric("투자자산 (KRW)", _fmt_money(total_krw, "KRW") if total_krw else "—")
+    m1.metric("투자자산 (달러)", _fmt_money(total_usd, "USD") if total_usd else "—")
+    m2.metric("투자자산 (원)", _fmt_money(total_krw, "KRW") if total_krw else "—")
     m3.metric("부채", _fmt_money(total_debt, "KRW"))
     m4.metric("순자산(추정)", _fmt_money(net_krw, "KRW") if net_krw is not None else "—")
     if any_stale:

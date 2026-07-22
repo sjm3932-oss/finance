@@ -45,7 +45,7 @@ def _signed_url(client, path: str) -> str | None:
 def main() -> None:
     st.title("스테이징 검토")
     st.caption(
-        "사람 검토: 대기/실패 항목을 수정하고 승인하면 trades/holdings에 커밋됩니다."
+        "사람 검토: 대기/실패 항목을 수정하고 승인하면 매매·보유에 반영됩니다."
     )
 
     user, client = require_auth()
@@ -113,12 +113,12 @@ def main() -> None:
             format_func=lambda i: f"{account_map.get(i, i)} ({i})",
         )
         json_text = st.text_area(
-            "파싱 JSON (수정 가능)",
+            "파싱 결과 (수정 가능)",
             value=json.dumps(parsed, ensure_ascii=False, indent=2),
             height=360,
         )
         col1, col2, col3 = st.columns(3)
-        approve = col1.form_submit_button("승인 & 커밋", type="primary")
+        approve = col1.form_submit_button("승인 및 반영", type="primary")
         reject = col2.form_submit_button("반려")
         save_only = col3.form_submit_button("수정만 저장 (상태 유지)")
 
