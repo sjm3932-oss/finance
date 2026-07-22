@@ -27,6 +27,17 @@ CHART_COLORS = [
     "#64748B",
 ]
 
+# Title styling kept separate so CHART_LAYOUT never ships a ``title`` key —
+# unpacking chart_layout() next to title=... must not collide.
+TITLE_DEFAULTS = dict(
+    font=dict(size=14, color=INK, family="Pretendard, Noto Sans KR, sans-serif"),
+    x=0,
+    xanchor="left",
+    y=0.98,
+    yanchor="top",
+    pad=dict(t=0, b=12, l=0, r=0),
+)
+
 CHART_LAYOUT = dict(
     margin=dict(l=12, r=12, t=28, b=88),
     height=300,
@@ -42,14 +53,6 @@ CHART_LAYOUT = dict(
         font=dict(size=11),
         bgcolor="rgba(0,0,0,0)",
     ),
-    title=dict(
-        font=dict(size=14, color=INK, family="Pretendard, Noto Sans KR, sans-serif"),
-        x=0,
-        xanchor="left",
-        y=0.98,
-        yanchor="top",
-        pad=dict(t=0, b=12, l=0, r=0),
-    ),
     hovermode="x unified",
     colorway=CHART_COLORS,
     autosize=True,
@@ -59,12 +62,10 @@ CHART_LAYOUT = dict(
 def chart_layout(height: int = 300, *, with_title: bool = False, **extra) -> dict:
     """Safe defaults so title / legend / plot never overlap.
 
-    Does not include a default ``title`` key so callers can safely do
-    ``fig.update_layout(**chart_layout(..., with_title=True), title="...")``
-    without a duplicate-keyword TypeError.
+    Prefer ``fig.update_layout(chart_layout(..., title="..."))`` (one dict).
+    Never puts a bare title into the base dict unless ``title`` is in ``extra``.
     """
     layout = {**CHART_LAYOUT, "height": height}
-    title_defaults = layout.pop("title", None) or {}
     # Extra headroom when Plotly draws its own title
     if with_title or extra.get("title"):
         layout["margin"] = {**layout["margin"], "t": 56}
@@ -72,14 +73,25 @@ def chart_layout(height: int = 300, *, with_title: bool = False, **extra) -> dic
     layout.update(extra)
     # String titles → styled title dict; leave dict titles as-is
     if "title" in layout and isinstance(layout["title"], str):
-        layout["title"] = {**title_defaults, "text": layout["title"]}
+        layout["title"] = {**TITLE_DEFAULTS, "text": layout["title"]}
     # Keep legend under the plot even if caller overrides partially
     leg = {**CHART_LAYOUT["legend"], **(extra.get("legend") or {})}
     if "y" not in (extra.get("legend") or {}):
         leg["y"] = -0.22
         leg["yanchor"] = "top"
     layout["legend"] = leg
+    # Belt-and-suspenders: never leave an accidental duplicate-prone empty title
+    if "title" in layout and layout["title"] in (None, "", {}):
+        layout.pop("title", None)
     return layout
+
+
+def apply_chart_layout(fig, height: int = 300, *, title: str | None = None, **extra) -> None:
+    """Apply layout as a single dict — avoids title kwarg collisions."""
+    kwargs = dict(extra)
+    if title is not None:
+        kwargs["title"] = title
+    fig.update_layout(chart_layout(height, with_title=bool(title), **kwargs))
 
 
 def show_plotly(fig, *, key: str | None = None) -> None:
@@ -107,11 +119,7 @@ def show_plotly(fig, *, key: str | None = None) -> None:
     if has_title:
         fig.update_layout(
             title=dict(
-                font=base["title"]["font"],
-                x=0,
-                xanchor="left",
-                y=0.98,
-                yanchor="top",
+                **TITLE_DEFAULTS,
                 pad=dict(t=0, b=14, l=0, r=0),
             )
         )

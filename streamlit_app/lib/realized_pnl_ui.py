@@ -11,7 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from lib.theme import CHART_COLORS, PRIMARY, chart_layout, show_plotly
+from lib.theme import CHART_COLORS, PRIMARY, apply_chart_layout, show_plotly
 from lib.ui_ko import PNL_KIND_KO
 
 # Stable colors per P&L kind (Korean labels after mapping)
@@ -143,8 +143,9 @@ def _chart_cumulative_total(daily: pd.DataFrame, value_col: str, unit: str, *, h
             fillcolor="rgba(3,199,90,0.12)",
         )
     )
-    fig.update_layout(
-        **chart_layout(height, with_title=True),
+    apply_chart_layout(
+        fig,
+        height,
         title="누적 실현손익",
         yaxis_title=unit,
         xaxis_title="일자",
@@ -166,8 +167,9 @@ def _chart_period_change(daily: pd.DataFrame, value_col: str, unit: str, *, heig
             cliponaxis=False,
         )
     )
-    fig.update_layout(
-        **chart_layout(height, with_title=True),
+    apply_chart_layout(
+        fig,
+        height,
         title="실현손익 증감 (일자별)",
         yaxis_title=unit,
         xaxis_title="일자",
@@ -208,8 +210,9 @@ def _chart_cumulative_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, he
                 line=dict(color=cmap[kind], width=2.5),
             )
         )
-    fig.update_layout(
-        **chart_layout(height, with_title=True),
+    apply_chart_layout(
+        fig,
+        height,
         title="종류별 누적 실현손익 (매매 · 배당 · 이자)",
         yaxis_title=unit,
         xaxis_title="일자",
@@ -242,8 +245,9 @@ def _chart_monthly_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, heigh
         barmode="relative",
         labels={"pnl_kind_ko": "구분", "손익": f"손익({unit})"},
     )
-    fig.update_layout(
-        **chart_layout(height, with_title=True),
+    apply_chart_layout(
+        fig,
+        height,
         title="월별 실현손익 (매매 · 배당 · 이자)",
         legend_title_text="",
     )
@@ -274,8 +278,9 @@ def _chart_by_ticker(df: pd.DataFrame, value_col: str, unit: str, *, use_krw: bo
             name="종목 합계",
         )
     )
-    fig.update_layout(
-        **chart_layout(max(height, 48 * len(by_t) + 100), with_title=True),
+    apply_chart_layout(
+        fig,
+        max(height, 48 * len(by_t) + 100),
         title="종목별 실현손익 합계",
         xaxis_title=unit,
         yaxis_title="",
@@ -313,8 +318,9 @@ def _chart_ticker_by_kind(df: pd.DataFrame, value_col: str, unit: str, *, height
         barmode="group",
         labels={"asset_ref": "종목", "pnl_kind_ko": "구분", "손익": f"손익({unit})"},
     )
-    fig.update_layout(
-        **chart_layout(height, with_title=True),
+    apply_chart_layout(
+        fig,
+        height,
         title="종목별 · 종류별 실현손익 (매매 vs 배당)",
         legend_title_text="",
         xaxis_title="종목",
@@ -456,8 +462,9 @@ def render_total_realized_pnl(client, *, compact: bool = False) -> None:
                 textposition="auto",
             )
         )
-        fig.update_layout(
-            **chart_layout(280, with_title=True),
+        apply_chart_layout(
+            fig,
+            280,
             title=f"{selected_ticker} · 종류별 실현손익",
             yaxis_title=unit,
             xaxis_title="",
