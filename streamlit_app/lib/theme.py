@@ -634,6 +634,24 @@ div[data-testid="stVerticalBlockBorderWrapper"] {{
 footer {{ visibility: hidden; }}
 header[data-testid="stHeader"] {{ background: transparent !important; }}
 
+/* Hide Streamlit chrome (toolbar / status / decoration) */
+div[data-testid="stToolbar"],
+div[data-testid="stDecoration"],
+div[data-testid="stStatusWidget"] {{
+  visibility: hidden !important;
+  height: 0 !important;
+  position: fixed !important;
+}}
+/* Community Cloud / viewer badge (bottom-right). May not cover host overlay. */
+a[href*="streamlit.io"],
+a[href*="streamlit.app"][target="_blank"],
+div[class*="viewerBadge"],
+div[data-testid="stBaseButton-headerNoPadding"] {{
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}}
+
 /* Home clickable menu rows */
 .np-home-menu div.stButton > button {{
   justify-content: flex-start !important;
