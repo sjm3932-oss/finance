@@ -88,7 +88,8 @@ Rules:
 - For debt_payments: amount is total paid (원리금 합계). If interest/principal split is visible, fill both; otherwise leave null.
 - Fill every section that is visible; use empty arrays when not visible.
 - Numbers must be plain JSON numbers (no commas, no currency symbols). Won amounts as integers when possible.
-- Tickers stay as Latin symbols (e.g. TQQQ, TSLA). Korean names go in "name".
+- Tickers: US/ETF as Latin symbols (TQQQ, TSLA). Korean listed stocks as 6-digit codes (e.g. 005930) without .KS/.KQ.
+- Always fill BOTH ticker and name when either is visible. If only one is on screen, still include the other if you know it (e.g. 삼성전자 ↔ 005930).
 - If nothing can be parsed, return {"trades":[],"dividends":[],"holdings_snapshot":[],"debts":[],"debt_payments":[],"error":"unreadable"}.
 """
 

@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from lib.ocr_upload import DOC_TYPES, stage_screenshot
+from lib.symbol_resolve import enrich_parsed_symbols
 from lib.ui_ko import ACCOUNT_TYPE_KO, STATUS_KO
 
 # Display columns (Korean) → JSON keys
@@ -308,6 +309,17 @@ def render_staging_review(client, user) -> None:
     parsed = row.get("parsed_json") or {}
     if isinstance(parsed, str):
         parsed = json.loads(parsed)
+
+    enrich_key = f"_ocr_enriched_{selected_id}"
+    if not st.session_state.get(enrich_key):
+        parsed = enrich_parsed_symbols(parsed, client)
+        st.session_state[enrich_key] = True
+        try:
+            client.table("ocr_staging").update({"parsed_json": parsed}).eq(
+                "id", selected_id
+            ).execute()
+        except Exception:
+            pass
 
     c = _counts(parsed)
     st.caption(

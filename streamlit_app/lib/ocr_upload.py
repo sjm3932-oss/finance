@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from lib.gemini_client import GeminiError, parse_screenshot
+from lib.symbol_resolve import enrich_parsed_symbols
 
 DOC_TYPES = {
     "auto": "자동 인식 (잔고·매매·배당·부채)",
@@ -77,6 +78,7 @@ def stage_screenshot(
             parsed.setdefault(key, [])
             if not isinstance(parsed[key], list):
                 parsed[key] = []
+        parsed = enrich_parsed_symbols(parsed, client)
         parsed_json = parsed
         empty = _is_empty(parsed)
         if parsed.get("error") == "unreadable" and empty:
