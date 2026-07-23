@@ -10,7 +10,7 @@ import streamlit as st
 
 from lib.chart_period import filter_by_period, period_radio
 from lib.theme import CHART_COLORS, PRIMARY, chart_layout, show_plotly
-from lib.ui_ko import DEBT_TX_KO, FLOW_KIND_KO, FLOW_TYPE_KO, TRADE_TYPE_KO
+from lib.ui_ko import FLOW_KIND_KO, FLOW_TYPE_KO, TRADE_TYPE_KO
 
 CASH_INCOME_CATS = ["월급", "사업소득", "이자", "기타수입"]
 CASH_EXPENSE_CATS = ["생활비", "주거", "식비", "교통", "보험", "세금납부", "이체/저축", "기타지출"]
@@ -261,39 +261,12 @@ def render_flow_forms(client, user) -> None:
                     st.rerun()
 
     with tabs[3]:
-        with st.expander("부채 원장 등록", expanded=not _debts(client)):
-            with st.form("dash_debt_create"):
-                lender = st.text_input("대출기관/상대", placeholder="주택담보대출")
-                c1, c2 = st.columns(2)
-                principal = c1.number_input("잔액(원)", min_value=0.0, step=100000.0, format="%.0f")
-                rate = c2.number_input("금리(%)", min_value=0.0, step=0.1, format="%.2f")
-                due = st.date_input("만기일", value=date.today())
-                no_due = st.checkbox("만기일 없음")
-                memo = st.text_input("메모", "")
-                if st.form_submit_button("부채 등록", type="primary"):
-                    if not lender:
-                        st.error("대출기관명을 입력하세요.")
-                    else:
-                        client.table("debts").insert(
-                            {
-                                "user_id": str(user.id),
-                                "lender": lender,
-                                "principal": principal,
-                                "interest_rate": rate,
-                                "due_date": None if no_due else due.isoformat(),
-                                "memo": memo or None,
-                            }
-                        ).execute()
-                        st.success("부채가 등록되었습니다.")
-                        st.rerun()
-
+        st.info(
+            "부채 등록·원리금 납부·이자율 변경은 **대시보드 → 부채**에서 관리합니다. "
+            "이자는 잔금 기준으로 자동 계산됩니다."
+        )
         debts = _debts(client)
-        if not debts:
-            st.info("등록된 부채가 없습니다.")
-        else:
-            dmap = {
-                d["id"]: f"{d['lender']} (잔액 ₩{float(d['principal']):,.0f})" for d in debts
-            }
+        if debts:
             ddf = pd.DataFrame(debts)
             ddf["principal"] = pd.to_numeric(ddf["principal"], errors="coerce")
             fig = px.pie(
@@ -303,36 +276,7 @@ def render_flow_forms(client, user) -> None:
                 color_discrete_sequence=CHART_COLORS,
                 hole=0.4,
             )
-            fig.update_layout(**chart_layout(280, with_title=True), title="부채 구성")
+            fig.update_layout(**chart_layout(280, with_title=True), title="부채 잔금 구성")
             show_plotly(fig)
-
-            with st.form("dash_debt_tx"):
-                debt_id = st.selectbox("부채", options=list(dmap), format_func=lambda i: dmap[i])
-                tx_type = st.selectbox(
-                    "유형",
-                    ["increase", "repayment", "decrease", "interest"],
-                    format_func=lambda x: DEBT_TX_KO.get(x, x),
-                )
-                c1, c2 = st.columns(2)
-                amount = c1.number_input("금액", min_value=0.0, step=10000.0, format="%.0f")
-                tx_date = c2.date_input("일자", value=date.today())
-                memo = st.text_input("메모", "")
-                if st.form_submit_button("부채 거래 기록", type="primary"):
-                    if amount <= 0:
-                        st.error("금액을 확인하세요.")
-                    else:
-                        try:
-                            client.table("debt_transactions").insert(
-                                {
-                                    "debt_id": debt_id,
-                                    "user_id": str(user.id),
-                                    "tx_date": tx_date.isoformat(),
-                                    "tx_type": tx_type,
-                                    "amount": amount,
-                                    "memo": memo or None,
-                                }
-                            ).execute()
-                            st.success("기록됨 (잔액 자동 반영)")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(str(exc))
+            if st.button("대시보드 부채로 이동", key="goto_debt_dash"):
+                st.switch_page("pages/1_대시보드.py")

@@ -17,8 +17,10 @@ if str(ROOT) not in sys.path:
 from lib.asset_flows_ui import render_flow_charts  # noqa: E402
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.chart_period import filter_by_period, period_radio  # noqa: E402
+from lib.debt_ui import render_debt_panel  # noqa: E402
 from lib.market_data import STALE_HOURS, is_stale  # noqa: E402
 from lib.realized_pnl_ui import render_total_realized_pnl  # noqa: E402
+from lib.tax_ui import render_tax_panel  # noqa: E402
 from lib.theme import (  # noqa: E402
     PRIMARY,
     apply_theme,
@@ -33,7 +35,7 @@ from lib.theme import (  # noqa: E402
 st.set_page_config(page_title="대시보드 · 부자뚱", page_icon="💚", layout="wide")
 apply_theme(max_width=1280)
 
-VIEWS = ["홈", "보유", "손익", "거래"]
+VIEWS = ["홈", "보유", "손익", "거래", "부채", "세금"]
 
 
 def _fmt_money(v, currency="KRW") -> str:
@@ -414,7 +416,7 @@ def view_holdings(client, live_rows) -> None:
 def main() -> None:
     page_hero(
         "대시보드",
-        "순자산·보유·실현손익·자금 이동을 한곳에서 조회합니다.",
+        "순자산·보유·손익·거래·부채·세금을 한곳에서 봅니다.",
         compact=True,
     )
     view = render_subnav(VIEWS, state_key="dash_view", default="홈")
@@ -434,8 +436,12 @@ def main() -> None:
         view_holdings(client, live_rows)
     elif view == "손익":
         render_total_realized_pnl(client, compact=False)
-    else:
+    elif view == "거래":
         render_flow_charts(client)
+    elif view == "부채":
+        render_debt_panel(client, user)
+    else:
+        render_tax_panel(client, user)
 
     render_bottom_actions(enabled=True)
 

@@ -109,10 +109,11 @@ PNL_KIND_KO = {
 TRADE_TYPE_KO = {"buy": "매수", "sell": "매도"}
 FLOW_TYPE_KO = {"income": "수입", "expense": "지출"}
 DEBT_TX_KO = {
-    "increase": "증가(추가차입)",
-    "repayment": "상환",
+    "increase": "추가차입",
+    "repayment": "원금상환",
     "decrease": "감소",
     "interest": "이자원금가산",
+    "payment": "원리금 납부",
     "other": "기타",
 }
 ACCOUNT_TYPE_KO = {"brokerage": "증권", "bank": "은행", "loan": "대출"}

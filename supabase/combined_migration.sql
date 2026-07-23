@@ -1376,3 +1376,357 @@ end;
 $$;
 
 
+-- >>> 0010_ocr_dividends.sql
+-- 0010_ocr_dividends.sql
+-- OCR approve also commits dividends parsed from screenshots.
+-- Trades from OCR may include fee/currency when present.
+
+create or replace function public.commit_ocr_staging()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_account_id uuid;
+  v_trade jsonb;
+  v_holding jsonb;
+  v_dividend jsonb;
+  v_created_by uuid;
+begin
+  if tg_op <> 'UPDATE' then
+    return new;
+  end if;
+
+  if new.status is distinct from 'approved' then
+    return new;
+  end if;
+
+  if old.status is not distinct from 'approved' then
+    return new;
+  end if;
+
+  v_account_id := nullif(new.parsed_json->>'account_id', '')::uuid;
+  if v_account_id is null then
+    raise exception 'ocr_staging.parsed_json.account_id is required';
+  end if;
+
+  if not exists (select 1 from public.accounts a where a.id = v_account_id) then
+    raise exception 'account_id % not found', v_account_id;
+  end if;
+
+  v_created_by := coalesce(new.reviewed_by, new.uploaded_by);
+
+  -- Trades (do not auto-adjust holdings — holdings_snapshot is authoritative when present)
+  if jsonb_typeof(coalesce(new.parsed_json->'trades', '[]'::jsonb)) = 'array' then
+    for v_trade in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'trades', '[]'::jsonb))
+    loop
+      insert into public.trades (
+        account_id, trade_date, ticker, trade_type, price, quantity,
+        fee, currency, reason, created_by, adjust_holdings
+      ) values (
+        v_account_id,
+        coalesce((v_trade->>'trade_date')::date, current_date),
+        v_trade->>'ticker',
+        v_trade->>'trade_type',
+        coalesce((v_trade->>'price')::numeric, 0),
+        coalesce((v_trade->>'quantity')::numeric, 0),
+        coalesce((v_trade->>'fee')::numeric, 0),
+        coalesce(nullif(v_trade->>'currency', ''), 'USD'),
+        nullif(v_trade->>'reason', ''),
+        v_created_by,
+        false
+      );
+    end loop;
+  end if;
+
+  -- Dividends
+  if jsonb_typeof(coalesce(new.parsed_json->'dividends', '[]'::jsonb)) = 'array' then
+    for v_dividend in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'dividends', '[]'::jsonb))
+    loop
+      insert into public.dividends (
+        user_id, account_id, ticker, name, pay_date, amount, currency, memo
+      ) values (
+        v_created_by,
+        v_account_id,
+        v_dividend->>'ticker',
+        coalesce(nullif(v_dividend->>'name', ''), v_dividend->>'ticker'),
+        coalesce((v_dividend->>'pay_date')::date, current_date),
+        coalesce((v_dividend->>'amount')::numeric, 0),
+        coalesce(nullif(v_dividend->>'currency', ''), 'USD'),
+        nullif(v_dividend->>'memo', '')
+      );
+    end loop;
+  end if;
+
+  -- Holdings snapshot upsert
+  if jsonb_typeof(coalesce(new.parsed_json->'holdings_snapshot', '[]'::jsonb)) = 'array' then
+    for v_holding in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'holdings_snapshot', '[]'::jsonb))
+    loop
+      insert into public.holdings (
+        account_id, ticker, name, quantity, avg_price, currency, updated_at
+      ) values (
+        v_account_id,
+        v_holding->>'ticker',
+        v_holding->>'name',
+        coalesce((v_holding->>'quantity')::numeric, 0),
+        coalesce((v_holding->>'avg_price')::numeric, 0),
+        coalesce(v_holding->>'currency', 'KRW'),
+        now()
+      )
+      on conflict (account_id, ticker) do update
+      set
+        name = excluded.name,
+        quantity = excluded.quantity,
+        avg_price = excluded.avg_price,
+        currency = excluded.currency,
+        updated_at = now();
+    end loop;
+  end if;
+
+  new.reviewed_at := coalesce(new.reviewed_at, now());
+  return new;
+end;
+$$;
+
+
+-- >>> 0011_total_realized_pnl.sql
+-- 0011_total_realized_pnl.sql
+-- Combined realized P&L from sells, dividends, interest income, and debt interest cost.
+
+create or replace view public.v_total_realized_pnl as
+-- 1) Sell trades — capital gains / losses already stored on the row
+select
+  t.trade_date as event_date,
+  'trade_realized'::text as pnl_kind,
+  t.ticker as asset_ref,
+  t.realized_pnl as pnl,
+  coalesce(t.currency, 'USD') as currency,
+  t.id as source_id,
+  'trades'::text as source_table,
+  t.created_by as user_id
+from public.trades t
+where t.trade_type = 'sell'
+  and t.realized_pnl is not null
+
+union all
+
+-- 2) Dividends — cash received counts as realized income
+select
+  d.pay_date,
+  'dividend',
+  d.ticker,
+  d.amount,
+  coalesce(d.currency, 'USD'),
+  d.id,
+  'dividends',
+  d.user_id
+from public.dividends d
+where d.amount is not null
+
+union all
+
+-- 3) Interest income (cash_flows categorized as 이자)
+select
+  c.flow_date,
+  'interest_income',
+  coalesce(c.category, '이자'),
+  c.amount,
+  coalesce(c.currency, 'KRW'),
+  c.id,
+  'cash_flows',
+  c.user_id
+from public.cash_flows c
+where c.flow_type = 'income'
+  and (
+    c.category ilike '%이자%'
+    or c.category ilike '%interest%'
+  )
+
+union all
+
+-- 4) Debt interest — financing cost (negative contribution to realized P&L)
+select
+  dt.tx_date,
+  'interest_expense',
+  dk.lender,
+  -abs(dt.amount),
+  'KRW',
+  dt.id,
+  'debt_transactions',
+  dt.user_id
+from public.debt_transactions dt
+join public.debts dk on dk.id = dt.debt_id
+where dt.tx_type = 'interest';
+
+grant select on public.v_total_realized_pnl to authenticated;
+
+comment on view public.v_total_realized_pnl is
+  'Combined realized P&L: sell gains, dividends, interest income, debt interest cost';
+
+
+-- >>> 0012_app_runtime.sql
+-- Live Streamlit origins published by tunnel keepers.
+create table if not exists public.app_runtime (
+  id int primary key default 1 check (id = 1),
+  public_url text not null,
+  fallback_url text,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.app_runtime enable row level security;
+
+drop policy if exists "app_runtime_select_all" on public.app_runtime;
+create policy "app_runtime_select_all"
+  on public.app_runtime
+  for select
+  to anon, authenticated
+  using (true);
+
+insert into public.app_runtime (id, public_url)
+values (1, 'http://localhost:8501')
+on conflict (id) do nothing;
+
+alter table public.app_runtime
+  add column if not exists fallback_url text;
+
+create or replace function public.touch_app_runtime_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_app_runtime_updated_at on public.app_runtime;
+create trigger trg_app_runtime_updated_at
+  before update on public.app_runtime
+  for each row execute function public.touch_app_runtime_updated_at();
+
+
+-- >>> 0013_debt_tracking.sql
+-- Debt tracking: kinds, original principal, rate history, 원리금 payment split
+-- debts.principal = 잔금 (remaining balance). Interest accrues on this balance.
+
+alter table public.debts
+  add column if not exists debt_kind text not null default 'mortgage';
+
+alter table public.debts
+  add column if not exists original_principal numeric;
+
+update public.debts
+set original_principal = coalesce(original_principal, principal)
+where original_principal is null;
+
+alter table public.debts
+  alter column original_principal set default 0;
+
+comment on column public.debts.principal is '잔금 (remaining balance). Interest is calculated on this, not original principal.';
+comment on column public.debts.original_principal is '최초 원금';
+comment on column public.debts.interest_rate is '현재 연 이자율 (%). Changeable; history in debt_rate_history.';
+
+create table if not exists public.debt_rate_history (
+  id uuid primary key default gen_random_uuid(),
+  debt_id uuid not null references public.debts(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
+  effective_date date not null,
+  interest_rate numeric not null,
+  memo text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_debt_rate_hist_debt
+  on public.debt_rate_history(debt_id, effective_date desc);
+
+alter table public.debt_rate_history enable row level security;
+drop policy if exists couple_all_debt_rate_history on public.debt_rate_history;
+create policy couple_all_debt_rate_history on public.debt_rate_history
+  for all to authenticated
+  using (public.is_couple_member())
+  with check (
+    public.is_couple_member()
+    and user_id in (select id from public.users)
+  );
+
+grant select, insert, update, delete on public.debt_rate_history to authenticated;
+
+-- Seed rate history from current debts (once)
+insert into public.debt_rate_history (debt_id, user_id, effective_date, interest_rate, memo)
+select d.id, d.user_id, coalesce(d.created_at::date, current_date), d.interest_rate, '초기 이자율'
+from public.debts d
+where not exists (
+  select 1 from public.debt_rate_history h where h.debt_id = d.id
+);
+
+alter table public.debt_transactions
+  add column if not exists interest_portion numeric;
+
+alter table public.debt_transactions
+  add column if not exists principal_portion numeric;
+
+alter table public.debt_transactions
+  add column if not exists balance_before numeric;
+
+alter table public.debt_transactions
+  add column if not exists balance_after numeric;
+
+alter table public.debt_transactions
+  add column if not exists rate_used numeric;
+
+alter table public.debt_transactions drop constraint if exists debt_transactions_tx_type_check;
+alter table public.debt_transactions
+  add constraint debt_transactions_tx_type_check
+  check (tx_type in ('increase', 'decrease', 'repayment', 'interest', 'payment', 'other'));
+
+-- Apply debt transaction to 잔금 (principal column)
+create or replace function public.apply_debt_transaction()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  delta numeric;
+begin
+  if tg_op = 'INSERT' then
+    delta := case new.tx_type
+      when 'increase' then new.amount
+      when 'interest' then new.amount  -- capitalize (legacy)
+      when 'decrease' then -new.amount
+      when 'repayment' then -new.amount
+      when 'payment' then -coalesce(new.principal_portion, 0)  -- 원리금: only principal reduces 잔금
+      else 0
+    end;
+    update public.debts
+      set principal = greatest(principal + delta, 0)
+      where id = new.debt_id;
+    return new;
+  elsif tg_op = 'DELETE' then
+    delta := case old.tx_type
+      when 'increase' then -old.amount
+      when 'interest' then -old.amount
+      when 'decrease' then old.amount
+      when 'repayment' then old.amount
+      when 'payment' then coalesce(old.principal_portion, 0)
+      else 0
+    end;
+    update public.debts
+      set principal = greatest(principal + delta, 0)
+      where id = old.debt_id;
+    return old;
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists trg_apply_debt_transaction on public.debt_transactions;
+create trigger trg_apply_debt_transaction
+  after insert or delete on public.debt_transactions
+  for each row execute function public.apply_debt_transaction();
+
+

@@ -33,11 +33,10 @@ st.set_page_config(
 )
 apply_theme(max_width=920)
 
-# Main menu only (자산 챗 / 기록하기 → bottom FABs)
+# Main menu only (자산 챗 / 기록하기 → bottom FABs; 세금·부채 → 대시보드 하위)
 MENU_ITEMS = [
     {"title": "대시보드", "path": "pages/1_대시보드.py"},
-    {"title": "세금", "path": "pages/2_세금.py"},
-    {"title": "알림·설정", "path": "pages/3_알림_설정.py"},
+    {"title": "알림·설정", "path": "pages/2_알림_설정.py"},
 ]
 
 
