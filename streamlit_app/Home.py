@@ -177,22 +177,30 @@ def main() -> None:
     if not _ensure_allowed_and_profile():
         return
 
+    # Register pages; draw our own sidebar links so the menu never disappears
+    # (showSidebarNavigation=false / Cloud quirks can hide the built-in nav widget).
+    views = ROOT / "views"
+    dash = st.Page(str(views / "dashboard.py"), title="대시보드", default=True)
+    chat = st.Page(str(views / "wealth_chat.py"), title="자산 챗")
+    record = st.Page(str(views / "record.py"), title="기록하기")
+    approve = st.Page(str(views / "approve.py"), title="승인하기")
+    pg = st.navigation([dash, chat, record, approve], position="hidden")
+
     with st.sidebar:
+        st.markdown("### 부자뚱")
+        st.page_link(dash, label="대시보드", use_container_width=True)
+        st.page_link(chat, label="자산 챗", use_container_width=True)
+        st.page_link(record, label="기록하기", use_container_width=True)
+        st.page_link(approve, label="승인하기", use_container_width=True)
+        st.divider()
         app_user = st.session_state.app_user or {}
         name = app_user.get("display_name") or (st.session_state.user.email or "")
-        st.caption(f"{name}")
+        st.caption(name)
         if st.button("로그아웃", use_container_width=True):
             logout_and_clear()
             st.rerun()
 
-    # Explicit nav only — pages live under views/ so Streamlit won't auto-list them.
-    pages = [
-        st.Page("views/dashboard.py", title="대시보드", default=True),
-        st.Page("views/wealth_chat.py", title="자산 챗"),
-        st.Page("views/record.py", title="기록하기"),
-        st.Page("views/approve.py", title="승인하기"),
-    ]
-    st.navigation(pages, position="sidebar").run()
+    pg.run()
 
 
 main()

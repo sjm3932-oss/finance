@@ -14,7 +14,7 @@ fastReruns = true
 [client]
 toolbarMode = "minimal"
 showErrorDetails = true
-# Hide Streamlit's auto pages/ sidebar so only st.navigation items appear
+# Built-in page list off — Home.py draws the 4 menu links with st.page_link
 showSidebarNavigation = false
 
 [theme]
