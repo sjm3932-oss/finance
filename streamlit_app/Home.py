@@ -136,9 +136,19 @@ def _ensure_allowed_and_profile() -> bool:
 
 def _oauth_login_url() -> str | None:
     try:
+        from lib.env_boot import is_ephemeral_app_url
+
         client = get_anon_client()
-        # OAuth must return to the stable gateway — never a rotating trycloudflare host.
+        # OAuth must return to the fixed Streamlit URL — never a tunnel.
         redirect_to = get_stable_app_url()
+        if is_ephemeral_app_url(redirect_to):
+            st.session_state["_cwm_login_cfg_error"] = (
+                "PUBLIC_APP_URL이 임시 터널(Pinggy/Cloudflare 등)입니다. "
+                "Streamlit Cloud Secrets에서 "
+                "PUBLIC_APP_URL = \"https://richddoong.streamlit.app\" "
+                "로 바꾼 뒤 Reboot 하세요."
+            )
+            return None
         result = client.auth.sign_in_with_oauth(
             {
                 "provider": "google",
@@ -205,12 +215,15 @@ def render_menu_index(*, can_navigate: bool) -> None:
 
 def home_logged_out() -> None:
     page_hero("홈", "부부 공동 자산 관리 — 로그인 후 메뉴를 선택하세요.")
+    from lib.env_boot import is_ephemeral_app_url
+
     base = app_base_url()
-    if "trycloudflare.com" in base or "pinggy" in base or "app-gateway" in base or "localhost" in base:
+    if is_ephemeral_app_url(base):
         st.warning(
-            "지금은 임시 환경입니다. 모바일에서 안정적으로 쓰려면 "
-            "**Streamlit Community Cloud**에 배포해 고정 주소(`*.streamlit.app`)를 쓰세요. "
-            "방법은 저장소의 `DEPLOY.md`를 참고하세요."
+            "PUBLIC_APP_URL이 아직 임시 터널입니다. "
+            "Streamlit Secrets에 "
+            "`PUBLIC_APP_URL = \"https://richddoong.streamlit.app\"` "
+            "를 넣고 Reboot 하세요."
         )
     else:
         st.caption(f"접속 주소: {base}")
