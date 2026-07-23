@@ -14,8 +14,8 @@ hydrate_env()
 GEMINI_API_KEY = env("GEMINI_API_KEY")
 GEMINI_MODEL = env("GEMINI_MODEL", "gemini-2.5-flash")
 
-OCR_PROMPT = """You are a financial OCR assistant for a Korean couple's portfolio tracker.
-Extract holdings, trades, and/or dividends from this brokerage/bank screenshot.
+OCR_PROMPT = """You are a financial OCR assistant for a Korean couple's wealth tracker (부자뚱).
+Extract holdings, trades, dividends, and/or debt (loan) info from this screenshot.
 
 Return ONLY valid JSON (no markdown) with this schema:
 {
@@ -51,6 +51,29 @@ Return ONLY valid JSON (no markdown) with this schema:
       "avg_price": number,
       "currency": "KRW" | "USD"
     }
+  ],
+  "debts": [
+    {
+      "lender": "은행/대출상품명",
+      "debt_kind": "mortgage" | "credit" | "card" | "student" | "jeonse" | "other",
+      "balance": number,
+      "original_principal": number_or_null,
+      "interest_rate": number_or_null,
+      "due_date": "YYYY-MM-DD or null",
+      "memo": "string or empty"
+    }
+  ],
+  "debt_payments": [
+    {
+      "pay_date": "YYYY-MM-DD",
+      "lender": "은행/대출상품명 (match debts)",
+      "amount": number,
+      "interest_portion": number_or_null,
+      "principal_portion": number_or_null,
+      "balance_after": number_or_null,
+      "rate": number_or_null,
+      "memo": "string or empty"
+    }
   ]
 }
 
@@ -58,17 +81,29 @@ Rules:
 - Prefer holdings_snapshot when the screen shows balances/positions.
 - Prefer trades when the screen shows buy/sell / order history.
 - Prefer dividends when the screen shows dividend / 배당 / 입금 내역 for dividends.
+- Prefer debts when the screen shows loan balance / 대출잔액 / 원리금 / 이자율 / 상환스케줄 summary.
+- Prefer debt_payments when the screen shows monthly payment history / 납부내역 / 이자·원금 분해.
+- debt.balance = 잔금 (remaining balance), NOT the original loan amount unless they are the same.
+- debt_kind: 주택담보/주담대→mortgage, 신용→credit, 카드론→card, 학자금→student, 전세→jeonse, else other.
+- For debt_payments: amount is total paid (원리금 합계). If interest/principal split is visible, fill both; otherwise leave null.
 - Fill every section that is visible; use empty arrays when not visible.
-- Numbers must be plain JSON numbers (no commas, no currency symbols).
+- Numbers must be plain JSON numbers (no commas, no currency symbols). Won amounts as integers when possible.
 - Tickers stay as Latin symbols (e.g. TQQQ, TSLA). Korean names go in "name".
-- If nothing can be parsed, return {"trades":[],"dividends":[],"holdings_snapshot":[],"error":"unreadable"}.
+- If nothing can be parsed, return {"trades":[],"dividends":[],"holdings_snapshot":[],"debts":[],"debt_payments":[],"error":"unreadable"}.
 """
 
 DOC_TYPE_HINTS = {
     "holdings": "This screenshot is mainly a holdings/balance screen. Focus on holdings_snapshot.",
     "trades": "This screenshot is mainly a trade/order history. Focus on trades (buy/sell).",
     "dividends": "This screenshot is mainly dividend / 배당 payout history. Focus on dividends.",
-    "auto": "Detect whether this is holdings, trades, dividends, or a mix, and fill matching arrays.",
+    "debt": (
+        "This screenshot is a loan/debt statement: 대출 잔금, 이자율, 월 납부/원리금 내역. "
+        "Focus on debts and debt_payments."
+    ),
+    "auto": (
+        "Detect whether this is holdings, trades, dividends, debt/loan, or a mix, "
+        "and fill matching arrays."
+    ),
 }
 
 
@@ -128,7 +163,7 @@ def parse_screenshot(
         raise GeminiError("Empty response from Gemini Vision")
 
     parsed = _extract_json(text)
-    for key in ("trades", "dividends", "holdings_snapshot"):
+    for key in ("trades", "dividends", "holdings_snapshot", "debts", "debt_payments"):
         parsed.setdefault(key, [])
         if not isinstance(parsed[key], list):
             parsed[key] = []

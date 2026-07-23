@@ -79,8 +79,14 @@ def _load_txs(client, debt_id: str, limit: int = 60) -> list[dict]:
 def render_debt_panel(client, user) -> None:
     st.caption(
         "종류별 부채 잔금·상환을 추적합니다. "
-        "원리금 납부 시 이자는 **잔금 × 연이자율 ÷ 12**로 계산하고, 나머지는 원금 상환으로 잡습니다."
+        "원리금 납부 시 이자는 **잔금 × 연이자율 ÷ 12**로 계산하고, 나머지는 원금 상환으로 잡습니다. "
+        "은행 앱 명세/납부 화면은 「기록하기 → OCR → 부채 명세/납부」로 올릴 수 있습니다."
     )
+
+    if st.button("부채 OCR로 올리기", key="debt_goto_ocr"):
+        st.session_state["record_view"] = "OCR"
+        st.session_state["record_ocr_pref_doc"] = "debt"
+        st.switch_page("pages/_기록하기.py")
 
     debts = _load_debts(client)
 

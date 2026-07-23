@@ -33,12 +33,22 @@ def _signed_url(client, path: str) -> str | None:
     return None
 
 
+def _counts(parsed: dict) -> dict[str, int]:
+    return {
+        "trades": len(parsed.get("trades") or []),
+        "dividends": len(parsed.get("dividends") or []),
+        "holdings": len(parsed.get("holdings_snapshot") or []),
+        "debts": len(parsed.get("debts") or []),
+        "debt_payments": len(parsed.get("debt_payments") or []),
+    }
+
+
 def render_ocr_upload(client, user) -> None:
     """Screenshot → Gemini OCR → ocr_staging."""
     accounts_resp = client.table("accounts").select("id, institution, account_type, currency").execute()
     accounts = accounts_resp.data or []
 
-    with st.expander("계좌 만들기 (승인 전 필요)", expanded=not accounts):
+    with st.expander("계좌 만들기 (증권/은행 업로드 시 필요)", expanded=not accounts):
         with st.form("create_account_record"):
             institution = st.text_input("금융기관", placeholder="토스증권")
             account_type = st.selectbox(
@@ -62,35 +72,61 @@ def render_ocr_upload(client, user) -> None:
                     st.success("계좌가 생성되었습니다")
                     st.rerun()
 
-    if not accounts:
-        st.info("계좌를 하나 만든 뒤 업로드하세요. (승인 시 계좌 선택이 필요합니다)")
-        return
-
-    account_labels = {
-        a["id"]: (
-            f"{a['institution']} "
-            f"({ACCOUNT_TYPE_KO.get(a['account_type'], a['account_type'])}, {a['currency']})"
-        )
-        for a in accounts
-    }
-    selected_account = st.selectbox(
-        "이 업로드의 대상 계좌",
-        options=list(account_labels.keys()),
-        format_func=lambda i: account_labels[i],
-        key="record_ocr_account",
-    )
-
+    default_doc = st.session_state.pop("record_ocr_pref_doc", None)
+    doc_keys = list(DOC_TYPES.keys())
+    doc_index = doc_keys.index(default_doc) if default_doc in doc_keys else 0
     doc_type = st.selectbox(
         "문서 종류",
-        options=list(DOC_TYPES.keys()),
+        options=doc_keys,
         format_func=lambda k: DOC_TYPES[k],
-        index=0,
-        help="매매·배당·잔고를 각각 찍어도 되고, 자동 인식도 가능합니다.",
+        index=doc_index,
+        help="부채 명세·월 납부 내역도 OCR로 올릴 수 있습니다.",
         key="record_ocr_doc_type",
     )
 
+    debt_only = doc_type == "debt"
+    selected_account: str | None = None
+
+    if debt_only:
+        st.caption(
+            "부채 OCR은 대출 잔금·이자율·원리금 납부 내역을 읽습니다. "
+            "승인 시 대출명으로 기존 부채에 매칭하거나 새로 등록합니다."
+        )
+        if accounts:
+            account_labels = {
+                a["id"]: (
+                    f"{a['institution']} "
+                    f"({ACCOUNT_TYPE_KO.get(a['account_type'], a['account_type'])}, {a['currency']})"
+                )
+                for a in accounts
+            }
+            options = [None] + list(account_labels.keys())
+            selected_account = st.selectbox(
+                "연결 계좌 (선택)",
+                options=options,
+                format_func=lambda i: "(없음)" if i is None else account_labels[i],
+                key="record_ocr_account_debt",
+            )
+    else:
+        if not accounts:
+            st.info("계좌를 하나 만든 뒤 업로드하세요. (승인 시 계좌 선택이 필요합니다)")
+            return
+        account_labels = {
+            a["id"]: (
+                f"{a['institution']} "
+                f"({ACCOUNT_TYPE_KO.get(a['account_type'], a['account_type'])}, {a['currency']})"
+            )
+            for a in accounts
+        }
+        selected_account = st.selectbox(
+            "이 업로드의 대상 계좌",
+            options=list(account_labels.keys()),
+            format_func=lambda i: account_labels[i],
+            key="record_ocr_account",
+        )
+
     uploaded = st.file_uploader(
-        "스크린샷 (잔고 / 매매 / 배당)",
+        "스크린샷 (잔고 / 매매 / 배당 / 부채)",
         type=["png", "jpg", "jpeg", "webp", "gif"],
         key="record_ocr_file",
     )
@@ -111,21 +147,20 @@ def render_ocr_upload(client, user) -> None:
                 st.error(f"업로드/파싱 실패: {exc}")
                 st.stop()
 
-        n_trades = len(parsed_json.get("trades") or [])
-        n_divs = len(parsed_json.get("dividends") or [])
-        n_hold = len(parsed_json.get("holdings_snapshot") or [])
-
+        c = _counts(parsed_json)
         if status == "failed":
             st.error(f"실패로 스테이징됨: {error_msg}. 다시 업로드하거나 「검토」에서 수정하세요.")
         else:
             st.success(
-                f"대기로 스테이징됨 · 매매 {n_trades} · 배당 {n_divs} · 잔고 {n_hold} "
+                "대기로 스테이징됨 · "
+                f"매매 {c['trades']} · 배당 {c['dividends']} · 잔고 {c['holdings']} · "
+                f"부채 {c['debts']} · 납부 {c['debt_payments']} "
                 f"(`{created['id'] if created else '완료'}`)"
             )
 
         st.subheader("파싱 결과")
         st.code(json.dumps(parsed_json, ensure_ascii=False, indent=2), language="json")
-        st.info("다음: 상단 **검토**에서 확인 후 승인하세요. 수기 입력은 **수기** 탭을 사용하세요.")
+        st.info("다음: 상단 **검토**에서 확인 후 승인하세요.")
 
 
 def render_staging_review(client, user) -> None:
@@ -179,20 +214,60 @@ def render_staging_review(client, user) -> None:
     if isinstance(parsed, str):
         parsed = json.loads(parsed)
 
+    c = _counts(parsed)
+    st.caption(
+        f"매매 {c['trades']} · 배당 {c['dividends']} · 잔고 {c['holdings']} · "
+        f"부채 {c['debts']} · 납부 {c['debt_payments']}"
+    )
+
     accounts = client.table("accounts").select("id, institution").execute().data or []
     account_ids = [a["id"] for a in accounts]
     account_map = {a["id"]: a["institution"] for a in accounts}
+    needs_account = bool(c["trades"] or c["dividends"] or c["holdings"])
+
+    debts = (
+        client.table("debts").select("id,lender,principal,interest_rate").order("lender").execute().data
+        or []
+    )
+    if c["debts"] or c["debt_payments"]:
+        with st.expander("부채 매칭 참고", expanded=True):
+            if debts:
+                for d in debts:
+                    st.write(
+                        f"- `{d['lender']}` · 잔금 ₩{float(d['principal']):,.0f} · "
+                        f"{float(d['interest_rate']):.2f}% · id `{d['id'][:8]}…`"
+                    )
+                st.caption(
+                    "승인 시 파싱된 lender 이름으로 위 부채에 자동 매칭합니다. "
+                    "이름이 다르면 JSON의 lender를 기존 대출명과 같게 고치세요."
+                )
+            else:
+                st.caption("등록된 부채가 없으면 승인 시 OCR 내용으로 새로 만듭니다.")
 
     with st.form("record_review_form"):
         current_account = parsed.get("account_id")
-        if current_account not in account_ids and account_ids:
-            current_account = account_ids[0]
-        account_id = st.selectbox(
-            "계좌",
-            options=account_ids or [""],
-            index=(account_ids.index(current_account) if current_account in account_ids else 0),
-            format_func=lambda i: f"{account_map.get(i, i)} ({i})",
-        )
+        account_id = None
+        if needs_account:
+            if current_account not in account_ids and account_ids:
+                current_account = account_ids[0]
+            account_id = st.selectbox(
+                "계좌",
+                options=account_ids or [""],
+                index=(account_ids.index(current_account) if current_account in account_ids else 0),
+                format_func=lambda i: f"{account_map.get(i, i)} ({i})",
+            )
+        elif account_ids:
+            options = [None] + account_ids
+            idx = 0
+            if current_account in account_ids:
+                idx = options.index(current_account)
+            account_id = st.selectbox(
+                "계좌 (선택)",
+                options=options,
+                index=idx,
+                format_func=lambda i: "(없음)" if i is None else f"{account_map.get(i, i)} ({i})",
+            )
+
         json_text = st.text_area(
             "파싱 결과 (수정 가능)",
             value=json.dumps(parsed, ensure_ascii=False, indent=2),
@@ -213,6 +288,9 @@ def render_staging_review(client, user) -> None:
         st.stop()
 
     edited["account_id"] = account_id
+    for key in ("trades", "dividends", "holdings_snapshot", "debts", "debt_payments"):
+        edited.setdefault(key, [])
+
     payload = {
         "parsed_json": edited,
         "reviewed_by": str(user.id),
@@ -230,56 +308,60 @@ def render_staging_review(client, user) -> None:
         st.stop()
 
     if approve:
-        st.success("승인됨. 매매·배당·보유에 반영했습니다.")
-        trades = (
-            client.table("trades")
-            .select("ticker, trade_type, quantity, price, trade_date")
-            .eq("account_id", account_id)
-            .order("created_at", desc=True)
-            .limit(8)
-            .execute()
-            .data
-            or []
-        )
-        dividends = (
-            client.table("dividends")
-            .select("pay_date,ticker,amount,currency")
-            .eq("account_id", account_id)
-            .order("created_at", desc=True)
-            .limit(5)
-            .execute()
-            .data
-            or []
-        )
-        holdings = (
-            client.table("holdings")
-            .select("ticker, quantity, avg_price, currency")
-            .eq("account_id", account_id)
-            .execute()
-            .data
-            or []
-        )
-        if trades:
-            st.caption("최근 매매")
-            for t in trades:
-                st.write(
-                    f"- {t.get('trade_date')} · {t.get('ticker')} · "
-                    f"{t.get('trade_type')} · {t.get('quantity')} @ {t.get('price')}"
-                )
-        if dividends:
-            st.caption("최근 배당")
-            for d in dividends:
-                st.write(
-                    f"- {d.get('pay_date')} · {d.get('ticker')} · "
-                    f"{d.get('amount')} {d.get('currency')}"
-                )
-        if holdings:
-            st.caption("보유")
-            for h in holdings:
-                st.write(
-                    f"- {h.get('ticker')} · {h.get('quantity')} · "
-                    f"평단 {h.get('avg_price')} {h.get('currency')}"
-                )
+        st.success("승인됨. 매매·배당·보유·부채에 반영했습니다.")
+        ec = _counts(edited)
+        if ec["trades"] and account_id:
+            trades = (
+                client.table("trades")
+                .select("ticker, trade_type, quantity, price, trade_date")
+                .eq("account_id", account_id)
+                .order("created_at", desc=True)
+                .limit(8)
+                .execute()
+                .data
+                or []
+            )
+            if trades:
+                st.caption("최근 매매")
+                for t in trades:
+                    st.write(
+                        f"- {t.get('trade_date')} · {t.get('ticker')} · "
+                        f"{t.get('trade_type')} · {t.get('quantity')} @ {t.get('price')}"
+                    )
+        if ec["debts"] or ec["debt_payments"]:
+            debt_rows = (
+                client.table("debts")
+                .select("lender,principal,interest_rate,debt_kind")
+                .order("created_at", desc=True)
+                .limit(8)
+                .execute()
+                .data
+                or []
+            )
+            if debt_rows:
+                st.caption("부채 잔금")
+                for d in debt_rows:
+                    st.write(
+                        f"- {d.get('lender')} · 잔금 ₩{float(d.get('principal') or 0):,.0f} · "
+                        f"{float(d.get('interest_rate') or 0):.2f}%"
+                    )
+            pays = (
+                client.table("debt_transactions")
+                .select("tx_date,amount,interest_portion,principal_portion,memo")
+                .eq("tx_type", "payment")
+                .order("created_at", desc=True)
+                .limit(8)
+                .execute()
+                .data
+                or []
+            )
+            if pays:
+                st.caption("최근 원리금 납부")
+                for p in pays:
+                    st.write(
+                        f"- {p.get('tx_date')} · 납부 ₩{float(p.get('amount') or 0):,.0f} "
+                        f"(이자 {p.get('interest_portion')} / 원금 {p.get('principal_portion')})"
+                    )
     elif reject:
         st.warning("반려되었습니다.")
     else:

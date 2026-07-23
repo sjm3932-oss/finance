@@ -34,10 +34,10 @@ def main() -> None:
     ensure_profile(user, client)
 
     if view == "OCR":
-        st.caption("잔고 · 매매 · 배당 스크린샷 → AI 파싱 → 스테이징")
+        st.caption("잔고 · 매매 · 배당 · 부채 명세/납부 스크린샷 → AI 파싱 → 스테이징")
         render_ocr_upload(client, user)
     elif view == "검토":
-        st.caption("대기·실패 항목을 수정하고 승인하면 매매·배당·보유에 반영됩니다.")
+        st.caption("대기·실패 항목을 수정하고 승인하면 매매·배당·보유·부채에 반영됩니다.")
         render_staging_review(client, user)
     else:
         st.caption("매매 · 배당 · 현금흐름 · 계좌/부채를 직접 등록합니다.")
