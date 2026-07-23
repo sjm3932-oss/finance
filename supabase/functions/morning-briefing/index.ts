@@ -77,7 +77,7 @@ portfolio=${JSON.stringify((portfolio ?? []).slice(0, 30))}`;
       webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
       const { data: subs } = await supabase.from("push_subscriptions").select("*");
       const payload = JSON.stringify({
-        title: "Couples Wealth Master",
+        title: "부자뚱",
         body: briefing.slice(0, 180),
         url: Deno.env.get("PUBLIC_APP_URL") ?? "/",
       });
