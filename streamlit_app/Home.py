@@ -1,4 +1,4 @@
-"""부자뚱 — Home (auth + simple menu)."""
+"""부자뚱 — entry: auth gate + 4-page sidebar navigation."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from lib.auth import logout_and_clear, remember_login  # noqa: E402
+from lib.env_boot import app_base_url, hydrate_env, is_ephemeral_app_url  # noqa: E402
 from lib.session_persist import ensure_persistent_login  # noqa: E402
-from lib.env_boot import app_base_url, hydrate_env  # noqa: E402
 from lib.supabase_client import (  # noqa: E402
     ConfigError,
     get_anon_client,
@@ -23,7 +23,7 @@ from lib.supabase_client import (  # noqa: E402
 )
 
 hydrate_env()
-from lib.theme import apply_theme, page_hero, render_bottom_actions, user_chip  # noqa: E402
+from lib.theme import apply_theme, page_hero  # noqa: E402
 
 st.set_page_config(
     page_title="부자뚱",
@@ -31,17 +31,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-apply_theme(max_width=920)
-
-# Main menu only (자산 챗 / 기록하기 → bottom FABs; 세금·부채 → 대시보드 하위)
-MENU_ITEMS = [
-    {"title": "대시보드", "path": "pages/1_대시보드.py"},
-    {"title": "알림·설정", "path": "pages/2_알림_설정.py"},
-]
+apply_theme(max_width=1120)
 
 
 def _handle_oauth_callback() -> None:
-    """Capture tokens from URL hash/query after Supabase Google redirect."""
     params = st.query_params
     code = params.get("code")
     if code and not st.session_state.get("access_token"):
@@ -71,57 +64,39 @@ def _handle_oauth_callback() -> None:
         st.rerun()
 
 
-def _ensure_allowed_and_profile() -> bool:
-    user = st.session_state.user
-    if not user:
-        return False
-    email = (user.email or "").lower()
-    if not is_email_allowed(email):
-        st.error(
-            f"`{email}` 은(는) 접근할 수 없습니다. "
-            "허용 이메일에 등록된 부부 계정만 사용할 수 있습니다."
-        )
-        if st.button("로그아웃", key="denied_signout"):
-            logout_and_clear()
-            st.rerun()
-        return False
+def _await_sid_cookie_if_needed() -> None:
+    if not st.session_state.get("_cwm_await_cookie"):
+        return
+    sid = st.session_state.get("cwm_sid")
+    if not sid or not st.session_state.get("access_token"):
+        st.session_state._cwm_await_cookie = False
+        return
 
-    if not st.session_state.app_user:
-        try:
-            from lib.supabase_client import get_user_client
+    from lib.session_persist import read_sid_cookie, write_sid_cookie
 
-            client = get_user_client(
-                st.session_state.access_token,
-                st.session_state.refresh_token,
-            )
-            try:
-                st.session_state.app_user = upsert_app_user(client, user)
-            except Exception:
-                from lib.supabase_client import get_service_client
+    if read_sid_cookie() == sid:
+        st.session_state._cwm_await_cookie = False
+        st.session_state._cwm_cookie_tries = 0
+        return
 
-                svc = get_service_client()
-                st.session_state.app_user = upsert_app_user(svc, user)
-        except Exception as exc:
-            st.error(
-                "사용자 프로필 등록에 실패했습니다. "
-                f"마이그레이션과 키 설정을 확인하세요. 상세: {exc}"
-            )
-            return False
-    return True
+    st.session_state._cwm_force_cookie_write = True
+    write_sid_cookie(sid)
+    tries = int(st.session_state.get("_cwm_cookie_tries") or 0) + 1
+    st.session_state._cwm_cookie_tries = tries
+    st.info("로그인 상태 저장 중…")
+    if tries < 10:
+        st.rerun()
+    st.session_state._cwm_await_cookie = False
 
 
 def _oauth_login_url() -> str | None:
     try:
-        from lib.env_boot import is_ephemeral_app_url
-
         client = get_anon_client()
         redirect_to = get_stable_app_url()
         if is_ephemeral_app_url(redirect_to):
             st.session_state["_cwm_login_cfg_error"] = (
-                "PUBLIC_APP_URL이 임시 터널(Pinggy/Cloudflare 등)입니다. "
-                "Streamlit Cloud Secrets에서 "
-                "PUBLIC_APP_URL = \"https://richddoong.streamlit.app\" "
-                "로 바꾼 뒤 Reboot 하세요."
+                "PUBLIC_APP_URL이 임시 터널입니다. "
+                "Secrets에 https://richddoong.streamlit.app 을 넣으세요."
             )
             return None
         result = client.auth.sign_in_with_oauth(
@@ -141,108 +116,50 @@ def _oauth_login_url() -> str | None:
         return None
 
 
-def render_auth_above_menu(*, logged_in: bool) -> None:
-    """Login / logout control placed above the menu (easy to tap)."""
-    if logged_in:
-        if st.button("로그아웃", key="home_logout", type="secondary", use_container_width=True):
+def _ensure_allowed_and_profile() -> bool:
+    user = st.session_state.user
+    if not user:
+        return False
+    email = (user.email or "").lower()
+    if not is_email_allowed(email):
+        st.error(f"`{email}` 은(는) 접근할 수 없습니다.")
+        if st.button("로그아웃", key="denied_signout"):
             logout_and_clear()
             st.rerun()
-        return
+        return False
 
-    url = _oauth_login_url()
+    if not st.session_state.app_user:
+        try:
+            from lib.supabase_client import get_service_client, get_user_client
+
+            client = get_user_client(
+                st.session_state.access_token,
+                st.session_state.refresh_token,
+            )
+            try:
+                st.session_state.app_user = upsert_app_user(client, user)
+            except Exception:
+                st.session_state.app_user = upsert_app_user(get_service_client(), user)
+        except Exception as exc:
+            st.error(f"프로필 등록 실패: {exc}")
+            return False
+    return True
+
+
+def _show_login() -> None:
+    page_hero("부자뚱", "부부 공동 자산 관리 — Google로 로그인하세요.")
+    base = app_base_url()
+    if is_ephemeral_app_url(base):
+        st.warning("PUBLIC_APP_URL을 Streamlit Cloud 주소로 설정하세요.")
     err = st.session_state.pop("_cwm_login_cfg_error", None)
     if err:
         st.error(err)
         return
+    url = _oauth_login_url()
     if not url:
         st.error("로그인을 준비할 수 없습니다.")
         return
-
     st.link_button("Google로 로그인", url, type="primary", use_container_width=True)
-
-
-def render_menu_index(*, can_navigate: bool) -> None:
-    """Simple menu labels only — no numbers or descriptions."""
-    st.markdown('<div class="np-section np-home-menu">', unsafe_allow_html=True)
-    st.markdown("### 메뉴")
-
-    for item in MENU_ITEMS:
-        clicked = st.button(
-            item["title"],
-            key=f"home_go_{item['title']}",
-            type="primary" if can_navigate else "secondary",
-            use_container_width=True,
-            disabled=not can_navigate,
-        )
-        if clicked and can_navigate:
-            try:
-                st.switch_page(item["path"])
-            except Exception as exc:
-                st.error(f"이동 실패: {exc}")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-def home_logged_out() -> None:
-    page_hero("홈", "부부 공동 자산 관리 — 로그인 후 이용하세요.")
-    from lib.env_boot import is_ephemeral_app_url
-
-    base = app_base_url()
-    if is_ephemeral_app_url(base):
-        st.warning(
-            "PUBLIC_APP_URL이 아직 임시 터널입니다. "
-            "Streamlit Secrets에 "
-            "`PUBLIC_APP_URL = \"https://richddoong.streamlit.app\"` "
-            "를 넣고 Reboot 하세요."
-        )
-    else:
-        st.caption(f"접속 주소: {base}")
-    render_auth_above_menu(logged_in=False)
-    render_menu_index(can_navigate=False)
-    render_bottom_actions(enabled=False)
-
-
-def home_logged_in() -> None:
-    user = st.session_state.user
-    app_user = st.session_state.app_user or {}
-    name = app_user.get("display_name") or (user.email or "회원")
-
-    page_hero("홈", "메뉴를 누르거나, 아래 버튼으로 자산 챗·기록을 여세요.")
-    user_chip(str(name), user.email or "")
-    render_auth_above_menu(logged_in=True)
-    render_menu_index(can_navigate=True)
-    render_bottom_actions(enabled=True)
-
-
-def _await_sid_cookie_if_needed() -> None:
-    """After login, keep rewriting the short sid cookie until the browser has it."""
-    if not st.session_state.get("_cwm_await_cookie"):
-        return
-    sid = st.session_state.get("cwm_sid")
-    if not sid or not st.session_state.get("access_token"):
-        st.session_state._cwm_await_cookie = False
-        return
-
-    from lib.session_persist import read_sid_cookie, write_sid_cookie
-
-    if read_sid_cookie() == sid:
-        st.session_state._cwm_await_cookie = False
-        st.session_state._cwm_cookie_tries = 0
-        return
-
-    st.session_state._cwm_force_cookie_write = True
-    write_sid_cookie(sid)
-    tries = int(st.session_state.get("_cwm_cookie_tries") or 0) + 1
-    st.session_state._cwm_cookie_tries = tries
-    st.info("로그인 상태 저장 중… 잠시만 기다려 주세요.")
-    if tries < 10:
-        st.rerun()
-    st.session_state._cwm_await_cookie = False
-    st.warning(
-        "브라우저 쿠키 저장이 지연되고 있습니다. "
-        "이 탭에서는 유지되지만, 새로고침 후에도 유지되지 않으면 "
-        "브라우저 쿠키를 허용한 뒤 다시 로그인해 주세요."
-    )
 
 
 def main() -> None:
@@ -254,16 +171,28 @@ def main() -> None:
         st.session_state.get("access_token") and st.session_state.get("user")
     )
     if not logged_in:
-        home_logged_out()
+        _show_login()
         return
 
     if not _ensure_allowed_and_profile():
         return
 
-    home_logged_in()
+    with st.sidebar:
+        app_user = st.session_state.app_user or {}
+        name = app_user.get("display_name") or (st.session_state.user.email or "")
+        st.caption(f"{name}")
+        if st.button("로그아웃", use_container_width=True):
+            logout_and_clear()
+            st.rerun()
+
+    # Sidebar shows ONLY these four pages (no Home / 세금 / 알림)
+    pages = [
+        st.Page("pages/1_대시보드.py", title="대시보드", default=True),
+        st.Page("pages/2_자산_챗.py", title="자산 챗"),
+        st.Page("pages/3_기록하기.py", title="기록하기"),
+        st.Page("pages/4_승인하기.py", title="승인하기"),
+    ]
+    st.navigation(pages).run()
 
 
-if __name__ == "__main__":
-    main()
-else:
-    main()
+main()

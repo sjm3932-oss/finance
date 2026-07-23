@@ -710,28 +710,8 @@ div[data-testid="stHorizontalBlock"]:has(div[class*="st-key-fab_chat"]) > div[da
 
 
 def render_bottom_actions(*, enabled: bool = True) -> None:
-    """Fixed bottom-left 자산 챗 / bottom-right 기록하기 (not in main menu)."""
-    c_left, _, c_right = st.columns([1, 2, 1])
-    with c_left:
-        go_chat = st.button(
-            "자산 챗",
-            key="fab_chat",
-            type="primary",
-            use_container_width=True,
-            disabled=not enabled,
-        )
-    with c_right:
-        go_record = st.button(
-            "기록하기",
-            key="fab_record",
-            type="primary",
-            use_container_width=True,
-            disabled=not enabled,
-        )
-    if enabled and go_chat:
-        st.switch_page("pages/_자산_챗.py")
-    if enabled and go_record:
-        st.switch_page("pages/_기록하기.py")
+    """Deprecated — sidebar navigation replaced floating buttons."""
+    return
 
 
 def page_hero(

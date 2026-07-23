@@ -9,7 +9,7 @@ import plotly.express as px
 import streamlit as st
 
 from lib.chart_period import filter_by_period, period_radio
-from lib.theme import CHART_COLORS, PRIMARY, chart_layout, show_plotly
+from lib.theme import PRIMARY, chart_layout, show_plotly
 from lib.ui_ko import FLOW_KIND_KO, FLOW_TYPE_KO, TRADE_TYPE_KO
 
 CASH_INCOME_CATS = ["월급", "사업소득", "이자", "기타수입"]

@@ -27,12 +27,10 @@ from lib.theme import (  # noqa: E402
     chart_layout,
     networth_banner,
     page_hero,
-    render_bottom_actions,
     render_subnav,
     show_plotly,
 )
 
-st.set_page_config(page_title="대시보드 · 부자뚱", page_icon="💚", layout="wide")
 apply_theme(max_width=1280)
 
 VIEWS = ["홈", "보유", "손익", "거래", "부채", "세금"]
@@ -442,8 +440,6 @@ def main() -> None:
         render_debt_dashboard(client)
     else:
         render_tax_dashboard(client)
-
-    render_bottom_actions(enabled=True)
 
 
 main()

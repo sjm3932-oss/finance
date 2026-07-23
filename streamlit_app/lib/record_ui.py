@@ -258,7 +258,7 @@ def render_ocr_upload(client, user) -> None:
                 f"부채 {c['debts']} · 납부 {c['debt_payments']} "
                 f"(`{created['id'] if created else '완료'}`)"
             )
-        st.info("다음: 상단 **검토**에서 표로 확인하고 수정·승인하세요.")
+        st.info("다음: 사이드바 **승인하기**에서 표로 확인하고 승인하세요.")
 
 
 def render_staging_review(client, user) -> None:
