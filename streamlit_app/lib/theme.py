@@ -663,46 +663,6 @@ header[data-testid="stHeader"] {{ background: transparent !important; }}
   }}
 }}
 
-/* Floating quick actions: 자산 챗 (BL) · 기록하기 (BR) */
-section.main .block-container {{
-  padding-bottom: 5.5rem !important;
-}}
-div.st-key-fab_chat,
-div[class*="st-key-fab_chat"] {{
-  position: fixed !important;
-  left: max(12px, env(safe-area-inset-left)) !important;
-  bottom: max(14px, env(safe-area-inset-bottom)) !important;
-  right: auto !important;
-  z-index: 1000 !important;
-  width: min(42vw, 160px) !important;
-  min-width: 0 !important;
-  flex: 0 0 auto !important;
-}}
-div.st-key-fab_record,
-div[class*="st-key-fab_record"] {{
-  position: fixed !important;
-  right: max(12px, env(safe-area-inset-right)) !important;
-  bottom: max(14px, env(safe-area-inset-bottom)) !important;
-  left: auto !important;
-  z-index: 1000 !important;
-  width: min(42vw, 160px) !important;
-  min-width: 0 !important;
-  flex: 0 0 auto !important;
-}}
-div.st-key-fab_chat button,
-div.st-key-fab_record button,
-div[class*="st-key-fab_chat"] button,
-div[class*="st-key-fab_record"] button {{
-  border-radius: 999px !important;
-  min-height: 48px !important;
-  font-weight: 800 !important;
-  box-shadow: 0 10px 24px rgba(3, 199, 90, 0.28) !important;
-}}
-/* Keep FAB row from stacking full-width on mobile */
-div[data-testid="stHorizontalBlock"]:has(div[class*="st-key-fab_chat"]) > div[data-testid="column"] {{
-  min-width: 0 !important;
-  flex: 1 1 0 !important;
-}}
 </style>
 """,
         unsafe_allow_html=True,

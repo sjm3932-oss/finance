@@ -13,6 +13,8 @@ fastReruns = true
 [client]
 toolbarMode = "minimal"
 showErrorDetails = true
+# Hide Streamlit's auto pages/ sidebar so only st.navigation items appear
+showSidebarNavigation = false
 
 [theme]
 primaryColor = "#03C75A"

@@ -185,14 +185,14 @@ def main() -> None:
             logout_and_clear()
             st.rerun()
 
-    # Sidebar shows ONLY these four pages (no Home / 세금 / 알림)
+    # Explicit nav only — pages live under views/ so Streamlit won't auto-list them.
     pages = [
-        st.Page("pages/1_대시보드.py", title="대시보드", default=True),
-        st.Page("pages/2_자산_챗.py", title="자산 챗"),
-        st.Page("pages/3_기록하기.py", title="기록하기"),
-        st.Page("pages/4_승인하기.py", title="승인하기"),
+        st.Page("views/dashboard.py", title="대시보드", default=True),
+        st.Page("views/wealth_chat.py", title="자산 챗"),
+        st.Page("views/record.py", title="기록하기"),
+        st.Page("views/approve.py", title="승인하기"),
     ]
-    st.navigation(pages).run()
+    st.navigation(pages, position="sidebar").run()
 
 
 main()

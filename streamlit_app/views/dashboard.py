@@ -179,10 +179,10 @@ def _aggregate_ticker(rows: list[dict]) -> dict:
 
 
 def _status_bar(*, any_stale: bool) -> None:
-    """Read-only status — mutations live under 알림·설정."""
+    """Read-only status — price/snapshot jobs live under 자산 챗."""
     stale = " · 시세 지연" if any_stale else ""
     st.caption(
-        f"조회 전용{stale} · 시세/스냅샷 갱신은 「알림·설정」에서 "
+        f"조회 전용{stale} · 시세/스냅샷·브리핑은 「자산 챗」에서 "
         f"({STALE_HOURS:.0f}시간 초과 시 지연 표시)"
     )
 
