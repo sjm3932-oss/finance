@@ -279,4 +279,5 @@ def render_flow_forms(client, user) -> None:
             fig.update_layout(**chart_layout(280, with_title=True), title="부채 잔금 구성")
             show_plotly(fig)
             if st.button("대시보드 부채로 이동", key="goto_debt_dash"):
+                st.session_state["dash_view"] = "부채"
                 st.switch_page("pages/1_대시보드.py")
