@@ -33,7 +33,7 @@ st.set_page_config(
 )
 apply_theme(max_width=920)
 
-MENU_TITLES = ("대시보드", "자산 챗", "기록하기", "승인하기")
+MENU_TITLES = ("내 자산", "자산 챗", "기록하기", "승인하기")
 
 
 def _handle_oauth_callback() -> None:
@@ -200,12 +200,12 @@ def _show_logged_out_home() -> None:
 def _make_pages() -> tuple:
     views = ROOT / "views"
     home = st.Page(_render_logged_in_home, title="홈", default=True)
-    dash = st.Page(str(views / "dashboard.py"), title="대시보드")
+    dash = st.Page(str(views / "dashboard.py"), title="내 자산")
     chat = st.Page(str(views / "wealth_chat.py"), title="자산 챗")
     record = st.Page(str(views / "record.py"), title="기록하기")
     approve = st.Page(str(views / "approve.py"), title="승인하기")
     by_title = {
-        "대시보드": dash,
+        "내 자산": dash,
         "자산 챗": chat,
         "기록하기": record,
         "승인하기": approve,
@@ -217,7 +217,7 @@ def _render_logged_in_home() -> None:
     user = st.session_state.user
     app_user = st.session_state.app_user or {}
     name = app_user.get("display_name") or (user.email or "회원")
-    page_hero("홈", "메뉴를 눌러 대시보드·자산 챗·기록·승인으로 이동하세요.")
+    page_hero("홈", "메뉴를 눌러 내 자산·자산 챗·기록·승인으로 이동하세요.")
     user_chip(str(name), user.email or "")
     _render_auth(logged_in=True)
     pages = st.session_state.get("_cwm_menu_pages") or {}
@@ -246,7 +246,7 @@ def main() -> None:
     with st.sidebar:
         st.markdown("### 부자뚱")
         st.page_link(home, label="홈", use_container_width=True)
-        st.page_link(dash, label="대시보드", use_container_width=True)
+        st.page_link(dash, label="내 자산", use_container_width=True)
         st.page_link(chat, label="자산 챗", use_container_width=True)
         st.page_link(record, label="기록하기", use_container_width=True)
         st.page_link(approve, label="승인하기", use_container_width=True)

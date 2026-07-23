@@ -208,7 +208,7 @@ def _fmt_qty(q) -> str:
 
 
 def _holding_rows_html(items: list[dict]) -> str:
-    """Toss-style holding list (not a raw DB table)."""
+    """Toss-style holding list (not a raw DB table). Name on top, ticker in meta."""
     parts = ['<div class="np-hold-list">']
     for it in items:
         ticker = _html_escape(it.get("ticker") or "")
@@ -224,12 +224,15 @@ def _holding_rows_html(items: list[dict]) -> str:
             ret_cls, ret_txt = "down", f"{ret:.2f}%"
         else:
             ret_cls, ret_txt = "flat", f"{ret:.2f}%"
-        meta_bit = f" · {meta}" if meta else ""
+        # Subline: ticker first so KR stocks stay identifiable under the name
+        sub = ticker
+        if meta:
+            sub = f"{ticker} · {meta}" if ticker else meta
         parts.append(
             '<div class="np-hold-row">'
             '<div class="np-hold-left">'
-            f'<div class="np-hold-ticker">{ticker}</div>'
-            f'<div class="np-hold-meta">{name}{meta_bit}</div>'
+            f'<div class="np-hold-ticker">{name}</div>'
+            f'<div class="np-hold-meta">{sub}</div>'
             "</div>"
             '<div class="np-hold-right">'
             f'<div class="np-hold-value">{value}</div>'
@@ -353,7 +356,7 @@ def view_holdings(client, live_rows) -> None:
     elif sort_by == "수익률":
         items.sort(key=lambda x: x["ret"], reverse=True)
     else:
-        items.sort(key=lambda x: x["ticker"])
+        items.sort(key=lambda x: (x.get("name") or x["ticker"]))
 
     st.caption(f"{len(items)}종목")
     st.markdown(_holding_rows_html(items), unsafe_allow_html=True)
@@ -363,7 +366,20 @@ def view_holdings(client, live_rows) -> None:
         st.info("검색 결과가 없습니다.")
         return
 
-    pick = st.selectbox("상세 보기", tickers, key="hold_detail_ticker")
+    labels = {
+        i["ticker"]: (
+            f"{i['name']} ({i['ticker']})"
+            if i.get("name") and i["name"] != i["ticker"]
+            else i["ticker"]
+        )
+        for i in items
+    }
+    pick = st.selectbox(
+        "상세 보기",
+        tickers,
+        format_func=lambda t: labels.get(t, t),
+        key="hold_detail_ticker",
+    )
     chosen = next(i for i in items if i["ticker"] == pick)
     tot = chosen["tot"]
     a, b, c, d = st.columns(4, gap="small")
@@ -376,8 +392,8 @@ def view_holdings(client, live_rows) -> None:
     for r in sorted(chosen["accounts"], key=lambda x: x.get("institution") or ""):
         acc_items.append(
             {
-                "ticker": r.get("institution") or "계좌",
-                "name": pick,
+                "ticker": "",
+                "name": r.get("institution") or "계좌",
                 "meta": f"{_fmt_qty(r.get('qty'))}주 · 평단 {_fmt_money(r.get('avg'), r.get('ccy') or 'USD')}",
                 "value_label": _fmt_money(r.get("value"), r.get("ccy") or "USD"),
                 "return_%": r.get("return_%"),
@@ -413,7 +429,7 @@ def view_holdings(client, live_rows) -> None:
 
 def main() -> None:
     page_hero(
-        "대시보드",
+        "내 자산",
         "순자산·보유·손익·거래·부채·세금을 조회합니다. 입력은 「기록하기」에서만 합니다.",
         compact=True,
     )
