@@ -102,11 +102,31 @@ Production: deploy on Streamlit Community Cloud — do not run `keep_public_tunn
       "avg_price": 180,
       "currency": "USD"
     }
+  ],
+  "debts": [
+    {
+      "lender": "KB국민 주택담보대출",
+      "debt_kind": "mortgage",
+      "balance": 177000000,
+      "interest_rate": 3.8,
+      "due_date": "2045-06-30"
+    }
+  ],
+  "debt_payments": [
+    {
+      "pay_date": "2026-07-01",
+      "lender": "KB국민 주택담보대출",
+      "amount": 1200000,
+      "interest_portion": null,
+      "principal_portion": null,
+      "balance_after": 176500000
+    }
   ]
 }
 ```
 
 Approving a staging row fires `commit_ocr_staging` (BEFORE UPDATE trigger).
+Debt OCR matches `lender` to existing loans (or creates one); payments without interest/principal split are auto-split from **잔금 × 금리 ÷ 12**.
 
 ## Scheduling / Push / Backup (phases 7–8)
 
