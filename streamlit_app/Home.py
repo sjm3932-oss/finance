@@ -29,7 +29,7 @@ st.set_page_config(
     page_title="부자뚱",
     page_icon="💚",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 apply_theme(max_width=920)
 
