@@ -25,11 +25,12 @@ from lib.theme import (  # noqa: E402
     chart_layout,
     networth_banner,
     page_hero,
+    render_bottom_actions,
     render_subnav,
     show_plotly,
 )
 
-st.set_page_config(page_title="대시보드", page_icon="💚", layout="wide")
+st.set_page_config(page_title="대시보드 · 부자뚱", page_icon="💚", layout="wide")
 apply_theme(max_width=1280)
 
 VIEWS = ["홈", "보유", "손익", "거래"]
@@ -411,7 +412,11 @@ def view_holdings(client, live_rows) -> None:
 
 
 def main() -> None:
-    page_hero("대시보드", "홈 · 보유 · 손익 · 거래", compact=True)
+    page_hero(
+        "대시보드",
+        "순자산·보유·실현손익·자금 이동을 한곳에서 조회합니다.",
+        compact=True,
+    )
     view = render_subnav(VIEWS, state_key="dash_view", default="홈")
 
     user, client = require_auth()
@@ -431,6 +436,8 @@ def main() -> None:
         render_total_realized_pnl(client, compact=False)
     else:
         render_flow_charts(client)
+
+    render_bottom_actions(enabled=True)
 
 
 main()

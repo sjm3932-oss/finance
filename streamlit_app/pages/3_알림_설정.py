@@ -19,10 +19,10 @@ if str(ROOT) not in sys.path:
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.supabase_client import PUBLIC_APP_URL, SUPABASE_URL, get_service_client  # noqa: E402
 from lib.ui_ko import rename_columns  # noqa: E402
-from lib.theme import apply_theme, page_hero  # noqa: E402
+from lib.theme import apply_theme, page_hero, render_bottom_actions  # noqa: E402
 
 
-st.set_page_config(page_title="알림·설정", page_icon="💚", layout="wide")
+st.set_page_config(page_title="알림·설정 · 부자뚱", page_icon="💚", layout="wide")
 apply_theme(max_width=1120)
 
 VAPID_PUBLIC = os.getenv("VAPID_PUBLIC_KEY", "")
@@ -51,7 +51,10 @@ def _invoke(name: str, token: str) -> dict:
 
 
 def main() -> None:
-    page_hero("알림·설정", "웹 푸시 구독 · 아침 브리핑/시세/백업 수동 실행")
+    page_hero(
+        "알림·설정",
+        "푸시를 구독하고, 시세·스냅샷·브리핑·백업을 수동으로 실행합니다.",
+    )
 
     user, client = require_auth()
     ensure_profile(user, client)
@@ -190,6 +193,7 @@ document.getElementById('btn').onclick = subscribe;
     st.dataframe(rename_columns(pd.DataFrame(snaps)), use_container_width=True, hide_index=True)
 
     st.caption(f"앱 공개 주소: {PUBLIC_APP_URL}")
+    render_bottom_actions(enabled=True)
 
 
 main()

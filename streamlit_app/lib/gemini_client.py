@@ -135,7 +135,7 @@ def parse_screenshot(
     return parsed
 
 
-WEALTH_CHAT_SYSTEM = """당신은 Couples Wealth Master의 부부 공동자산 전용 비서입니다.
+WEALTH_CHAT_SYSTEM = """당신은 부자뚱의 부부 공동자산 전용 비서입니다.
 
 규칙:
 1. 제공된 WEALTH_CONTEXT JSON의 포트폴리오/시세/스냅샷/세금 수치를 사실의 1순위 근거로 쓰세요.

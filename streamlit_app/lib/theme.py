@@ -662,16 +662,71 @@ header[data-testid="stHeader"] {{ background: transparent !important; }}
     flex: 1 1 100% !important;
   }}
 }}
+
+/* Floating quick actions: 자산 챗 (BL) · 기록하기 (BR) */
+section.main .block-container {{
+  padding-bottom: 5.5rem !important;
+}}
+div.st-key-fab_chat,
+div[class*="st-key-fab_chat"] {{
+  position: fixed !important;
+  left: max(12px, env(safe-area-inset-left));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 1000 !important;
+  width: min(42vw, 160px) !important;
+}}
+div.st-key-fab_record,
+div[class*="st-key-fab_record"] {{
+  position: fixed !important;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 1000 !important;
+  width: min(42vw, 160px) !important;
+}}
+div.st-key-fab_chat button,
+div.st-key-fab_record button,
+div[class*="st-key-fab_chat"] button,
+div[class*="st-key-fab_record"] button {{
+  border-radius: 999px !important;
+  min-height: 48px !important;
+  font-weight: 800 !important;
+  box-shadow: 0 10px 24px rgba(3, 199, 90, 0.28) !important;
+}}
 </style>
 """,
         unsafe_allow_html=True,
     )
 
 
+def render_bottom_actions(*, enabled: bool = True) -> None:
+    """Fixed bottom-left 자산 챗 / bottom-right 기록하기 (not in main menu)."""
+    c_left, _, c_right = st.columns([1, 2, 1])
+    with c_left:
+        go_chat = st.button(
+            "자산 챗",
+            key="fab_chat",
+            type="primary",
+            use_container_width=True,
+            disabled=not enabled,
+        )
+    with c_right:
+        go_record = st.button(
+            "기록하기",
+            key="fab_record",
+            type="primary",
+            use_container_width=True,
+            disabled=not enabled,
+        )
+    if enabled and go_chat:
+        st.switch_page("pages/_자산_챗.py")
+    if enabled and go_record:
+        st.switch_page("pages/_기록하기.py")
+
+
 def page_hero(
     title: str,
     subtitle: str = "",
-    brand: str = "부부 자산 마스터",
+    brand: str = "부자뚱",
     *,
     compact: bool = False,
 ) -> None:

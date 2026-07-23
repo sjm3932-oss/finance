@@ -15,16 +15,18 @@ if str(ROOT) not in sys.path:
 
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.ui_ko import rename_columns  # noqa: E402
-from lib.theme import apply_theme, page_hero  # noqa: E402
+from lib.theme import apply_theme, page_hero, render_bottom_actions  # noqa: E402
 
 
-st.set_page_config(page_title="세금", page_icon="💚", layout="wide")
+st.set_page_config(page_title="세금 · 부자뚱", page_icon="💚", layout="wide")
 apply_theme(max_width=1120)
 
 
 def main() -> None:
-    page_hero("세금", "해외주식 양도소득세 추정 — 기본공제 250만원 · 세율 22%")
-    st.caption("해외주식 양도소득세 추정 — 기본공제 250만원 · 세율 22%")
+    page_hero(
+        "세금",
+        "해외주식 양도소득세를 추정합니다. 기본공제 250만원 · 세율 22% 기준입니다.",
+    )
 
     user, client = require_auth()
     ensure_profile(user, client)
@@ -99,6 +101,7 @@ def main() -> None:
 
     st.dataframe(rename_columns(pd.DataFrame(calc)), use_container_width=True, hide_index=True)
     st.caption("공식: max(누적양도차익 − 기본공제, 0) × 0.22")
+    render_bottom_actions(enabled=True)
 
 
 main()

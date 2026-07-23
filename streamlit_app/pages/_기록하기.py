@@ -14,9 +14,9 @@ if str(ROOT) not in sys.path:
 from lib.asset_flows_ui import render_flow_forms  # noqa: E402
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.record_ui import render_ocr_upload, render_staging_review  # noqa: E402
-from lib.theme import apply_theme, page_hero, render_subnav  # noqa: E402
+from lib.theme import apply_theme, page_hero, render_bottom_actions, render_subnav  # noqa: E402
 
-st.set_page_config(page_title="기록하기", page_icon="💚", layout="wide")
+st.set_page_config(page_title="기록하기 · 부자뚱", page_icon="💚", layout="wide")
 apply_theme(max_width=1120)
 
 VIEWS = ["OCR", "검토", "수기"]
@@ -25,7 +25,7 @@ VIEWS = ["OCR", "검토", "수기"]
 def main() -> None:
     page_hero(
         "기록하기",
-        "OCR 업로드 → 검토·승인 → 수기 입력 (쓰기 경로 한곳)",
+        "스크린샷 OCR, 검토·승인, 수기 입력을 한곳에서 처리합니다.",
         compact=True,
     )
     view = render_subnav(VIEWS, state_key="record_view", default="OCR")
@@ -42,6 +42,8 @@ def main() -> None:
     else:
         st.caption("매매 · 배당 · 현금흐름 · 계좌/부채를 직접 등록합니다.")
         render_flow_forms(client, user)
+
+    render_bottom_actions(enabled=True)
 
 
 main()

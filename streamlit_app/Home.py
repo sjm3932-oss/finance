@@ -1,4 +1,4 @@
-"""Couples Wealth Master — Home (auth + menu index)."""
+"""부자뚱 — Home (auth + simple menu)."""
 
 from __future__ import annotations
 
@@ -23,44 +23,21 @@ from lib.supabase_client import (  # noqa: E402
 )
 
 hydrate_env()
-from lib.theme import apply_theme, page_hero, user_chip  # noqa: E402
+from lib.theme import apply_theme, page_hero, render_bottom_actions, user_chip  # noqa: E402
 
 st.set_page_config(
-    page_title="홈 · 부부 자산 마스터",
+    page_title="부자뚱",
     page_icon="💚",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 apply_theme(max_width=920)
 
-# Sidebar / home menu registry (path relative to streamlit_app/)
-# MECE: 조회 → 질문 → 세금 → 기록 → 알림 (읽기 먼저, 쓰기·설정은 뒤)
+# Main menu only (자산 챗 / 기록하기 → bottom FABs)
 MENU_ITEMS = [
-    {
-        "title": "대시보드",
-        "path": "pages/1_대시보드.py",
-        "desc": "홈 · 보유 · 손익 · 거래 (조회)",
-    },
-    {
-        "title": "자산 챗",
-        "path": "pages/2_자산_챗.py",
-        "desc": "내 자산 데이터 기준 AI 질문",
-    },
-    {
-        "title": "세금",
-        "path": "pages/3_세금.py",
-        "desc": "해외주식 양도세 추정 (기본공제 250만원 · 22%)",
-    },
-    {
-        "title": "기록하기",
-        "path": "pages/4_기록하기.py",
-        "desc": "OCR · 검토 · 수기 (쓰기 한곳)",
-    },
-    {
-        "title": "알림·설정",
-        "path": "pages/5_알림_설정.py",
-        "desc": "푸시 구독 · 브리핑/백업 수동 실행",
-    },
+    {"title": "대시보드", "path": "pages/1_대시보드.py"},
+    {"title": "세금", "path": "pages/2_세금.py"},
+    {"title": "알림·설정", "path": "pages/3_알림_설정.py"},
 ]
 
 
@@ -139,7 +116,6 @@ def _oauth_login_url() -> str | None:
         from lib.env_boot import is_ephemeral_app_url
 
         client = get_anon_client()
-        # OAuth must return to the fixed Streamlit URL — never a tunnel.
         redirect_to = get_stable_app_url()
         if is_ephemeral_app_url(redirect_to):
             st.session_state["_cwm_login_cfg_error"] = (
@@ -187,19 +163,14 @@ def render_auth_above_menu(*, logged_in: bool) -> None:
 
 
 def render_menu_index(*, can_navigate: bool) -> None:
-    """Clickable menu index — each row navigates on press."""
+    """Simple menu labels only — no numbers or descriptions."""
     st.markdown('<div class="np-section np-home-menu">', unsafe_allow_html=True)
     st.markdown("### 메뉴")
-    if can_navigate:
-        st.caption("항목을 누르면 해당 화면으로 이동합니다.")
-    else:
-        st.caption("위에서 로그인하면 메뉴로 이동할 수 있습니다.")
 
-    for i, item in enumerate(MENU_ITEMS, start=1):
-        label = f"{i}. {item['title']}  —  {item['desc']}"
+    for item in MENU_ITEMS:
         clicked = st.button(
-            label,
-            key=f"home_go_{i}",
+            item["title"],
+            key=f"home_go_{item['title']}",
             type="primary" if can_navigate else "secondary",
             use_container_width=True,
             disabled=not can_navigate,
@@ -214,7 +185,7 @@ def render_menu_index(*, can_navigate: bool) -> None:
 
 
 def home_logged_out() -> None:
-    page_hero("홈", "부부 공동 자산 관리 — 로그인 후 메뉴를 선택하세요.")
+    page_hero("홈", "부부 공동 자산 관리 — 로그인 후 이용하세요.")
     from lib.env_boot import is_ephemeral_app_url
 
     base = app_base_url()
@@ -229,6 +200,7 @@ def home_logged_out() -> None:
         st.caption(f"접속 주소: {base}")
     render_auth_above_menu(logged_in=False)
     render_menu_index(can_navigate=False)
+    render_bottom_actions(enabled=False)
 
 
 def home_logged_in() -> None:
@@ -236,10 +208,11 @@ def home_logged_in() -> None:
     app_user = st.session_state.app_user or {}
     name = app_user.get("display_name") or (user.email or "회원")
 
-    page_hero("홈", "메뉴를 눌러 원하는 화면으로 이동하세요.")
+    page_hero("홈", "메뉴를 누르거나, 아래 버튼으로 자산 챗·기록을 여세요.")
     user_chip(str(name), user.email or "")
     render_auth_above_menu(logged_in=True)
     render_menu_index(can_navigate=True)
+    render_bottom_actions(enabled=True)
 
 
 def _await_sid_cookie_if_needed() -> None:

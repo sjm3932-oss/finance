@@ -1,4 +1,4 @@
-# Couples Wealth Master
+# 부자뚱 (Couples Wealth Master)
 
 부부 공동 자산 관리 시스템 (Sovereign) — MVP 코어 루프.
 

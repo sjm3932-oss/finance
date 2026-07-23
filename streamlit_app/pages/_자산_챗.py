@@ -19,10 +19,10 @@ from lib.wealth_context import (  # noqa: E402
     fetch_recent_chat_logs,
     logs_to_chat_turns,
 )
-from lib.theme import apply_theme, page_hero  # noqa: E402
+from lib.theme import apply_theme, page_hero, render_bottom_actions  # noqa: E402
 
 
-st.set_page_config(page_title="자산 챗", page_icon="💚", layout="wide")
+st.set_page_config(page_title="자산 챗 · 부자뚱", page_icon="💚", layout="wide")
 apply_theme(max_width=1120)
 
 
@@ -51,7 +51,7 @@ def _hydrate_from_logs(client) -> None:
 def main() -> None:
     page_hero(
         "자산 챗",
-        "자산 DB + 이전 대화 로그를 함께 봅니다. 숫자는 최신 포트폴리오가 우선입니다.",
+        "내 자산 데이터와 이전 대화를 바탕으로 질문합니다. 숫자는 최신 포트폴리오가 우선입니다.",
     )
 
     user, client = require_auth()
@@ -136,6 +136,8 @@ def main() -> None:
             st.error(f"채팅 실패: {exc}")
             if st.session_state.wealth_chat and st.session_state.wealth_chat[-1]["role"] == "user":
                 st.session_state.wealth_chat.pop()
+
+    render_bottom_actions(enabled=True)
 
 
 main()
