@@ -1,19 +1,68 @@
-// Supabase Edge Function: refresh Yahoo prices + USD/KRW into market_prices
+// Supabase Edge Function: refresh prices into market_prices
+// Korean 6-digit tickers → Naver, others → Yahoo; FX via Frankfurter
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const PRIVATE = new Set(["SPACEX", "PRIVATE"]);
+const UA = { "User-Agent": "Bujattung/1.0" };
+
+function normalizeTicker(raw: unknown): string {
+  let t = String(raw || "").trim().toUpperCase();
+  if (t.endsWith(".KS") || t.endsWith(".KQ")) {
+    const base = t.slice(0, -3);
+    if (/^\d{6}$/.test(base)) return base;
+  }
+  return t;
+}
+
+function isKoreanTicker(ticker: string): boolean {
+  return /^\d{6}$/.test(normalizeTicker(ticker));
+}
+
+function parseKrNumber(raw: unknown): number | null {
+  if (raw == null) return null;
+  if (typeof raw === "number") return raw;
+  const s = String(raw).replace(/,/g, "").replace(/\s/g, "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function naverPrice(ticker: string) {
+  const code = normalizeTicker(ticker);
+  if (!/^\d{6}$/.test(code)) throw new Error(`Not a Korean ticker: ${ticker}`);
+  const res = await fetch(
+    `https://m.stock.naver.com/api/stock/${encodeURIComponent(code)}/basic`,
+    { headers: UA },
+  );
+  if (!res.ok) throw new Error(`Naver ${code} HTTP ${res.status}`);
+  const data = await res.json();
+  const over = data?.overMarketPriceInfo ?? {};
+  let price =
+    over.overMarketStatus === "OPEN" ? parseKrNumber(over.overPrice) : null;
+  if (price == null) {
+    price = parseKrNumber(
+      data?.closePrice ?? data?.dealPrice ?? data?.tradePrice,
+    );
+  }
+  if (price == null) throw new Error(`Naver ${code} no price`);
+  return {
+    ticker: code,
+    price,
+    currency: "KRW",
+    updated_at: new Date().toISOString(),
+  };
+}
 
 async function yahooPrice(ticker: string) {
+  const symbol = normalizeTicker(ticker);
   const url =
-    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": "CouplesWealthMaster/1.0" },
-  });
-  if (!res.ok) throw new Error(`Yahoo ${ticker} HTTP ${res.status}`);
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+  const res = await fetch(url, { headers: UA });
+  if (!res.ok) throw new Error(`Yahoo ${symbol} HTTP ${res.status}`);
   const payload = await res.json();
   const result = payload?.chart?.result?.[0];
-  if (!result) throw new Error(`Yahoo ${ticker} empty`);
+  if (!result) throw new Error(`Yahoo ${symbol} empty`);
   const meta = result.meta ?? {};
   let price = meta.regularMarketPrice;
   if (price == null) {
@@ -25,13 +74,19 @@ async function yahooPrice(ticker: string) {
       }
     }
   }
-  if (price == null) throw new Error(`Yahoo ${ticker} no price`);
+  if (price == null) throw new Error(`Yahoo ${symbol} no price`);
   return {
-    ticker,
+    ticker: symbol,
     price: Number(price),
     currency: meta.currency ?? "USD",
     updated_at: new Date().toISOString(),
   };
+}
+
+async function fetchPrice(ticker: string) {
+  const symbol = normalizeTicker(ticker);
+  if (isKoreanTicker(symbol)) return await naverPrice(symbol);
+  return await yahooPrice(symbol);
 }
 
 async function usdKrw() {
@@ -59,13 +114,13 @@ Deno.serve(async (_req) => {
     const rows = [];
     const errors = [];
     for (const t of tickers) {
-      const symbol = String(t || "").toUpperCase();
+      const symbol = normalizeTicker(t);
       if (!symbol || PRIVATE.has(symbol)) {
         errors.push(`${symbol || "?"}: skipped`);
         continue;
       }
       try {
-        rows.push(await yahooPrice(symbol));
+        rows.push(await fetchPrice(symbol));
       } catch (e) {
         errors.push(`${symbol}: ${e}`);
       }

@@ -1,8 +1,9 @@
-"""Market price + FX helpers (Yahoo / Frankfurter — no paid keys required)."""
+"""Market price + FX helpers (Naver KR / Yahoo US / Frankfurter FX)."""
 
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -12,8 +13,12 @@ import httpx
 PRIVATE_OR_UNLISTED = {"SPACEX", "PRIVATE"}
 
 YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+NAVER_BASIC = "https://m.stock.naver.com/api/stock/{code}/basic"
 FRANKFURTER_URL = "https://api.frankfurter.dev/v1/latest"
 STALE_HOURS = float(os.getenv("MARKET_PRICE_STALE_HOURS", "24"))
+
+_UA = {"User-Agent": "Mozilla/5.0 (compatible; Bujattung/1.0)"}
+_KR_CODE = re.compile(r"^\d{6}$")
 
 
 class MarketDataError(RuntimeError):
@@ -24,17 +29,76 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def normalize_ticker(raw: str | None) -> str:
+    t = str(raw or "").strip().upper()
+    if t.endswith(".KS") or t.endswith(".KQ"):
+        base = t[:-3]
+        if _KR_CODE.match(base):
+            return base
+    return t
+
+
+def is_korean_ticker(ticker: str | None) -> bool:
+    """Domestic KRX codes are 6-digit (optionally stored with .KS/.KQ)."""
+    return bool(_KR_CODE.match(normalize_ticker(ticker)))
+
+
+def _parse_kr_number(raw: Any) -> float | None:
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    s = str(raw).strip().replace(",", "").replace(" ", "")
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def fetch_naver_price(ticker: str, timeout: float = 15.0) -> dict[str, Any]:
+    """KR stock/ETF quote from Naver mobile stock API. Stores 6-digit ticker."""
+    code = normalize_ticker(ticker)
+    if not _KR_CODE.match(code):
+        raise MarketDataError(f"Not a Korean ticker: {ticker}")
+
+    with httpx.Client(timeout=timeout, headers=_UA, follow_redirects=True) as client:
+        resp = client.get(NAVER_BASIC.format(code=code))
+        resp.raise_for_status()
+        data = resp.json() or {}
+
+    # Prefer after-hours trade if present, else last close / deal price
+    over = data.get("overMarketPriceInfo") or {}
+    price = _parse_kr_number(over.get("overPrice")) if over.get("overMarketStatus") == "OPEN" else None
+    if price is None:
+        price = _parse_kr_number(
+            data.get("closePrice")
+            or data.get("dealPrice")
+            or data.get("tradePrice")
+        )
+    if price is None:
+        raise MarketDataError(f"Naver returned no price for {code}")
+
+    return {
+        "ticker": code,
+        "price": float(price),
+        "currency": "KRW",
+        "updated_at": _now().isoformat(),
+        "name": (data.get("stockName") or "").strip() or None,
+    }
+
+
 def fetch_yahoo_price(ticker: str, timeout: float = 15.0) -> dict[str, Any]:
     """Return {ticker, price, currency, updated_at} from Yahoo Finance chart API."""
-    symbol = ticker.strip().upper()
+    symbol = normalize_ticker(ticker)
     if not symbol or symbol in PRIVATE_OR_UNLISTED:
         raise MarketDataError(f"No public quote for {symbol}")
+    if is_korean_ticker(symbol):
+        raise MarketDataError(f"Korean ticker {symbol} should use Naver, not Yahoo")
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; CouplesWealthMaster/1.0)",
-    }
     url = YAHOO_CHART.format(ticker=symbol)
-    with httpx.Client(timeout=timeout, headers=headers, follow_redirects=True) as client:
+    with httpx.Client(timeout=timeout, headers=_UA, follow_redirects=True) as client:
         resp = client.get(url, params={"interval": "1d", "range": "1d"})
         resp.raise_for_status()
         payload = resp.json()
@@ -47,7 +111,6 @@ def fetch_yahoo_price(ticker: str, timeout: float = 15.0) -> dict[str, Any]:
     meta = result[0].get("meta") or {}
     price = meta.get("regularMarketPrice")
     if price is None:
-        # fall back to last close in indicators
         quote = ((result[0].get("indicators") or {}).get("quote") or [{}])[0]
         closes = quote.get("close") or []
         price = next((c for c in reversed(closes) if c is not None), None)
@@ -61,6 +124,14 @@ def fetch_yahoo_price(ticker: str, timeout: float = 15.0) -> dict[str, Any]:
         "currency": currency,
         "updated_at": _now().isoformat(),
     }
+
+
+def fetch_price(ticker: str, timeout: float = 15.0) -> dict[str, Any]:
+    """Route: Korean 6-digit → Naver, otherwise → Yahoo."""
+    symbol = normalize_ticker(ticker)
+    if is_korean_ticker(symbol):
+        return fetch_naver_price(symbol, timeout=timeout)
+    return fetch_yahoo_price(symbol, timeout=timeout)
 
 
 def fetch_usdkrw(timeout: float = 15.0) -> float:
@@ -89,12 +160,12 @@ def is_stale(updated_at: str | datetime | None, stale_hours: float = STALE_HOURS
 
 
 def refresh_tickers(tickers: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
-    """Fetch prices for tickers. Returns (rows, errors)."""
+    """Fetch prices for tickers (Naver KR / Yahoo US). Returns (rows, errors)."""
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
     seen: set[str] = set()
     for raw in tickers:
-        symbol = (raw or "").strip().upper()
+        symbol = normalize_ticker(raw)
         if not symbol or symbol in seen:
             continue
         seen.add(symbol)
@@ -102,7 +173,16 @@ def refresh_tickers(tickers: list[str]) -> tuple[list[dict[str, Any]], list[str]
             errors.append(f"{symbol}: private/unlisted — skipped")
             continue
         try:
-            rows.append(fetch_yahoo_price(symbol))
+            row = fetch_price(symbol)
+            # market_prices table: ticker, price, currency, updated_at
+            rows.append(
+                {
+                    "ticker": row["ticker"],
+                    "price": row["price"],
+                    "currency": row["currency"],
+                    "updated_at": row["updated_at"],
+                }
+            )
         except Exception as exc:  # noqa: BLE001 — collect per-ticker failures
             errors.append(f"{symbol}: {exc}")
     return rows, errors

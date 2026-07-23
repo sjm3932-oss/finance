@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh market_prices (+ optional USD/KRW index snapshot) from Yahoo/Frankfurter."""
+"""Refresh market_prices (+ optional USD/KRW) — Naver KR / Yahoo US / Frankfurter FX."""
 
 from __future__ import annotations
 
