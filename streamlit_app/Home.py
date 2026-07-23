@@ -1,4 +1,4 @@
-"""부자뚱 — entry: auth gate + 4-page sidebar navigation."""
+"""부자뚱 — Home (auth + menu) and sidebar navigation."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from lib.supabase_client import (  # noqa: E402
 )
 
 hydrate_env()
-from lib.theme import apply_theme, page_hero  # noqa: E402
+from lib.theme import apply_theme, page_hero, user_chip  # noqa: E402
 
 st.set_page_config(
     page_title="부자뚱",
@@ -31,7 +31,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-apply_theme(max_width=1120)
+apply_theme(max_width=920)
+
+MENU_TITLES = ("대시보드", "자산 챗", "기록하기", "승인하기")
 
 
 def _handle_oauth_callback() -> None:
@@ -146,11 +148,13 @@ def _ensure_allowed_and_profile() -> bool:
     return True
 
 
-def _show_login() -> None:
-    page_hero("부자뚱", "부부 공동 자산 관리 — Google로 로그인하세요.")
-    base = app_base_url()
-    if is_ephemeral_app_url(base):
-        st.warning("PUBLIC_APP_URL을 Streamlit Cloud 주소로 설정하세요.")
+def _render_auth(*, logged_in: bool) -> None:
+    if logged_in:
+        if st.button("로그아웃", key="home_logout", type="secondary", use_container_width=True):
+            logout_and_clear()
+            st.rerun()
+        return
+
     err = st.session_state.pop("_cwm_login_cfg_error", None)
     if err:
         st.error(err)
@@ -162,6 +166,64 @@ def _show_login() -> None:
     st.link_button("Google로 로그인", url, type="primary", use_container_width=True)
 
 
+def _render_menu_buttons(*, pages: dict | None, can_navigate: bool) -> None:
+    """Login 아래 메인 메뉴 버튼 (예전 Home TOC)."""
+    st.markdown('<div class="np-section np-home-menu">', unsafe_allow_html=True)
+    st.markdown("### 메뉴")
+    for title in MENU_TITLES:
+        clicked = st.button(
+            title,
+            key=f"home_go_{title}",
+            type="primary" if can_navigate else "secondary",
+            use_container_width=True,
+            disabled=not can_navigate,
+        )
+        if clicked and can_navigate and pages and title in pages:
+            try:
+                st.switch_page(pages[title])
+            except Exception as exc:
+                st.error(f"이동 실패: {exc}")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _show_logged_out_home() -> None:
+    page_hero("홈", "부부 공동 자산 관리 — 로그인 후 이용하세요.")
+    base = app_base_url()
+    if is_ephemeral_app_url(base):
+        st.warning("PUBLIC_APP_URL을 Streamlit Cloud 주소로 설정하세요.")
+    else:
+        st.caption(f"접속 주소: {base}")
+    _render_auth(logged_in=False)
+    _render_menu_buttons(pages=None, can_navigate=False)
+
+
+def _make_pages() -> tuple:
+    views = ROOT / "views"
+    home = st.Page(_render_logged_in_home, title="홈", default=True)
+    dash = st.Page(str(views / "dashboard.py"), title="대시보드")
+    chat = st.Page(str(views / "wealth_chat.py"), title="자산 챗")
+    record = st.Page(str(views / "record.py"), title="기록하기")
+    approve = st.Page(str(views / "approve.py"), title="승인하기")
+    by_title = {
+        "대시보드": dash,
+        "자산 챗": chat,
+        "기록하기": record,
+        "승인하기": approve,
+    }
+    return home, dash, chat, record, approve, by_title
+
+
+def _render_logged_in_home() -> None:
+    user = st.session_state.user
+    app_user = st.session_state.app_user or {}
+    name = app_user.get("display_name") or (user.email or "회원")
+    page_hero("홈", "메뉴를 눌러 대시보드·자산 챗·기록·승인으로 이동하세요.")
+    user_chip(str(name), user.email or "")
+    _render_auth(logged_in=True)
+    pages = st.session_state.get("_cwm_menu_pages") or {}
+    _render_menu_buttons(pages=pages, can_navigate=True)
+
+
 def main() -> None:
     ensure_persistent_login()
     _handle_oauth_callback()
@@ -171,23 +233,19 @@ def main() -> None:
         st.session_state.get("access_token") and st.session_state.get("user")
     )
     if not logged_in:
-        _show_login()
+        _show_logged_out_home()
         return
 
     if not _ensure_allowed_and_profile():
         return
 
-    # Register pages; draw our own sidebar links so the menu never disappears
-    # (showSidebarNavigation=false / Cloud quirks can hide the built-in nav widget).
-    views = ROOT / "views"
-    dash = st.Page(str(views / "dashboard.py"), title="대시보드", default=True)
-    chat = st.Page(str(views / "wealth_chat.py"), title="자산 챗")
-    record = st.Page(str(views / "record.py"), title="기록하기")
-    approve = st.Page(str(views / "approve.py"), title="승인하기")
-    pg = st.navigation([dash, chat, record, approve], position="hidden")
+    home, dash, chat, record, approve, by_title = _make_pages()
+    st.session_state._cwm_menu_pages = by_title
+    pg = st.navigation([home, dash, chat, record, approve], position="hidden")
 
     with st.sidebar:
         st.markdown("### 부자뚱")
+        st.page_link(home, label="홈", use_container_width=True)
         st.page_link(dash, label="대시보드", use_container_width=True)
         st.page_link(chat, label="자산 챗", use_container_width=True)
         st.page_link(record, label="기록하기", use_container_width=True)
@@ -196,7 +254,7 @@ def main() -> None:
         app_user = st.session_state.app_user or {}
         name = app_user.get("display_name") or (st.session_state.user.email or "")
         st.caption(name)
-        if st.button("로그아웃", use_container_width=True):
+        if st.button("로그아웃", key="sidebar_logout", use_container_width=True):
             logout_and_clear()
             st.rerun()
 
