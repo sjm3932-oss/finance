@@ -20,9 +20,6 @@ def _accounts(client):
     return client.table("accounts").select("id,institution,account_type,currency").execute().data or []
 
 
-def _debts(client):
-    return client.table("debts").select("id,lender,principal,interest_rate").execute().data or []
-
 
 def _fmt(n, ccy="KRW"):
     if n is None:
@@ -138,7 +135,7 @@ def render_flow_forms(client, user) -> None:
     """Manual entry only — OCR lives under 기록하기 → OCR tab."""
     accounts = _accounts(client)
     st.caption("수기 입력입니다. 스크린샷 파싱은 「OCR」 탭을 사용하세요.")
-    tabs = st.tabs(["매매", "배당", "현금", "부채"])
+    tabs = st.tabs(["매매", "배당", "현금"])
 
     with tabs[0]:
         st.markdown("##### 매매 입력")
@@ -259,25 +256,3 @@ def render_flow_forms(client, user) -> None:
                     ).execute()
                     st.success("기록되었습니다.")
                     st.rerun()
-
-    with tabs[3]:
-        st.info(
-            "부채 등록·원리금 납부·이자율 변경은 **대시보드 → 부채**에서 관리합니다. "
-            "이자는 잔금 기준으로 자동 계산됩니다."
-        )
-        debts = _debts(client)
-        if debts:
-            ddf = pd.DataFrame(debts)
-            ddf["principal"] = pd.to_numeric(ddf["principal"], errors="coerce")
-            fig = px.pie(
-                ddf,
-                names="lender",
-                values="principal",
-                color_discrete_sequence=CHART_COLORS,
-                hole=0.4,
-            )
-            fig.update_layout(**chart_layout(280, with_title=True), title="부채 잔금 구성")
-            show_plotly(fig)
-            if st.button("대시보드 부채로 이동", key="goto_debt_dash"):
-                st.session_state["dash_view"] = "부채"
-                st.switch_page("pages/1_대시보드.py")

@@ -13,7 +13,9 @@ if str(ROOT) not in sys.path:
 
 from lib.asset_flows_ui import render_flow_forms  # noqa: E402
 from lib.auth import ensure_profile, require_auth  # noqa: E402
+from lib.debt_ui import render_debt_forms  # noqa: E402
 from lib.record_ui import render_ocr_upload, render_staging_review  # noqa: E402
+from lib.tax_ui import render_tax_forms  # noqa: E402
 from lib.theme import apply_theme, page_hero, render_bottom_actions, render_subnav  # noqa: E402
 
 st.set_page_config(page_title="기록하기 · 부자뚱", page_icon="💚", layout="wide")
@@ -25,7 +27,7 @@ VIEWS = ["OCR", "검토", "수기"]
 def main() -> None:
     page_hero(
         "기록하기",
-        "스크린샷 OCR, 검토·승인, 수기 입력을 한곳에서 처리합니다.",
+        "OCR·검토·수기 입력을 한곳에서 처리합니다. 대시보드는 조회 전용입니다.",
         compact=True,
     )
     view = render_subnav(VIEWS, state_key="record_view", default="OCR")
@@ -37,11 +39,17 @@ def main() -> None:
         st.caption("잔고 · 매매 · 배당 · 부채 명세/납부 스크린샷 → AI 파싱 → 스테이징")
         render_ocr_upload(client, user)
     elif view == "검토":
-        st.caption("대기·실패 항목을 수정하고 승인하면 매매·배당·보유·부채에 반영됩니다.")
+        st.caption("표에서 확인하고 수정한 뒤 승인하면 DB에 반영됩니다.")
         render_staging_review(client, user)
     else:
-        st.caption("매매 · 배당 · 현금흐름 · 계좌/부채를 직접 등록합니다.")
-        render_flow_forms(client, user)
+        st.caption("매매 · 배당 · 현금 · 부채 · 세금을 직접 등록합니다.")
+        tabs = st.tabs(["매매·배당·현금", "부채", "세금"])
+        with tabs[0]:
+            render_flow_forms(client, user)
+        with tabs[1]:
+            render_debt_forms(client, user)
+        with tabs[2]:
+            render_tax_forms(client, user)
 
     render_bottom_actions(enabled=True)
 

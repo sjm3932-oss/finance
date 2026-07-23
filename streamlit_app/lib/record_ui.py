@@ -4,11 +4,60 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from typing import Any
 
+import pandas as pd
 import streamlit as st
 
 from lib.ocr_upload import DOC_TYPES, stage_screenshot
 from lib.ui_ko import ACCOUNT_TYPE_KO, STATUS_KO
+
+# Display columns (Korean) → JSON keys
+_TRADE_COLS = {
+    "일자": "trade_date",
+    "티커": "ticker",
+    "종목명": "name",
+    "구분": "trade_type",
+    "단가": "price",
+    "수량": "quantity",
+    "수수료": "fee",
+    "통화": "currency",
+    "메모": "reason",
+}
+_DIV_COLS = {
+    "지급일": "pay_date",
+    "티커": "ticker",
+    "종목명": "name",
+    "금액": "amount",
+    "통화": "currency",
+    "메모": "memo",
+}
+_HOLD_COLS = {
+    "티커": "ticker",
+    "종목명": "name",
+    "수량": "quantity",
+    "평단": "avg_price",
+    "통화": "currency",
+}
+_DEBT_COLS = {
+    "대출명": "lender",
+    "종류": "debt_kind",
+    "잔금": "balance",
+    "최초원금": "original_principal",
+    "이자율": "interest_rate",
+    "만기일": "due_date",
+    "메모": "memo",
+}
+_PAY_COLS = {
+    "납부일": "pay_date",
+    "대출명": "lender",
+    "납부액": "amount",
+    "이자": "interest_portion",
+    "원금상환": "principal_portion",
+    "납부후잔금": "balance_after",
+    "적용금리": "rate",
+    "메모": "memo",
+}
 
 
 def _signed_url(client, path: str) -> str | None:
@@ -41,6 +90,58 @@ def _counts(parsed: dict) -> dict[str, int]:
         "debts": len(parsed.get("debts") or []),
         "debt_payments": len(parsed.get("debt_payments") or []),
     }
+
+
+def _rows_to_df(rows: list[dict] | None, col_map: dict[str, str]) -> pd.DataFrame:
+    keys = list(col_map.values())
+    labels = list(col_map.keys())
+    data = []
+    for row in rows or []:
+        data.append({label: row.get(key) for label, key in col_map.items()})
+    if not data:
+        return pd.DataFrame(columns=labels)
+    return pd.DataFrame(data, columns=labels)
+
+
+def _df_to_rows(df: pd.DataFrame | None, col_map: dict[str, str]) -> list[dict[str, Any]]:
+    if df is None or df.empty:
+        return []
+    out: list[dict[str, Any]] = []
+    for _, series in df.iterrows():
+        item: dict[str, Any] = {}
+        empty = True
+        for label, key in col_map.items():
+            val = series.get(label)
+            if pd.isna(val):
+                val = None
+            elif hasattr(val, "item"):
+                try:
+                    val = val.item()
+                except Exception:
+                    val = str(val)
+            if isinstance(val, str):
+                val = val.strip()
+                if val == "":
+                    val = None
+            if val is not None:
+                empty = False
+            item[key] = val
+        if not empty:
+            out.append(item)
+    return out
+
+
+def _editor(title: str, df: pd.DataFrame, key: str) -> pd.DataFrame:
+    st.markdown(f"##### {title}")
+    if df.empty:
+        st.caption("항목 없음 — 행을 추가할 수 있습니다.")
+    return st.data_editor(
+        df,
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        key=key,
+    )
 
 
 def render_ocr_upload(client, user) -> None:
@@ -149,7 +250,7 @@ def render_ocr_upload(client, user) -> None:
 
         c = _counts(parsed_json)
         if status == "failed":
-            st.error(f"실패로 스테이징됨: {error_msg}. 다시 업로드하거나 「검토」에서 수정하세요.")
+            st.error(f"실패로 스테이징됨: {error_msg}. 「검토」에서 표를 수정해 승인하세요.")
         else:
             st.success(
                 "대기로 스테이징됨 · "
@@ -157,14 +258,11 @@ def render_ocr_upload(client, user) -> None:
                 f"부채 {c['debts']} · 납부 {c['debt_payments']} "
                 f"(`{created['id'] if created else '완료'}`)"
             )
-
-        st.subheader("파싱 결과")
-        st.code(json.dumps(parsed_json, ensure_ascii=False, indent=2), language="json")
-        st.info("다음: 상단 **검토**에서 확인 후 승인하세요.")
+        st.info("다음: 상단 **검토**에서 표로 확인하고 수정·승인하세요.")
 
 
 def render_staging_review(client, user) -> None:
-    """Review / edit / approve ocr_staging rows."""
+    """Review OCR staging with editable tables (not raw JSON)."""
     status_filter = st.multiselect(
         "상태 필터",
         options=["pending", "failed", "approved", "rejected"],
@@ -198,17 +296,14 @@ def render_staging_review(client, user) -> None:
     )
     row = next(r for r in rows if r["id"] == selected_id)
 
-    st.write(f"**이미지 경로:** `{row['image_url']}`")
     st.write(
         f"**상태:** `{STATUS_KO.get(row['status'], row['status'])}` · "
-        f"업로더 `{row['uploaded_by']}`"
+        f"업로더 `{str(row['uploaded_by'])[:8]}…`"
     )
 
     url = _signed_url(client, row["image_url"])
     if url:
         st.image(url, caption="업로드된 스크린샷", use_container_width=True)
-    else:
-        st.caption("미리보기를 사용할 수 없습니다 (서명 URL을 만들 수 없음).")
 
     parsed = row.get("parsed_json") or {}
     if isinstance(parsed, str):
@@ -225,71 +320,102 @@ def render_staging_review(client, user) -> None:
     account_map = {a["id"]: a["institution"] for a in accounts}
     needs_account = bool(c["trades"] or c["dividends"] or c["holdings"])
 
-    debts = (
-        client.table("debts").select("id,lender,principal,interest_rate").order("lender").execute().data
-        or []
-    )
-    if c["debts"] or c["debt_payments"]:
-        with st.expander("부채 매칭 참고", expanded=True):
-            if debts:
-                for d in debts:
-                    st.write(
-                        f"- `{d['lender']}` · 잔금 ₩{float(d['principal']):,.0f} · "
-                        f"{float(d['interest_rate']):.2f}% · id `{d['id'][:8]}…`"
-                    )
-                st.caption(
-                    "승인 시 파싱된 lender 이름으로 위 부채에 자동 매칭합니다. "
-                    "이름이 다르면 JSON의 lender를 기존 대출명과 같게 고치세요."
-                )
-            else:
-                st.caption("등록된 부채가 없으면 승인 시 OCR 내용으로 새로 만듭니다.")
-
-    with st.form("record_review_form"):
-        current_account = parsed.get("account_id")
-        account_id = None
-        if needs_account:
-            if current_account not in account_ids and account_ids:
-                current_account = account_ids[0]
-            account_id = st.selectbox(
-                "계좌",
-                options=account_ids or [""],
-                index=(account_ids.index(current_account) if current_account in account_ids else 0),
-                format_func=lambda i: f"{account_map.get(i, i)} ({i})",
-            )
-        elif account_ids:
-            options = [None] + account_ids
-            idx = 0
-            if current_account in account_ids:
-                idx = options.index(current_account)
-            account_id = st.selectbox(
-                "계좌 (선택)",
-                options=options,
-                index=idx,
-                format_func=lambda i: "(없음)" if i is None else f"{account_map.get(i, i)} ({i})",
-            )
-
-        json_text = st.text_area(
-            "파싱 결과 (수정 가능)",
-            value=json.dumps(parsed, ensure_ascii=False, indent=2),
-            height=360,
+    current_account = parsed.get("account_id")
+    account_id = None
+    if needs_account:
+        if not account_ids:
+            st.error("계좌가 없습니다. 「OCR」탭에서 계좌를 먼저 만드세요.")
+            return
+        if current_account not in account_ids:
+            current_account = account_ids[0]
+        account_id = st.selectbox(
+            "반영 계좌",
+            options=account_ids,
+            index=account_ids.index(current_account),
+            format_func=lambda i: f"{account_map.get(i, i)}",
+            key=f"review_account_{selected_id}",
         )
-        col1, col2, col3 = st.columns(3)
-        approve = col1.form_submit_button("승인 및 반영", type="primary")
-        reject = col2.form_submit_button("반려")
-        save_only = col3.form_submit_button("수정만 저장 (상태 유지)")
+    elif account_ids:
+        options = [None] + account_ids
+        idx = options.index(current_account) if current_account in account_ids else 0
+        account_id = st.selectbox(
+            "계좌 (선택)",
+            options=options,
+            index=idx,
+            format_func=lambda i: "(없음)" if i is None else account_map.get(i, i),
+            key=f"review_account_opt_{selected_id}",
+        )
+
+    if c["debts"] or c["debt_payments"]:
+        existing = (
+            client.table("debts").select("lender,principal,interest_rate").order("lender").execute().data
+            or []
+        )
+        if existing:
+            with st.expander("기존 부채 (대출명 매칭 참고)", expanded=False):
+                st.dataframe(
+                    pd.DataFrame(
+                        {
+                            "대출명": [d["lender"] for d in existing],
+                            "잔금": [d["principal"] for d in existing],
+                            "이자율": [d["interest_rate"] for d in existing],
+                        }
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+    sid = selected_id[:8]
+    edited_trades = _editor(
+        "매매",
+        _rows_to_df(parsed.get("trades"), _TRADE_COLS),
+        key=f"ed_trades_{sid}",
+    )
+    edited_divs = _editor(
+        "배당",
+        _rows_to_df(parsed.get("dividends"), _DIV_COLS),
+        key=f"ed_divs_{sid}",
+    )
+    edited_holds = _editor(
+        "잔고/보유",
+        _rows_to_df(parsed.get("holdings_snapshot"), _HOLD_COLS),
+        key=f"ed_holds_{sid}",
+    )
+    edited_debts = _editor(
+        "부채 명세",
+        _rows_to_df(parsed.get("debts"), _DEBT_COLS),
+        key=f"ed_debts_{sid}",
+    )
+    edited_pays = _editor(
+        "부채 납부",
+        _rows_to_df(parsed.get("debt_payments"), _PAY_COLS),
+        key=f"ed_pays_{sid}",
+    )
+
+    st.caption("표에서 값을 고친 뒤 승인하면 수정본이 반영됩니다. 행 추가/삭제도 가능합니다.")
+
+    col1, col2, col3 = st.columns(3)
+    approve = col1.button("승인 및 반영", type="primary", key=f"btn_approve_{sid}")
+    reject = col2.button("반려", key=f"btn_reject_{sid}")
+    save_only = col3.button("수정만 저장", key=f"btn_save_{sid}")
 
     if not (approve or reject or save_only):
         return
 
-    try:
-        edited = json.loads(json_text)
-    except json.JSONDecodeError as exc:
-        st.error(f"잘못된 JSON: {exc}")
-        st.stop()
+    edited = {
+        "account_id": account_id,
+        "doc_type": parsed.get("doc_type"),
+        "account_hint": parsed.get("account_hint"),
+        "trades": _df_to_rows(edited_trades, _TRADE_COLS),
+        "dividends": _df_to_rows(edited_divs, _DIV_COLS),
+        "holdings_snapshot": _df_to_rows(edited_holds, _HOLD_COLS),
+        "debts": _df_to_rows(edited_debts, _DEBT_COLS),
+        "debt_payments": _df_to_rows(edited_pays, _PAY_COLS),
+    }
 
-    edited["account_id"] = account_id
-    for key in ("trades", "dividends", "holdings_snapshot", "debts", "debt_payments"):
-        edited.setdefault(key, [])
+    if needs_account and not account_id:
+        st.error("매매·배당·잔고 반영에는 계좌가 필요합니다.")
+        st.stop()
 
     payload = {
         "parsed_json": edited,
@@ -307,62 +433,17 @@ def render_staging_review(client, user) -> None:
         st.error(f"업데이트 실패 (트리거가 승인을 롤백했을 수 있음): {exc}")
         st.stop()
 
+    # Clear editor widget state for this staging id so next load is fresh
+    for k in list(st.session_state.keys()):
+        if isinstance(k, str) and k.endswith(f"_{sid}") and k.startswith("ed_"):
+            del st.session_state[k]
+
     if approve:
-        st.success("승인됨. 매매·배당·보유·부채에 반영했습니다.")
-        ec = _counts(edited)
-        if ec["trades"] and account_id:
-            trades = (
-                client.table("trades")
-                .select("ticker, trade_type, quantity, price, trade_date")
-                .eq("account_id", account_id)
-                .order("created_at", desc=True)
-                .limit(8)
-                .execute()
-                .data
-                or []
-            )
-            if trades:
-                st.caption("최근 매매")
-                for t in trades:
-                    st.write(
-                        f"- {t.get('trade_date')} · {t.get('ticker')} · "
-                        f"{t.get('trade_type')} · {t.get('quantity')} @ {t.get('price')}"
-                    )
-        if ec["debts"] or ec["debt_payments"]:
-            debt_rows = (
-                client.table("debts")
-                .select("lender,principal,interest_rate,debt_kind")
-                .order("created_at", desc=True)
-                .limit(8)
-                .execute()
-                .data
-                or []
-            )
-            if debt_rows:
-                st.caption("부채 잔금")
-                for d in debt_rows:
-                    st.write(
-                        f"- {d.get('lender')} · 잔금 ₩{float(d.get('principal') or 0):,.0f} · "
-                        f"{float(d.get('interest_rate') or 0):.2f}%"
-                    )
-            pays = (
-                client.table("debt_transactions")
-                .select("tx_date,amount,interest_portion,principal_portion,memo")
-                .eq("tx_type", "payment")
-                .order("created_at", desc=True)
-                .limit(8)
-                .execute()
-                .data
-                or []
-            )
-            if pays:
-                st.caption("최근 원리금 납부")
-                for p in pays:
-                    st.write(
-                        f"- {p.get('tx_date')} · 납부 ₩{float(p.get('amount') or 0):,.0f} "
-                        f"(이자 {p.get('interest_portion')} / 원금 {p.get('principal_portion')})"
-                    )
+        st.success("승인됨. 표 내용이 DB에 반영되었습니다.")
+        st.rerun()
     elif reject:
         st.warning("반려되었습니다.")
+        st.rerun()
     else:
         st.success("수정 내용이 저장되었습니다.")
+        st.rerun()
