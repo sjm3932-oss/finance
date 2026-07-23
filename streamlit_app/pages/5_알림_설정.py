@@ -154,7 +154,8 @@ document.getElementById('btn').onclick = subscribe;
             hide_index=True,
         )
 
-    st.subheader("수동 실행 (예약 작업 대체 테스트)")
+    st.subheader("수동 실행 (시세 · 스냅샷 · 예약 작업)")
+    st.caption("대시보드는 조회 전용입니다. 시세/스냅샷 갱신은 여기서 실행하세요.")
     c1, c2, c3 = st.columns(3)
     if c1.button("시세 갱신"):
         st.json(_invoke("refresh-prices", access))
