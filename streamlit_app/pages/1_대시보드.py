@@ -7,7 +7,6 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -18,11 +17,9 @@ if str(ROOT) not in sys.path:
 from lib.asset_flows_ui import render_flow_charts  # noqa: E402
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.chart_period import filter_by_period, period_radio  # noqa: E402
-from lib.market_data import STALE_HOURS, fetch_usdkrw, is_stale, refresh_tickers  # noqa: E402
+from lib.market_data import STALE_HOURS, is_stale  # noqa: E402
 from lib.realized_pnl_ui import render_total_realized_pnl  # noqa: E402
-from lib.supabase_client import get_service_client  # noqa: E402
 from lib.theme import (  # noqa: E402
-    CHART_COLORS,
     PRIMARY,
     apply_theme,
     chart_layout,
@@ -48,20 +45,6 @@ def _fmt_money(v, currency="KRW") -> str:
     if currency == "USD":
         return f"${n:,.2f}"
     return f"₩{n:,.0f}"
-
-
-def _svc_fallback(client):
-    try:
-        return get_service_client()
-    except Exception:
-        return client
-
-
-def _run_snapshot(client):
-    try:
-        return client.rpc("compute_daily_snapshot").execute().data
-    except Exception:
-        return _svc_fallback(client).rpc("compute_daily_snapshot").execute().data
 
 
 def _load_holding_snaps(client, days: int = 90) -> pd.DataFrame:
@@ -194,44 +177,13 @@ def _aggregate_ticker(rows: list[dict]) -> dict:
     }
 
 
-def _toolbar(client, tickers: list[str]) -> None:
-    c1, c2, c3 = st.columns([1, 1, 1.2], gap="small")
-    with c1:
-        if st.button("시세 새로고침", type="primary", key="dash_refresh_px"):
-            with st.spinner("시세·환율 조회 중…"):
-                rows, errors = refresh_tickers(tickers)
-                writer = client
-                try:
-                    if rows:
-                        writer.table("market_prices").upsert(rows, on_conflict="ticker").execute()
-                except Exception:
-                    writer = _svc_fallback(client)
-                    if rows:
-                        writer.table("market_prices").upsert(rows, on_conflict="ticker").execute()
-                try:
-                    usdkrw = fetch_usdkrw()
-                    writer.table("market_prices").upsert(
-                        {"ticker": "USDKRW", "price": usdkrw, "currency": "KRW"},
-                        on_conflict="ticker",
-                    ).execute()
-                    writer.table("market_index_snapshots").upsert(
-                        {"snapshot_date": date.today().isoformat(), "usdkrw": usdkrw},
-                        on_conflict="snapshot_date",
-                    ).execute()
-                    st.success(f"시세 {len(rows)}종 · 달러원환율 {usdkrw:,.2f}")
-                except Exception as exc:
-                    st.warning(f"환율 실패: {exc}")
-                for e in errors:
-                    st.caption(f"⚠ {e}")
-            st.rerun()
-    with c2:
-        if st.button("오늘 스냅샷", key="dash_snap"):
-            with st.spinner("일별 스냅샷 기록…"):
-                snap = _run_snapshot(client)
-            st.success(snap)
-            st.rerun()
-    with c3:
-        st.caption(f"시세 {STALE_HOURS:.0f}시간 초과 시 「시세 지연」")
+def _status_bar(*, any_stale: bool) -> None:
+    """Read-only status — mutations live under 알림·설정."""
+    stale = " · 시세 지연" if any_stale else ""
+    st.caption(
+        f"조회 전용{stale} · 시세/스냅샷 갱신은 「알림·설정」에서 "
+        f"({STALE_HOURS:.0f}시간 초과 시 지연 표시)"
+    )
 
 
 def _html_escape(s: str) -> str:
@@ -466,11 +418,10 @@ def main() -> None:
     ensure_profile(user, client)
 
     holdings = client.table("holdings").select("*").execute().data or []
-    tickers = sorted({h["ticker"] for h in holdings})
     live_rows, total_usd, total_krw, total_debt, any_stale = _live_holdings(client, holdings)
 
     if view in ("홈", "보유"):
-        _toolbar(client, tickers)
+        _status_bar(any_stale=any_stale)
 
     if view == "홈":
         view_home(client, live_rows, total_usd, total_krw, total_debt, any_stale)

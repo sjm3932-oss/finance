@@ -64,20 +64,19 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
 ### Supabase Auth
 
 1. Enable Google provider in Authentication → Providers
-2. Set Site URL / Redirect URLs to the **stable gateway**:
-   `https://lsqkixysysfhywipmrky.supabase.co/functions/v1/app-gateway`
-   (do **not** put rotating `*.trycloudflare.com` hosts here)
-3. Put couple emails in `ALLOWED_EMAILS`
-4. Mobile access: open the gateway URL above. A tunnel keeper publishes the live
-   Streamlit origin into `app_runtime.public_url`; the gateway 302s there.
+2. Set Site URL / Redirect URLs to the **fixed Streamlit Cloud URL**:
+   `https://richddoong.streamlit.app`
+   (see [`DEPLOY.md`](./DEPLOY.md); do **not** use Pinggy/Cloudflare tunnels)
+3. Put couple emails in `ALLOWED_EMAILS` and Streamlit Secrets
+4. Bookmark only `https://richddoong.streamlit.app`
 
 ### Run
 
 ```bash
 streamlit run streamlit_app/Home.py
-# optional public tunnel + OAuth sync
-./scripts/keep_public_tunnel.sh
 ```
+
+Production: deploy on Streamlit Community Cloud — do not run `keep_public_tunnel.sh`.
 
 ## parsed_json contract
 

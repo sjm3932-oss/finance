@@ -5,11 +5,10 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-import pandas as pd
 import streamlit as st
 
 from lib.ocr_upload import DOC_TYPES, stage_screenshot
-from lib.ui_ko import ACCOUNT_TYPE_KO, STATUS_KO, localize_flow_df, rename_columns
+from lib.ui_ko import ACCOUNT_TYPE_KO, STATUS_KO
 
 
 def _signed_url(client, path: str) -> str | None:
@@ -231,38 +230,56 @@ def render_staging_review(client, user) -> None:
         st.stop()
 
     if approve:
-        st.success("승인됨. 매매·배당·보유 확인 중…")
+        st.success("승인됨. 매매·배당·보유에 반영했습니다.")
         trades = (
             client.table("trades")
-            .select("id, ticker, trade_type, quantity, price, trade_date, created_at")
+            .select("ticker, trade_type, quantity, price, trade_date")
             .eq("account_id", account_id)
             .order("created_at", desc=True)
-            .limit(20)
+            .limit(8)
             .execute()
             .data
+            or []
         )
         dividends = (
             client.table("dividends")
-            .select("pay_date,ticker,name,amount,currency,memo,created_at")
+            .select("pay_date,ticker,amount,currency")
             .eq("account_id", account_id)
             .order("created_at", desc=True)
-            .limit(20)
+            .limit(5)
             .execute()
             .data
+            or []
         )
         holdings = (
             client.table("holdings")
-            .select("ticker, name, quantity, avg_price, currency, updated_at")
+            .select("ticker, quantity, avg_price, currency")
             .eq("account_id", account_id)
             .execute()
             .data
+            or []
         )
-        st.subheader("최근 매매")
-        st.dataframe(localize_flow_df(trades or []), use_container_width=True)
-        st.subheader("최근 배당")
-        st.dataframe(rename_columns(pd.DataFrame(dividends or [])), use_container_width=True)
-        st.subheader("보유")
-        st.dataframe(rename_columns(pd.DataFrame(holdings or [])), use_container_width=True)
+        if trades:
+            st.caption("최근 매매")
+            for t in trades:
+                st.write(
+                    f"- {t.get('trade_date')} · {t.get('ticker')} · "
+                    f"{t.get('trade_type')} · {t.get('quantity')} @ {t.get('price')}"
+                )
+        if dividends:
+            st.caption("최근 배당")
+            for d in dividends:
+                st.write(
+                    f"- {d.get('pay_date')} · {d.get('ticker')} · "
+                    f"{d.get('amount')} {d.get('currency')}"
+                )
+        if holdings:
+            st.caption("보유")
+            for h in holdings:
+                st.write(
+                    f"- {h.get('ticker')} · {h.get('quantity')} · "
+                    f"평단 {h.get('avg_price')} {h.get('currency')}"
+                )
     elif reject:
         st.warning("반려되었습니다.")
     else:
