@@ -9,3 +9,6 @@ node_modules/
 .supabase/
 supabase/.temp/
 streamlit_app/.data/
+web/.next/
+web/.env.local
+web/out/

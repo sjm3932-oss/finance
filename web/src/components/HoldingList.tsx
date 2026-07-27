@@ -1,0 +1,80 @@
+import { fmtKrw, fmtPct, retTone } from "@/lib/money";
+
+type Item = {
+  ticker: string;
+  name: string;
+  institution: string;
+  value_krw: number | null;
+  value: number | null;
+  ccy: string;
+  return_pct: number | null;
+  qty: number;
+};
+
+function initials(name: string, ticker: string) {
+  const src = (name || ticker || "?").trim();
+  if (/^[A-Za-z.]+$/.test(src) && src.length <= 6) return src.slice(0, 2).toUpperCase();
+  if (/^\d+$/.test(src) && src.length >= 2) return src.slice(-2);
+  return Array.from(src)[0]?.toUpperCase() || "?";
+}
+
+export function HoldingList({ items }: { items: Item[] }) {
+  if (!items.length) {
+    return (
+      <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-10 text-center text-sm text-muted">
+        표시할 보유가 없습니다. Streamlit 「기록하기」에서 OCR·수기로 등록하세요.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-line bg-surface">
+      {items.map((it) => {
+        const tone = retTone(it.return_pct);
+        const valueLabel =
+          it.value_krw != null
+            ? fmtKrw(it.value_krw)
+            : it.value != null
+              ? it.ccy === "USD"
+                ? `$${it.value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
+                : fmtKrw(it.value)
+              : "—";
+        return (
+          <div
+            key={it.ticker}
+            className="flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-b-0"
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-extrabold text-brand-dark">
+              {initials(it.name, it.ticker)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[15px] font-extrabold tracking-tight">
+                {it.name}
+              </div>
+              <div className="truncate text-xs text-muted">
+                {it.ticker} · {it.institution}
+                {it.qty ? ` · ${Number(it.qty).toLocaleString("ko-KR")}주` : ""}
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="text-[15px] font-extrabold tracking-tight">
+                {valueLabel}
+              </div>
+              <div
+                className={`text-xs font-bold ${
+                  tone === "up"
+                    ? "text-up"
+                    : tone === "down"
+                      ? "text-down"
+                      : "text-muted"
+                }`}
+              >
+                {fmtPct(it.return_pct)}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

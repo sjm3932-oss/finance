@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #1a1a1a;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --canvas: #f7f8f8;
+  --surface: #ffffff;
+  --brand: #03c75a;
+  --brand-dark: #02b350;
+  --brand-soft: #e8f8ef;
+  --up: #e11d48;
+  --down: #2563eb;
+  --background: var(--canvas);
+  --foreground: var(--ink);
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  color: var(--ink);
+  background: var(--canvas);
+  font-family: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-size-adjust: 100%;
+}
+
+@layer utilities {
+  .safe-pb {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}

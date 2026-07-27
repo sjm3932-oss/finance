@@ -5,7 +5,17 @@
 **Supabase:** https://lsqkixysysfhywipmrky.supabase.co
 
 > **모바일/실사용 배포:** 임시 터널(Cloudflare/Pinggy)은 쓰지 마세요.  
-> 고정 URL이 필요합니다 → [`DEPLOY.md`](./DEPLOY.md) (Streamlit Community Cloud).
+> 고정 URL이 필요합니다 → [`DEPLOY.md`](./DEPLOY.md).
+
+## UI (병행)
+
+| 앱 | 경로 | 상태 |
+|----|------|------|
+| **Next.js (신규)** | [`web/`](./web/) | Phase 0: 로그인 + 순자산/보유 읽기 |
+| **Streamlit** | `streamlit_app/` | 기록(OCR/수기)·승인·챗 등 기존 기능 |
+
+Next 로컬: `cd web && cp .env.example .env.local && npm i && npm run dev`  
+자세한 내용: [`web/README.md`](./web/README.md)
 
 ## MVP 범위 (기획서 1~4단계)
 

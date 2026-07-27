@@ -63,9 +63,28 @@ Supabase 콜백만 있으면 됩니다 (앱 URL이 바뀌어도 동일):
 북마크는 **오직** `https://….streamlit.app`  
 `trycloudflare.com` / `pinggy.net` / `app-gateway` 는 더 이상 쓰지 않습니다.
 
+## Next.js (Phase 0, 병행)
+
+`web/` 앱은 Vercel 등에 별도 배포합니다. Root Directory = `web`.
+
+필수 env:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `ALLOWED_EMAILS`
+- `NEXT_PUBLIC_STREAMLIT_URL` (더보기 → Streamlit 링크)
+
+Supabase Auth → Redirect URLs에 추가:
+
+- `http://localhost:3000/auth/callback`
+- `https://<your-vercel-app>.vercel.app/auth/callback`
+
+Streamlit과 병행 기간에는 두 앱의 callback/redirect를 모두 허용하면 됩니다.
+자세한 절차: [`web/README.md`](./web/README.md)
+
 ## 대안 호스트
 
-- Render / Fly.io / Railway: 루트의 `Dockerfile` 사용
+- Render / Fly.io / Railway: 루트의 `Dockerfile` 사용 (Streamlit)
 - 커스텀 도메인이 필요하면 위 PaaS + DNS
 
 ## 왜 터널은 정석이 아닌가
