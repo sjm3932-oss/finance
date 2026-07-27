@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from lib.theme import CHART_COLORS, PRIMARY, chart_layout, show_plotly
+from lib.theme import PRIMARY, chart_layout, show_plotly
 
 
 def _fmt_money(v, currency: str = "KRW") -> str:
@@ -215,90 +215,154 @@ def render_pnl_split(
 
 
 # ---------------------------------------------------------------------------
-# Asset allocation
+# Asset allocation (treemap heat map)
 # ---------------------------------------------------------------------------
+
+# KR market convention: up=red, down=blue
+_TREEMAP_COLORSCALE = [
+    [0.0, "#2563EB"],
+    [0.5, "#1F2937"],
+    [1.0, "#E11D48"],
+]
 
 
 def allocation_frames(
     live_rows: list[dict], usdkrw: float | None
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Return (by_ticker, by_region, by_account) with value_krw."""
-    ticker_rows: list[dict] = []
-    region_acc: dict[str, float] = {}
-    acct_acc: dict[str, float] = {}
+    """Return (by_ticker, by_region, by_account) with value_krw (tests + legacy)."""
+    leaves = allocation_leaves(live_rows, usdkrw)
+    if leaves.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
+    by_t = (
+        leaves.groupby(["ticker", "label"], as_index=False)
+        .agg(value_krw=("value_krw", "sum"), return_pct=("return_pct", "mean"))
+        .sort_values("value_krw", ascending=False)
+    )
+    by_r = (
+        leaves.groupby("region", as_index=False)["value_krw"]
+        .sum()
+        .rename(columns={"region": "label"})
+        .sort_values("value_krw", ascending=False)
+    )
+    by_a = (
+        leaves.groupby("account", as_index=False)["value_krw"]
+        .sum()
+        .rename(columns={"account": "label"})
+        .sort_values("value_krw", ascending=False)
+    )
+    return by_t, by_r, by_a
+
+
+def allocation_leaves(live_rows: list[dict], usdkrw: float | None) -> pd.DataFrame:
+    """One row per holding line with KRW value + return % for treemap."""
+    rows: list[dict] = []
     for r in live_rows:
         v = _to_krw(
             float(r["value"]) if r.get("value") is not None else None,
             r.get("ccy") or "USD",
             usdkrw,
         )
-        if v is None:
+        if v is None or v <= 0:
             continue
-        name = r.get("name") or r.get("ticker") or "?"
-        ticker = r.get("ticker") or "?"
-        ticker_rows.append({"label": f"{name}", "ticker": ticker, "value_krw": v})
-        region = market_region(ticker, r.get("ccy"))
-        region_acc[region] = region_acc.get(region, 0.0) + v
-        inst = r.get("institution") or "계좌"
-        acct_acc[inst] = acct_acc.get(inst, 0.0) + v
-
-    # Aggregate same ticker across accounts
-    by_t = pd.DataFrame(ticker_rows)
-    if not by_t.empty:
-        by_t = (
-            by_t.groupby(["ticker", "label"], as_index=False)["value_krw"]
-            .sum()
-            .sort_values("value_krw", ascending=False)
+        ticker = str(r.get("ticker") or "?").strip() or "?"
+        name = str(r.get("name") or ticker).strip() or ticker
+        ret = r.get("return_%")
+        try:
+            ret_f = float(ret) if ret is not None else None
+        except (TypeError, ValueError):
+            ret_f = None
+        rows.append(
+            {
+                "ticker": ticker,
+                "label": name,
+                "region": market_region(ticker, r.get("ccy")),
+                "account": r.get("institution") or "계좌",
+                "value_krw": float(v),
+                "return_pct": ret_f if ret_f is not None else 0.0,
+                "has_return": ret_f is not None,
+            }
         )
-    by_r = pd.DataFrame(
-        [{"label": k, "value_krw": v} for k, v in region_acc.items()]
-    ).sort_values("value_krw", ascending=False) if region_acc else pd.DataFrame()
-    by_a = pd.DataFrame(
-        [{"label": k, "value_krw": v} for k, v in acct_acc.items()]
-    ).sort_values("value_krw", ascending=False) if acct_acc else pd.DataFrame()
-    return by_t, by_r, by_a
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
 
 
-def _donut(df: pd.DataFrame, title: str, *, top_n: int = 8) -> None:
+def _treemap(df: pd.DataFrame, path_cols: list[str], title: str) -> None:
+    """Plotly treemap: size=value_krw, color=return_pct. Single-dict layout only."""
     if df is None or df.empty:
         st.caption(f"{title}: 표시할 데이터가 없습니다.")
         return
+
     work = df.copy()
-    if len(work) > top_n:
-        head = work.head(top_n)
-        other = float(work.iloc[top_n:]["value_krw"].sum())
-        work = pd.concat(
-            [head, pd.DataFrame([{"label": "기타", "value_krw": other}])],
-            ignore_index=True,
-        )
-    fig = go.Figure(
-        go.Pie(
-            labels=work["label"],
-            values=work["value_krw"],
-            hole=0.55,
-            textinfo="percent",
-            hovertemplate="%{label}<br>₩%{value:,.0f}<br>%{percent}<extra></extra>",
-            marker=dict(colors=CHART_COLORS),
-            textfont=dict(size=13),
-        )
+    work["value_krw"] = pd.to_numeric(work["value_krw"], errors="coerce").fillna(0.0)
+    work = work[work["value_krw"] > 0]
+    if work.empty:
+        st.caption(f"{title}: 표시할 데이터가 없습니다.")
+        return
+
+    work["return_pct"] = pd.to_numeric(work.get("return_pct"), errors="coerce").fillna(0.0)
+    work["ret_label"] = work["return_pct"].map(lambda x: f"{x:+.1f}%")
+    work["root"] = "전체"
+
+    # Ensure path columns exist and are non-empty strings
+    path = ["root"] + path_cols
+    for col in path_cols:
+        if col not in work.columns:
+            st.caption(f"{title}: 데이터 컬럼 오류 ({col})")
+            return
+        work[col] = work[col].astype(str).replace({"": "?", "nan": "?"})
+
+    try:
+        import plotly.express as px
+    except ImportError:
+        st.error("plotly.express를 불러올 수 없습니다.")
+        return
+
+    fig = px.treemap(
+        work,
+        path=path,
+        values="value_krw",
+        color="return_pct",
+        color_continuous_scale=_TREEMAP_COLORSCALE,
+        color_continuous_midpoint=0,
+        custom_data=["ret_label", "ticker", "value_krw"],
+        hover_data={"return_pct": ":.2f", "value_krw": ":,.0f"},
     )
-    # Pass layout as one dict — avoid title/legend/margin kwarg collisions
-    fig.update_layout(
-        chart_layout(
-            340,
-            title=title,
-            showlegend=True,
-            legend=dict(orientation="h", y=-0.18, x=0, xanchor="left"),
-            margin=dict(l=8, r=8, t=44, b=96),
-        )
+    fig.update_traces(
+        texttemplate="%{label}<br>%{customdata[0]}",
+        textposition="middle center",
+        root_color="rgba(0,0,0,0)",
+        hovertemplate=(
+            "<b>%{label}</b><br>"
+            "평가 ₩%{customdata[2]:,.0f}<br>"
+            "수익률 %{customdata[0]}"
+            "<extra></extra>"
+        ),
+        marker=dict(line=dict(width=1.5, color="#0B1220")),
     )
+    # One dict only — never **chart_layout(..., legend=...) style collisions
+    layout = chart_layout(
+        400,
+        title=title,
+        margin=dict(l=4, r=4, t=48, b=8),
+        coloraxis_colorbar=dict(
+            title=dict(text="수익률%", side="right"),
+            ticksuffix="%",
+            thickness=12,
+            len=0.7,
+        ),
+    )
+    # Hide root path breadcrumb clutter a bit
+    layout["uniformtext"] = dict(minsize=11, mode="hide")
+    fig.update_layout(layout)
     show_plotly(fig)
+    st.caption("사각형 크기 = 평가액 비중 · 색 = 수익률 (상승 빨강 / 하락 파랑)")
 
 
 def render_allocation(live_rows: list[dict], usdkrw: float | None) -> None:
-    by_t, by_r, by_a = allocation_frames(live_rows, usdkrw)
-    if by_t.empty:
+    leaves = allocation_leaves(live_rows, usdkrw)
+    if leaves.empty:
         st.info("배분 차트를 그리려면 시세가 있는 보유가 필요합니다.")
         return
     mode = st.radio(
@@ -308,11 +372,26 @@ def render_allocation(live_rows: list[dict], usdkrw: float | None) -> None:
         key="alloc_mode",
     )
     if mode == "종목":
-        _donut(by_t.assign(label=by_t["label"]), "종목 비중")
+        # Aggregate same ticker across accounts
+        by_t = (
+            leaves.groupby(["ticker", "label"], as_index=False)
+            .agg(
+                value_krw=("value_krw", "sum"),
+                return_pct=("return_pct", "mean"),
+            )
+        )
+        _treemap(by_t, ["label"], "종목 비중")
     elif mode == "국내/해외":
-        _donut(by_r, "국내·해외 비중")
+        by_r = (
+            leaves.groupby(["region", "ticker", "label"], as_index=False)
+            .agg(
+                value_krw=("value_krw", "sum"),
+                return_pct=("return_pct", "mean"),
+            )
+        )
+        _treemap(by_r, ["region", "label"], "국내·해외 비중")
     else:
-        _donut(by_a, "계좌 비중")
+        _treemap(leaves, ["account", "label"], "계좌 비중")
 
 
 # ---------------------------------------------------------------------------
