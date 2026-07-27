@@ -214,9 +214,25 @@ def render_watchlist_panel(client, user) -> None:
         stp = w.get("stop_price")
         cols[2].markdown(f"목표  \n{_price_label(float(tgt) if tgt is not None else None, ticker, ccy)}")
         cols[3].markdown(f"손절  \n{_price_label(float(stp) if stp is not None else None, ticker, ccy)}")
-        if cols[4].button("삭제", key=f"del_watch_{w['id']}"):
-            client.table("watchlist").delete().eq("id", w["id"]).execute()
-            st.rerun()
+        del_key = f"del_watch_{w['id']}"
+        confirm_key = f"confirm_del_watch_{w['id']}"
+        if cols[4].button("삭제", type="secondary", key=del_key):
+            st.session_state[confirm_key] = True
+        if st.session_state.get(confirm_key):
+            st.markdown('<div class="np-danger-zone">', unsafe_allow_html=True)
+            ok = st.checkbox(f"{ticker} 삭제 확인", key=f"chk_{confirm_key}")
+            c_a, c_b = st.columns(2)
+            if c_a.button("삭제 확정", type="secondary", key=f"go_{confirm_key}"):
+                if ok:
+                    client.table("watchlist").delete().eq("id", w["id"]).execute()
+                    st.session_state.pop(confirm_key, None)
+                    st.rerun()
+                else:
+                    st.error("확인란을 체크하세요.")
+            if c_b.button("취소", key=f"cancel_{confirm_key}"):
+                st.session_state.pop(confirm_key, None)
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
         if w.get("note"):
             st.caption(w["note"])
         st.divider()

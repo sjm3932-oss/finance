@@ -16,6 +16,7 @@ from lib.gemini_client import GeminiError, chat_about_wealth  # noqa: E402
 from lib.jobs import briefing_text_from_result, invoke_edge  # noqa: E402
 from lib.push_ui import render_push_subscribe  # noqa: E402
 from lib.theme import apply_theme, page_hero  # noqa: E402
+from lib.ux import section_header, show_job_result  # noqa: E402
 from lib.watchlist_ui import evaluate_alerts, render_alert_banners  # noqa: E402
 from lib.wealth_context import (  # noqa: E402
     build_wealth_context,
@@ -92,31 +93,12 @@ def main() -> None:
             st.session_state.wealth_chat_hydrated = True
             st.rerun()
 
-    with st.expander("알림 구독 · 시세/백업", expanded=False):
-        st.caption("푸시 알림을 구독하면 브리핑이 폰으로도 옵니다.")
-        render_push_subscribe(user_id=str(user.id), access_token=access)
-        c1, c2, c3 = st.columns(3)
-        if c1.button("시세 갱신", key="chat_refresh_px"):
-            result = invoke_edge("refresh-prices", access)
-            st.json(result)
-            try:
-                n = evaluate_alerts(client, str(user.id))
-                if n:
-                    st.success(f"목표가/손절가 알림 {len(n)}건 발생")
-            except Exception:
-                pass
-        if c2.button("야간 백업", key="chat_backup"):
-            st.json(invoke_edge("nightly-backup", access))
-        if c3.button("오늘 스냅샷", key="chat_snap"):
-            try:
-                st.success(client.rpc("compute_daily_snapshot").execute().data)
-            except Exception as exc:
-                st.error(str(exc))
-
     try:
         render_alert_banners(client, str(user.id))
     except Exception:
         pass
+
+    section_header("채팅", "보유·손익 데이터를 근거로 답합니다")
 
     if want_brief:
         st.session_state.wealth_chat.append(
@@ -154,6 +136,34 @@ def main() -> None:
     for msg in st.session_state.wealth_chat:
         with st.chat_message("assistant" if msg["role"] == "model" else "user"):
             st.markdown(msg["content"])
+
+    section_header("설정", "알림 · 시세 · 스냅샷 · 백업 (채팅과 분리)")
+    st.caption("시세·스냅샷은 매시/자정 자동입니다. 버튼은 지금 당장 필요할 때만.")
+    render_push_subscribe(user_id=str(user.id), access_token=access)
+    c1, c2, c3 = st.columns(3)
+    if c1.button("시세 지금 갱신", key="chat_refresh_px"):
+        with st.spinner("시세 가져오는 중…"):
+            result = invoke_edge("refresh-prices", access)
+        if show_job_result(result, ok_msg="시세를 갱신했습니다.", fail_msg="시세 갱신 실패"):
+            try:
+                n = evaluate_alerts(client, str(user.id))
+                if n:
+                    st.success(f"목표가/손절가 알림 {len(n)}건")
+            except Exception:
+                pass
+    if c2.button("백업 실행", key="chat_backup"):
+        with st.spinner("백업 중…"):
+            result = invoke_edge("nightly-backup", access)
+        show_job_result(result, ok_msg="백업을 완료했습니다.", fail_msg="백업 실패")
+    if c3.button("오늘 스냅샷", key="chat_snap"):
+        with st.spinner("스냅샷 저장 중…"):
+            try:
+                data = client.rpc("compute_daily_snapshot").execute().data
+                st.success("오늘 스냅샷을 저장했습니다.")
+                with st.expander("상세", expanded=False):
+                    st.write(data)
+            except Exception as exc:
+                st.error(f"스냅샷 실패: {exc}")
 
     prompt = st.chat_input("예: 우리 순자산이 얼마야?")
     if not prompt:

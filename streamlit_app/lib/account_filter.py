@@ -24,17 +24,28 @@ def account_ids_for_label(client, label: str) -> list[str] | None:
     return ids
 
 
-def render_account_selector(client, *, key: str = "dash_account_filter") -> str:
+def render_account_selector(
+    client, *, key: str = "dash_account_filter", sticky: bool = True
+) -> str:
     options = account_options(client)
     current = st.session_state.get(key)
     if current not in options:
         st.session_state[key] = "전체"
-    return st.selectbox(
-        "계좌",
-        options,
-        key=key,
-        help="선택한 증권사 계좌의 데이터만 표시합니다.",
-    )
+
+    def _select() -> str:
+        return st.selectbox(
+            "계좌",
+            options,
+            key=key,
+            help="선택한 증권사 계좌의 데이터만 표시합니다.",
+        )
+
+    if not sticky:
+        return _select()
+
+    with st.container():
+        st.markdown('<span class="np-sticky-marker"></span>', unsafe_allow_html=True)
+        return _select()
 
 
 def filter_df_by_account_ids(df, account_ids: list[str] | None, col: str = "account_id"):

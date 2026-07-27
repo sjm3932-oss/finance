@@ -256,10 +256,19 @@ def render_ocr_upload(client, user) -> None:
             st.success(
                 "대기로 스테이징됨 · "
                 f"매매 {c['trades']} · 배당 {c['dividends']} · 잔고 {c['holdings']} · "
-                f"부채 {c['debts']} · 납부 {c['debt_payments']} "
-                f"(`{created['id'] if created else '완료'}`)"
+                f"부채 {c['debts']} · 납부 {c['debt_payments']}"
             )
-        st.info("다음: 사이드바 **승인하기**에서 표로 확인하고 승인하세요.")
+        st.info("다음 단계: 「승인하기」에서 표를 확인하고 승인하세요.")
+        from lib.ux import switch_menu_page
+
+        if st.button(
+            "승인하기로 이동",
+            type="primary",
+            key="ocr_go_approve",
+            use_container_width=True,
+        ):
+            if not switch_menu_page("승인하기"):
+                st.caption("사이드바에서 「승인하기」를 눌러 주세요.")
 
 
 def render_staging_review(client, user) -> None:
@@ -406,12 +415,24 @@ def render_staging_review(client, user) -> None:
 
     st.caption("표에서 값을 고친 뒤 승인하면 수정본이 반영됩니다. 행 추가/삭제도 가능합니다.")
 
+    st.markdown('<div class="np-danger-zone">', unsafe_allow_html=True)
+    confirm_reject = st.checkbox(
+        "반려할 때만 체크",
+        key=f"confirm_reject_{sid}",
+        help="실수 방지를 위해 반려 전에 체크하세요.",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
     col1, col2, col3 = st.columns(3)
     approve = col1.button("승인 및 반영", type="primary", key=f"btn_approve_{sid}")
-    reject = col2.button("반려", key=f"btn_reject_{sid}")
+    reject = col2.button("반려", type="secondary", key=f"btn_reject_{sid}")
     save_only = col3.button("수정만 저장", key=f"btn_save_{sid}")
 
     if not (approve or reject or save_only):
+        return
+
+    if reject and not confirm_reject:
+        st.error("반려하려면 위의 확인란을 체크한 뒤 다시 눌러 주세요.")
         return
 
     edited = {

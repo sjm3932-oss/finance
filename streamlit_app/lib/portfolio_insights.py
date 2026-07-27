@@ -141,21 +141,40 @@ def period_change_stats(
 
 
 def render_period_change_row(stats: dict[str, float | None]) -> None:
+    from lib.ux import fmt_krw
+
     c1, c2 = st.columns(2, gap="small")
     with c1:
         st.metric(
             "오늘 손익",
-            _fmt_money(stats.get("today_pnl"), "KRW") if stats.get("today_pnl") is not None else "—",
-            delta=_fmt_signed_pct(stats.get("today_pct")) if stats.get("today_pct") is not None else None,
+            fmt_krw(stats.get("today_pnl"), signed=True)
+            if stats.get("today_pnl") is not None
+            else "—",
+            delta=_fmt_signed_pct(stats.get("today_pct"))
+            if stats.get("today_pct") is not None
+            else None,
+            delta_color="inverse",
         )
     with c2:
         st.metric(
             "이번 주 손익",
-            _fmt_money(stats.get("week_pnl"), "KRW") if stats.get("week_pnl") is not None else "—",
-            delta=_fmt_signed_pct(stats.get("week_pct")) if stats.get("week_pct") is not None else None,
+            fmt_krw(stats.get("week_pnl"), signed=True)
+            if stats.get("week_pnl") is not None
+            else "—",
+            delta=_fmt_signed_pct(stats.get("week_pct"))
+            if stats.get("week_pct") is not None
+            else None,
+            delta_color="inverse",
         )
     if stats.get("today_pnl") is None and stats.get("week_pnl") is None:
-        st.caption("스냅샷이 쌓이면 오늘·주간 손익이 표시됩니다. 「자산 챗」에서 오늘 스냅샷을 만드세요.")
+        from lib.ux import empty_cta
+
+        empty_cta(
+            "스냅샷이 쌓이면 오늘·주간 손익이 표시됩니다.",
+            button_label="자산 챗으로 이동",
+            page_title="자산 챗",
+            key="cta_period_change",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -181,9 +200,17 @@ def render_pnl_split(
     unrealized: float | None,
     realized_ytd: float | None,
 ) -> None:
+    from lib.ux import fmt_krw
+
     c1, c2 = st.columns(2, gap="small")
-    c1.metric("미실현 손익", _fmt_money(unrealized, "KRW") if unrealized is not None else "—")
-    c2.metric("실현 손익 (올해)", _fmt_money(realized_ytd, "KRW") if realized_ytd is not None else "—")
+    c1.metric(
+        "미실현 손익",
+        fmt_krw(unrealized, signed=True) if unrealized is not None else "—",
+    )
+    c2.metric(
+        "실현 손익 (올해)",
+        fmt_krw(realized_ytd, signed=True) if realized_ytd is not None else "—",
+    )
     st.caption("미실현 = 평가액 − 매입원금 · 실현 = 올해 매도·배당·이자 합계")
 
 
@@ -492,7 +519,15 @@ def render_dividend_calendar(
     df = load_dividends(client, account_ids)
     label = f"{account_label} · " if account_label and account_label != "전체" else ""
     if df.empty:
-        st.info(f"{label}배당 기록이 없습니다. OCR·수기로 배당을 등록하세요.")
+        from lib.ux import empty_cta, section_header
+
+        section_header("배당")
+        empty_cta(
+            f"{label}배당 기록이 없습니다. OCR·수기로 배당을 등록하세요.",
+            button_label="기록하기로 이동",
+            page_title="기록하기",
+            key="cta_div_empty",
+        )
         return
 
     stats = dividend_stats(df, usdkrw)

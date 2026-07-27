@@ -78,7 +78,14 @@ def render_flow_charts(
 
     if df.empty:
         label = f"{account_label} · " if account_label and account_label != "전체" else ""
-        st.info(f"{label}선택한 기간에 거래 기록이 없습니다. 「기록하기」에서 등록하세요.")
+        from lib.ux import empty_cta
+
+        empty_cta(
+            f"{label}선택한 기간에 거래 기록이 없습니다. 「기록하기」에서 등록하세요.",
+            button_label="기록하기로 이동",
+            page_title="기록하기",
+            key="cta_trades_empty",
+        )
         return
 
     # v_asset_flows.amount is already signed (buy/expense/repayment negative).
@@ -232,17 +239,23 @@ def render_flow_forms(client, user) -> None:
         else:
             amap = {a["id"]: f"{a['institution']} ({a['currency']})" for a in accounts}
             with st.form("dash_trade_form"):
-                account_id = st.selectbox("계좌", options=list(amap), format_func=lambda i: amap[i])
-                trade_type = st.selectbox(
-                    "구분", ["buy", "sell"], format_func=lambda x: TRADE_TYPE_KO.get(x, x)
+                account_id = st.selectbox(
+                    "계좌", options=list(amap), format_func=lambda i: amap[i]
                 )
-                c1, c2 = st.columns(2)
-                ticker = c1.text_input("티커", placeholder="TQQQ").strip().upper()
-                trade_date = c2.date_input("일자", value=date.today())
-                c3, c4, c5 = st.columns(3)
-                price = c3.number_input("단가", min_value=0.0, step=0.01, format="%.4f")
-                quantity = c4.number_input("수량", min_value=0.0, step=0.0001, format="%.6f")
-                fee = c5.number_input("수수료", min_value=0.0, step=0.01, format="%.2f")
+                trade_type = st.selectbox(
+                    "구분",
+                    ["buy", "sell"],
+                    format_func=lambda x: TRADE_TYPE_KO.get(x, x),
+                )
+                ticker = st.text_input("티커", placeholder="TQQQ").strip().upper()
+                trade_date = st.date_input("일자", value=date.today())
+                quantity = st.number_input(
+                    "수량", min_value=0.0, step=0.0001, format="%.6f"
+                )
+                price = st.number_input(
+                    "단가", min_value=0.0, step=0.01, format="%.4f"
+                )
+                fee = st.number_input("수수료", min_value=0.0, step=0.01, format="%.2f")
                 currency = st.selectbox("통화", ["USD", "KRW"], index=0)
                 reason = st.text_input("사유/메모", "")
                 if st.form_submit_button("매매 기록", type="primary"):
@@ -279,13 +292,11 @@ def render_flow_forms(client, user) -> None:
                 options=[None] + list(amap),
                 format_func=lambda i: "(없음)" if i is None else amap[i],
             )
-            c1, c2 = st.columns(2)
-            ticker = c1.text_input("티커", placeholder="TSLY").strip().upper()
-            pay_date = c2.date_input("지급일", value=date.today())
-            c3, c4 = st.columns(2)
-            amount = c3.number_input("금액", min_value=0.0, step=1.0, format="%.2f")
-            currency = c4.selectbox("통화", ["USD", "KRW"])
+            ticker = st.text_input("티커", placeholder="TSLY").strip().upper()
             name = st.text_input("종목명 (선택)", "")
+            pay_date = st.date_input("지급일", value=date.today())
+            amount = st.number_input("금액", min_value=0.0, step=1.0, format="%.2f")
+            currency = st.selectbox("통화", ["USD", "KRW"])
             memo = st.text_input("메모", "")
             if st.form_submit_button("배당 기록", type="primary"):
                 if not ticker or amount <= 0:
@@ -313,15 +324,18 @@ def render_flow_forms(client, user) -> None:
         )
         with st.form("dash_cash_form"):
             flow_type = st.selectbox(
-                "유형", ["income", "expense"], format_func=lambda x: FLOW_TYPE_KO.get(x, x)
+                "유형",
+                ["income", "expense"],
+                format_func=lambda x: FLOW_TYPE_KO.get(x, x),
             )
             cats = CASH_INCOME_CATS if flow_type == "income" else CASH_EXPENSE_CATS
             category = st.selectbox("카테고리", cats + ["직접입력"])
-            custom = st.text_input("직접 카테고리", "") if category == "직접입력" else ""
-            c1, c2, c3 = st.columns(3)
-            amount = c1.number_input("금액", min_value=0.0, step=1000.0, format="%.0f")
-            currency = c2.selectbox("통화", ["KRW", "USD"])
-            flow_date = c3.date_input("일자", value=date.today())
+            custom = (
+                st.text_input("직접 카테고리", "") if category == "직접입력" else ""
+            )
+            amount = st.number_input("금액", min_value=0.0, step=1000.0, format="%.0f")
+            currency = st.selectbox("통화", ["KRW", "USD"])
+            flow_date = st.date_input("일자", value=date.today())
             account_id = st.selectbox(
                 "연결 계좌 (증권 입출금 시 권장)",
                 options=[None] + list(amap),

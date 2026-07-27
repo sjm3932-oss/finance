@@ -26,7 +26,7 @@ VIEWS = ["OCR", "수기"]
 def main() -> None:
     page_hero(
         "기록하기",
-        "스크린샷 OCR 업로드와 수기 입력. 승인은 「승인하기」메뉴에서 합니다.",
+        "스크린샷 OCR 업로드와 수기 입력. 업로드 후 「승인하기」에서 검토합니다.",
         compact=True,
     )
     view = render_subnav(VIEWS, state_key="record_view", default="OCR")

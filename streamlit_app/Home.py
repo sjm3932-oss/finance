@@ -166,13 +166,16 @@ def _render_auth(*, logged_in: bool) -> None:
     st.link_button("Google로 로그인", url, type="primary", use_container_width=True)
 
 
-def _render_menu_buttons(*, pages: dict | None, can_navigate: bool) -> None:
+def _render_menu_buttons(*, pages: dict | None, can_navigate: bool, pending_approve: int = 0) -> None:
     """Login 아래 메인 메뉴 버튼 (예전 Home TOC)."""
     st.markdown('<div class="np-section np-home-menu">', unsafe_allow_html=True)
     st.markdown("### 메뉴")
     for title in MENU_TITLES:
+        label = title
+        if title == "승인하기" and pending_approve > 0:
+            label = f"승인하기 ({pending_approve})"
         clicked = st.button(
-            title,
+            label,
             key=f"home_go_{title}",
             type="primary" if can_navigate else "secondary",
             use_container_width=True,
@@ -221,7 +224,10 @@ def _render_logged_in_home() -> None:
     user_chip(str(name), user.email or "")
     _render_auth(logged_in=True)
     pages = st.session_state.get("_cwm_menu_pages") or {}
-    _render_menu_buttons(pages=pages, can_navigate=True)
+    pending = int(st.session_state.get("_cwm_pending_ocr") or 0)
+    if pending:
+        st.info(f"승인 대기 OCR {pending}건이 있습니다.")
+    _render_menu_buttons(pages=pages, can_navigate=True, pending_approve=pending)
 
 
 def main() -> None:
@@ -241,6 +247,23 @@ def main() -> None:
 
     home, dash, chat, record, approve, by_title = _make_pages()
     st.session_state._cwm_menu_pages = by_title
+
+    # Pending OCR badge for home + sidebar
+    try:
+        from lib.supabase_client import get_user_client
+        from lib.ux import pending_ocr_count
+
+        uclient = get_user_client(
+            st.session_state.access_token,
+            st.session_state.refresh_token,
+        )
+        st.session_state._cwm_pending_ocr = pending_ocr_count(uclient)
+    except Exception:
+        st.session_state._cwm_pending_ocr = 0
+
+    pending = int(st.session_state.get("_cwm_pending_ocr") or 0)
+    approve_label = f"승인하기 ({pending})" if pending else "승인하기"
+
     pg = st.navigation([home, dash, chat, record, approve], position="hidden")
 
     with st.sidebar:
@@ -249,7 +272,7 @@ def main() -> None:
         st.page_link(dash, label="내 자산", use_container_width=True)
         st.page_link(chat, label="자산 챗", use_container_width=True)
         st.page_link(record, label="기록하기", use_container_width=True)
-        st.page_link(approve, label="승인하기", use_container_width=True)
+        st.page_link(approve, label=approve_label, use_container_width=True)
         st.divider()
         app_user = st.session_state.app_user or {}
         name = app_user.get("display_name") or (st.session_state.user.email or "")

@@ -655,6 +655,106 @@ div[data-testid="stStatusWidget"] {{
   margin-bottom: 0.35rem;
 }}
 
+/* Touch targets */
+div.stButton > button,
+div.stFormSubmitButton > button,
+div.stDownloadButton > button,
+div.stLinkButton > a {{
+  min-height: 44px !important;
+}}
+.np-hold-row {{
+  min-height: 56px;
+  padding: 0.95rem 1rem !important;
+}}
+
+/* Section headers */
+.np-sec-head {{
+  margin: 0.65rem 0 0.35rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--np-line);
+}}
+.np-sec-title {{
+  font-size: clamp(0.95rem, 2.6vw, 1.05rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--np-ink);
+}}
+.np-sec-sub {{
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  color: var(--np-muted);
+}}
+
+/* Sticky account filter block */
+div[data-testid="stVerticalBlock"]:has(.np-sticky-marker) {{
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 80 !important;
+  background: rgba(247, 251, 248, 0.96) !important;
+  backdrop-filter: blur(8px);
+  padding: 0.35rem 0.15rem 0.55rem !important;
+  margin: 0 0 0.35rem 0 !important;
+  border-bottom: 1px solid var(--np-line);
+}}
+
+/* Price / auto status */
+.np-status-bar {{
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  background: #fff;
+  border: 1px solid var(--np-line);
+  border-radius: 12px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--np-ink);
+  margin: 0 0 0.55rem 0;
+}}
+.np-status-dot {{
+  width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block;
+}}
+.np-status-dot.ok {{ background: {PRIMARY}; box-shadow: 0 0 0 3px rgba(3,199,90,0.2); }}
+.np-status-dot.stale {{ background: #F59E0B; box-shadow: 0 0 0 3px rgba(245,158,11,0.2); }}
+.np-status-hint {{ color: var(--np-muted); font-weight: 500; }}
+
+/* PnL colors on networth */
+.np-networth-value.up {{ color: #E11D48 !important; }}
+.np-networth-value.down {{ color: #2563EB !important; }}
+.np-networth-value.flat {{ color: var(--np-ink) !important; }}
+
+/* Badge pill */
+.np-badge {{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #E11D48;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  margin-left: 0.35rem;
+}}
+
+/* Danger / secondary confirm zone */
+.np-danger-zone {{
+  background: #FFF7F7;
+  border: 1px solid #FECACA;
+  border-radius: 12px;
+  padding: 0.65rem 0.75rem;
+  margin: 0.35rem 0;
+}}
+
+/* Nested subnav (손익/더보기) */
+.np-nested-nav {{
+  margin: 0.25rem 0 0.55rem;
+}}
+
 /* Wrap metric / button rows on narrow screens */
 @media (max-width: 720px) {{
   div[data-testid="stHorizontalBlock"] {{
@@ -705,14 +805,15 @@ def page_hero(
     )
 
 
-def networth_banner(label: str, value: str, sub: str = "") -> None:
-    """Toss-style large net-worth strip."""
+def networth_banner(label: str, value: str, sub: str = "", *, tone: str = "flat") -> None:
+    """Toss-style large net-worth strip. tone: up|down|flat (KR colors)."""
+    cls = tone if tone in ("up", "down", "flat") else "flat"
     sub_html = f'<div class="np-networth-sub">{sub}</div>' if sub else ""
     st.markdown(
         f"""
 <div class="np-networth">
   <div class="np-networth-label">{label}</div>
-  <div class="np-networth-value">{value}</div>
+  <div class="np-networth-value {cls}">{value}</div>
   {sub_html}
 </div>
 """,
@@ -742,6 +843,12 @@ def section_end() -> None:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+def section_header(title: str, subtitle: str = "") -> None:
+    from lib.ux import section_header as _sh
+
+    _sh(title, subtitle)
+
+
 def render_subnav(options: list[str], state_key: str = "dash_view", default: str | None = None) -> str:
     """Segmented control via buttons; returns the selected label."""
     if default is None:
@@ -763,3 +870,49 @@ def render_subnav(options: list[str], state_key: str = "dash_view", default: str
                     st.session_state[state_key] = label
                     st.rerun()
     return st.session_state[state_key]
+
+
+def render_grouped_asset_nav(
+    *,
+    state_key: str = "dash_view",
+) -> str:
+    """Primary groups: 요약|보유|손익|거래|더보기 → resolves to concrete view id."""
+    primary = ["요약", "보유", "손익", "거래", "더보기"]
+    # Map legacy session values
+    legacy = {
+        "홈": "요약",
+        "배당": "손익",
+        "관심": "더보기",
+        "부채": "더보기",
+        "세금": "더보기",
+    }
+    cur = st.session_state.get(state_key)
+    if cur in legacy:
+        st.session_state[state_key] = legacy[cur]
+        if cur == "배당":
+            st.session_state["dash_pnl_sub"] = "배당"
+        elif cur in ("관심", "부채", "세금"):
+            st.session_state["dash_more_sub"] = cur
+
+    group = render_subnav(primary, state_key=state_key, default="요약")
+
+    if group == "요약":
+        return "홈"
+    if group == "보유":
+        return "보유"
+    if group == "거래":
+        return "거래"
+    if group == "손익":
+        sub = render_subnav(
+            ["실현손익", "배당"],
+            state_key="dash_pnl_sub",
+            default="실현손익",
+        )
+        return "손익" if sub == "실현손익" else "배당"
+    # 더보기
+    sub = render_subnav(
+        ["관심", "부채", "세금"],
+        state_key="dash_more_sub",
+        default="관심",
+    )
+    return sub
