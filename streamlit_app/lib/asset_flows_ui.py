@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from lib.account_filter import filter_df_by_account_ids
 from lib.chart_period import filter_by_period, period_radio
 from lib.theme import PRIMARY, chart_layout, show_plotly
 from lib.ui_ko import FLOW_KIND_KO, FLOW_TYPE_KO, TRADE_TYPE_KO
@@ -52,13 +53,20 @@ def _load_flows(client, limit: int = 500) -> pd.DataFrame:
     return df
 
 
-def render_flow_charts(client) -> None:
+def render_flow_charts(
+    client,
+    *,
+    account_ids: list[str] | None = None,
+    account_label: str = "전체",
+) -> None:
     """거래 원장: 자금 유입·유출(금액) + 타임라인. 실현손익 차트는 손익 탭."""
     months = period_radio(key="dash_period_trades", default="1년")
     df = filter_by_period(_load_flows(client), months, date_col="event_date")
+    df = filter_df_by_account_ids(df, account_ids, col="account_id")
 
     if df.empty:
-        st.info("선택한 기간에 거래 기록이 없습니다. 「기록하기」에서 등록하세요.")
+        label = f"{account_label} · " if account_label and account_label != "전체" else ""
+        st.info(f"{label}선택한 기간에 거래 기록이 없습니다. 「기록하기」에서 등록하세요.")
         return
 
     # v_asset_flows.amount is already signed (buy/expense/repayment negative).

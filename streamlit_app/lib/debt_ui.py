@@ -43,24 +43,43 @@ def split_monthly_payment(balance: float, annual_rate_pct: float, payment: float
     return float(interest), float(principal)
 
 
-def _load_debts(client) -> list[dict]:
-    rows = (
-        client.table("debts")
-        .select(
-            "id,user_id,lender,debt_kind,principal,original_principal,"
-            "interest_rate,due_date,memo,created_at"
+def _load_debts(client, account_ids: list[str] | None = None) -> list[dict]:
+    try:
+        rows = (
+            client.table("debts")
+            .select(
+                "id,user_id,lender,debt_kind,principal,original_principal,"
+                "interest_rate,due_date,memo,created_at,account_id"
+            )
+            .order("lender")
+            .execute()
+            .data
+            or []
         )
-        .order("lender")
-        .execute()
-        .data
-        or []
-    )
+    except Exception:
+        rows = (
+            client.table("debts")
+            .select(
+                "id,user_id,lender,debt_kind,principal,original_principal,"
+                "interest_rate,due_date,memo,created_at"
+            )
+            .order("lender")
+            .execute()
+            .data
+            or []
+        )
+    allow = {str(a) for a in account_ids} if account_ids is not None else None
+    out = []
     for d in rows:
+        aid = str(d.get("account_id") or "")
+        if allow is not None and aid not in allow:
+            continue
         d["debt_kind"] = d.get("debt_kind") or "other"
         d["original_principal"] = float(d.get("original_principal") or d.get("principal") or 0)
         d["principal"] = float(d.get("principal") or 0)
         d["interest_rate"] = float(d.get("interest_rate") or 0)
-    return rows
+        out.append(d)
+    return out
 
 
 def _load_txs(client, debt_id: str, limit: int = 60) -> list[dict]:
@@ -79,15 +98,26 @@ def _load_txs(client, debt_id: str, limit: int = 60) -> list[dict]:
     )
 
 
-def render_debt_dashboard(client) -> None:
+def render_debt_dashboard(
+    client,
+    *,
+    account_ids: list[str] | None = None,
+    account_label: str = "전체",
+) -> None:
     """Read-only debt overview for the dashboard."""
     st.caption(
         "종류별 잔금·상환 현황을 조회합니다. "
         "등록·납부·이자율 변경·OCR은 「기록하기」에서만 합니다."
     )
-    debts = _load_debts(client)
+    debts = _load_debts(client, account_ids=account_ids)
     if not debts:
-        st.info("등록된 부채가 없습니다. 「기록하기 → 수기」또는 OCR로 추가하세요.")
+        label = f"{account_label} · " if account_label and account_label != "전체" else ""
+        st.info(
+            f"{label}등록된 부채가 없습니다. "
+            "계좌에 연결하려면 「기록하기 → 수기 → 부채」에서 계좌를 지정하세요."
+            if account_ids is not None
+            else "등록된 부채가 없습니다. 「기록하기 → 수기」또는 OCR로 추가하세요."
+        )
         return
 
     total_bal = sum(d["principal"] for d in debts)
@@ -235,29 +265,43 @@ def render_debt_forms(client, user) -> None:
             rate = c3.number_input("연 이자율(%)", min_value=0.0, step=0.1, format="%.2f", value=3.5)
             due = c4.date_input("만기일", value=date.today())
             no_due = st.checkbox("만기일 없음")
+            accounts = (
+                client.table("accounts").select("id,institution").order("institution").execute().data
+                or []
+            )
+            acct_options = [None] + [a["id"] for a in accounts]
+            acct_labels = {None: "(계좌 미연결)"} | {
+                a["id"]: a.get("institution") or a["id"] for a in accounts
+            }
+            link_account = st.selectbox(
+                "연결 계좌 (선택)",
+                options=acct_options,
+                format_func=lambda i: acct_labels.get(i, str(i)),
+                help="내 자산에서 계좌별로 부채를 보려면 연결하세요.",
+            )
             memo = st.text_input("메모", "")
             if st.form_submit_button("등록", type="primary"):
                 if not lender.strip():
                     st.error("대출명을 입력하세요.")
                 else:
                     orig = original if original > 0 else balance
-                    row = (
-                        client.table("debts")
-                        .insert(
-                            {
-                                "user_id": str(user.id),
-                                "lender": lender.strip(),
-                                "debt_kind": kind,
-                                "principal": balance,
-                                "original_principal": orig,
-                                "interest_rate": rate,
-                                "due_date": None if no_due else due.isoformat(),
-                                "memo": memo or None,
-                            }
-                        )
-                        .execute()
-                        .data
-                    )
+                    payload = {
+                        "user_id": str(user.id),
+                        "lender": lender.strip(),
+                        "debt_kind": kind,
+                        "principal": balance,
+                        "original_principal": orig,
+                        "interest_rate": rate,
+                        "due_date": None if no_due else due.isoformat(),
+                        "memo": memo or None,
+                    }
+                    if link_account:
+                        payload["account_id"] = link_account
+                    try:
+                        row = client.table("debts").insert(payload).execute().data
+                    except Exception:
+                        payload.pop("account_id", None)
+                        row = client.table("debts").insert(payload).execute().data
                     if row:
                         client.table("debt_rate_history").insert(
                             {

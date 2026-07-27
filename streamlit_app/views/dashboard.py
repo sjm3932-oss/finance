@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from lib.account_filter import (  # noqa: E402
+    account_ids_for_label,
+    render_account_selector,
+)
 from lib.asset_flows_ui import render_flow_charts  # noqa: E402
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.chart_period import filter_by_period, period_radio  # noqa: E402
@@ -97,19 +101,13 @@ def _account_map(client) -> dict[str, str]:
     return {str(a["id"]): a.get("institution") or "계좌" for a in rows}
 
 
-def _account_options(client, live_rows: list[dict]) -> list[str]:
-    """전체 + institutions from accounts table (fallback: live holdings)."""
-    amap = _account_map(client)
-    names = sorted({n for n in amap.values() if n})
-    if not names:
-        names = sorted({r.get("institution") or "계좌" for r in live_rows})
-    return ["전체"] + names
-
-
-def _filter_by_account(live_rows: list[dict], account_label: str) -> list[dict]:
-    if not account_label or account_label == "전체":
+def _filter_live_by_account_ids(
+    live_rows: list[dict], account_ids: list[str] | None
+) -> list[dict]:
+    if account_ids is None:
         return list(live_rows)
-    return [r for r in live_rows if (r.get("institution") or "계좌") == account_label]
+    allow = {str(a) for a in account_ids}
+    return [r for r in live_rows if str(r.get("account_id") or "") in allow]
 
 
 def _to_krw(amount: float | None, ccy: str, usdkrw: float | None) -> float | None:
@@ -150,19 +148,6 @@ def _portfolio_stats(
         "return_%": ret,
         "pnl_krw": (value_krw - cost_krw) if (has_value and has_cost) else None,
     }
-
-
-def _render_account_selector(client, live_rows: list[dict]) -> str:
-    options = _account_options(client, live_rows)
-    current = st.session_state.get("dash_account_filter")
-    if current not in options:
-        st.session_state.dash_account_filter = "전체"
-    return st.selectbox(
-        "계좌",
-        options,
-        key="dash_account_filter",
-        help="선택한 증권사 계좌의 보유만 표시합니다.",
-    )
 
 
 def _render_return_header(account_label: str, stats: dict[str, float | None]) -> None:
@@ -607,7 +592,7 @@ def view_holdings(
 def main() -> None:
     page_hero(
         "내 자산",
-        "계좌를 고르면 그 증권사 보유만 보고, 상단에 총 투자수익률이 표시됩니다.",
+        "계좌를 고르면 홈·보유·손익·거래·부채를 그 증권사 기준으로 봅니다.",
         compact=True,
     )
     view = render_subnav(VIEWS, state_key="dash_view", default="홈")
@@ -615,21 +600,26 @@ def main() -> None:
     user, client = require_auth()
     ensure_profile(user, client)
 
+    account_label = "전체"
+    account_ids = None
+    if view != "세금":
+        account_label = render_account_selector(client)
+        account_ids = account_ids_for_label(client, account_label)
+
     holdings = client.table("holdings").select("*").execute().data or []
     live_rows, _total_usd, _total_krw, total_debt, any_stale, usdkrw = _live_holdings(
         client, holdings
     )
+    filtered = _filter_live_by_account_ids(live_rows, account_ids)
+    stats = _portfolio_stats(filtered, usdkrw)
 
     if view in ("홈", "보유"):
         _status_bar(any_stale=any_stale)
-        account_label = _render_account_selector(client, live_rows)
-        filtered = _filter_by_account(live_rows, account_label)
-        stats = _portfolio_stats(filtered, usdkrw)
         if view == "홈":
             view_home(
                 client,
                 filtered,
-                total_debt,
+                total_debt if account_ids is None else 0.0,
                 any_stale,
                 account_label=account_label,
                 stats=stats,
@@ -642,11 +632,24 @@ def main() -> None:
                 stats=stats,
             )
     elif view == "손익":
-        render_total_realized_pnl(client, compact=False)
+        render_total_realized_pnl(
+            client,
+            compact=False,
+            account_ids=account_ids,
+            account_label=account_label,
+        )
     elif view == "거래":
-        render_flow_charts(client)
+        render_flow_charts(
+            client,
+            account_ids=account_ids,
+            account_label=account_label,
+        )
     elif view == "부채":
-        render_debt_dashboard(client)
+        render_debt_dashboard(
+            client,
+            account_ids=account_ids,
+            account_label=account_label,
+        )
     else:
         render_tax_dashboard(client)
 
