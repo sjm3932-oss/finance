@@ -24,6 +24,18 @@ from lib.chart_period import filter_by_period, period_radio  # noqa: E402
 from lib.debt_ui import render_debt_dashboard  # noqa: E402
 from lib.export_csv import download_csv_button  # noqa: E402
 from lib.market_data import is_stale  # noqa: E402
+from lib.net_worth import (  # noqa: E402
+    OWNERSHIP_KO,
+    compute_net_worth,
+    load_accounts_enriched,
+    load_other_assets,
+    monthly_summary_stats,
+)
+from lib.other_assets_ui import (  # noqa: E402
+    render_allocation_drift,
+    render_cash_accounts_panel,
+    render_other_assets_dashboard,
+)
 from lib.portfolio_insights import (  # noqa: E402
     period_change_stats,
     realized_pnl_ytd_krw,
@@ -54,6 +66,11 @@ from lib.ux import (  # noqa: E402
     section_header,
 )
 from lib.watchlist_ui import evaluate_alerts, render_alert_banners, render_watchlist_panel  # noqa: E402
+from lib.wealth_alerts import (  # noqa: E402
+    evaluate_wealth_alerts,
+    render_monthly_summary,
+    render_wealth_alert_banners,
+)
 
 apply_theme(max_width=1280)
 
@@ -196,7 +213,7 @@ def _summary_hero_html(
     *,
     total_debt: float | None = None,
 ) -> str:
-    """One-block summary: return hero + compact stat cells."""
+    """Legacy invest-return hero (보유 탭 등)."""
     ret = stats.get("return_%")
     if ret is None:
         ret_txt = "—"
@@ -211,7 +228,6 @@ def _summary_hero_html(
     tone = ret_class(ret)
 
     cells: list[tuple[str, str, str, str]] = []
-    # (label, value, tone, delta)
     today_pnl = change.get("today_pnl")
     today_pct = change.get("today_pct")
     cells.append(
@@ -288,6 +304,91 @@ def _summary_hero_html(
         f'<div class="np-summary-hero-label">{_html_escape(title)}</div>'
         f'<div class="np-summary-hero-ret {tone}">{_html_escape(ret_txt)}</div>'
         '<div class="np-summary-hero-sub">평가액 ÷ 매입원금 기준 미실현 수익률</div>'
+        f'<div class="np-summary-hero-grid">{"".join(cell_html)}</div>'
+        "</div>"
+    )
+
+
+def _networth_hero_html(
+    account_label: str,
+    nw: dict,
+    change: dict,
+    *,
+    invest_ret: float | None,
+) -> str:
+    """Home hero centered on net worth composition."""
+    title = (
+        f"{account_label} · 순자산"
+        if account_label and account_label != "전체"
+        else "순자산"
+    )
+    net = nw.get("net")
+    net_txt = fmt_krw(net) if net is not None else "—"
+    today_pnl = change.get("today_pnl")
+    today_pct = change.get("today_pct")
+    tone = ret_class(today_pct if today_pct is not None else today_pnl)
+
+    cells = [
+        (
+            "투자자산",
+            fmt_krw(nw.get("invest")),
+            "flat",
+            "",
+        ),
+        (
+            "현금",
+            fmt_krw(nw.get("cash")),
+            "flat",
+            "",
+        ),
+        (
+            "기타자산",
+            fmt_krw(nw.get("other")),
+            "flat",
+            "",
+        ),
+        (
+            "부채",
+            fmt_krw(nw.get("debt")),
+            "flat",
+            "",
+        ),
+        (
+            "오늘 손익",
+            fmt_krw(today_pnl, signed=True) if today_pnl is not None else "—",
+            ret_class(today_pct if today_pct is not None else today_pnl),
+            f"{today_pct:+.2f}%" if today_pct is not None else "",
+        ),
+        (
+            "투자수익률",
+            (
+                f"{'+' if (invest_ret or 0) > 0.005 else ''}{invest_ret:.2f}%"
+                if invest_ret is not None
+                else "—"
+            ),
+            ret_class(invest_ret),
+            "",
+        ),
+    ]
+    cell_html = []
+    for label, value, cell_tone, delta in cells:
+        delta_html = (
+            f'<div class="np-summary-hero-cell-delta">{_html_escape(delta)}</div>'
+            if delta
+            else ""
+        )
+        cell_html.append(
+            "<div class='np-summary-hero-cell'>"
+            f"<div class='np-summary-hero-cell-label'>{_html_escape(label)}</div>"
+            f"<div class='np-summary-hero-cell-value {cell_tone}'>{_html_escape(value)}</div>"
+            f"{delta_html}"
+            "</div>"
+        )
+    return (
+        '<div class="np-summary-hero">'
+        f'<div class="np-summary-hero-label">{_html_escape(title)}</div>'
+        f'<div class="np-summary-hero-ret {tone}">{_html_escape(net_txt)}</div>'
+        '<div class="np-summary-hero-sub">투자 + 현금 + 기타 − 부채</div>'
         f'<div class="np-summary-hero-grid">{"".join(cell_html)}</div>'
         "</div>"
     )
@@ -481,12 +582,28 @@ def view_home(
     account_ids: list[str] | None,
     stats: dict,
     usdkrw: float | None,
-) -> None:
-    """홈(요약): 수익률 + 오늘 손익 + 핵심 지표. 나머지는 접기."""
+    ownership_filter: str | None = None,
+) -> dict:
+    """홈(요약): 순자산 중심 + 배분 드리프트 + 월간 요약."""
+    accounts = load_accounts_enriched(client)
+    other_assets = load_other_assets(client)
+    debt_for_nw = float(total_debt or 0) if account_ids is None else 0.0
+    nw = compute_net_worth(
+        live_rows,
+        accounts=accounts,
+        other_assets=other_assets,
+        total_debt=debt_for_nw,
+        usdkrw=usdkrw,
+        account_ids=account_ids,
+        ownership=ownership_filter,
+    )
     change = period_change_stats(client, stats.get("value_krw"), account_ids)
     st.markdown(
-        _summary_hero_html(
-            account_label, stats, change, total_debt=total_debt
+        _networth_hero_html(
+            account_label,
+            nw,
+            change,
+            invest_ret=stats.get("return_%"),
         ),
         unsafe_allow_html=True,
     )
@@ -499,11 +616,19 @@ def view_home(
             key="cta_snap_home",
         )
 
+    month_stats = monthly_summary_stats(
+        client, live_net=nw.get("net"), account_ids=account_ids
+    )
+    with st.expander("이번 달 요약", expanded=True):
+        render_monthly_summary(client, nw, month_stats)
+
     realized = realized_pnl_ytd_krw(client, account_ids)
     with st.expander("미실현 · 실현 손익 자세히", expanded=False):
         render_pnl_split(unrealized=stats.get("pnl_krw"), realized_ytd=realized)
 
-    with st.expander("자산 배분", expanded=False):
+    with st.expander("자산 배분 · 목표 괴리", expanded=True):
+        render_allocation_drift(client, nw)
+        st.markdown("##### 종목 트리맵")
         render_allocation(live_rows, usdkrw)
 
     with st.expander("추이 · 벤치마크", expanded=False):
@@ -619,6 +744,28 @@ def view_home(
             page_title="기록하기",
             key="cta_record_home",
         )
+    return nw
+
+
+def view_networth_detail(client, live_rows, total_debt, *, usdkrw, account_ids, account_label) -> None:
+    """더보기 → 순자산: 기타자산·현금·소유 구성."""
+    accounts = load_accounts_enriched(client)
+    other_assets = load_other_assets(client)
+    nw = compute_net_worth(
+        live_rows,
+        accounts=accounts,
+        other_assets=other_assets,
+        total_debt=float(total_debt or 0) if account_ids is None else 0.0,
+        usdkrw=usdkrw,
+        account_ids=account_ids,
+    )
+    st.markdown(
+        _networth_hero_html(account_label, nw, {}, invest_ret=None),
+        unsafe_allow_html=True,
+    )
+    render_allocation_drift(client, nw)
+    render_cash_accounts_panel(client)
+    render_other_assets_dashboard(client, nw)
 
 
 
@@ -793,7 +940,7 @@ def view_holdings(
 def main() -> None:
     page_hero(
         "내 자산",
-        "요약에서 한눈에, 나머지는 탭으로. 계좌 필터는 스크롤해도 상단에 고정됩니다.",
+        "순자산을 한눈에. 계좌·소유 필터는 상단에 고정됩니다.",
         compact=True,
     )
     view = render_grouped_asset_nav(state_key="dash_view")
@@ -801,27 +948,79 @@ def main() -> None:
     user, client = require_auth()
     ensure_profile(user, client)
 
-    try:
-        evaluate_alerts(client, str(user.id))
-        if view not in ("관심",):
-            render_alert_banners(client, str(user.id))
-    except Exception:
-        pass
-
     account_label = "전체"
     account_ids = None
+    ownership_filter = None
     if view not in ("세금", "관심"):
         account_label = render_account_selector(client)
         account_ids = account_ids_for_label(client, account_label)
+        own_opts = ["전체"] + list(OWNERSHIP_KO.keys())
+        own_pick = st.selectbox(
+            "소유",
+            own_opts,
+            format_func=lambda k: "전체" if k == "전체" else OWNERSHIP_KO.get(k, k),
+            key="dash_ownership_filter",
+            help="공동/나/배우자로 순자산·보유를 좁혀 봅니다.",
+        )
+        ownership_filter = None if own_pick == "전체" else own_pick
 
     holdings = client.table("holdings").select("*").execute().data or []
     live_rows, _total_usd, _total_krw, total_debt, any_stale, usdkrw = _live_holdings(
         client, holdings
     )
     filtered = _filter_live_by_account_ids(live_rows, account_ids)
+    if ownership_filter:
+        amap = {str(a["id"]): a for a in load_accounts_enriched(client)}
+        filtered = [
+            r
+            for r in filtered
+            if (amap.get(str(r.get("account_id") or "")) or {}).get("ownership", "joint")
+            == ownership_filter
+        ]
     stats = _portfolio_stats(filtered, usdkrw)
 
-    if view in ("홈", "보유", "손익", "배당", "거래"):
+    # Alerts (price + wealth)
+    prior_net = None
+    try:
+        snaps = (
+            client.table("daily_snapshots")
+            .select("net_assets,snapshot_date")
+            .order("snapshot_date", desc=True)
+            .limit(2)
+            .execute()
+            .data
+            or []
+        )
+        if len(snaps) >= 1:
+            prior_net = float(snaps[0]["net_assets"])
+    except Exception:
+        prior_net = None
+
+    nw_preview = compute_net_worth(
+        filtered,
+        accounts=load_accounts_enriched(client),
+        other_assets=load_other_assets(client),
+        total_debt=float(total_debt or 0) if account_ids is None else 0.0,
+        usdkrw=usdkrw,
+        account_ids=account_ids,
+        ownership=ownership_filter,
+    )
+    try:
+        evaluate_alerts(client, str(user.id))
+        evaluate_wealth_alerts(
+            client,
+            str(user.id),
+            live_net=nw_preview.get("net"),
+            prior_net=prior_net,
+            any_stale=any_stale,
+        )
+        if view not in ("관심",):
+            render_alert_banners(client, str(user.id))
+            render_wealth_alert_banners(client, str(user.id))
+    except Exception:
+        pass
+
+    if view in ("홈", "보유", "손익", "배당", "거래", "순자산"):
         _status_bar(client, any_stale=any_stale)
 
     if view == "홈":
@@ -834,6 +1033,16 @@ def main() -> None:
             account_ids=account_ids,
             stats=stats,
             usdkrw=usdkrw,
+            ownership_filter=ownership_filter,
+        )
+    elif view == "순자산":
+        view_networth_detail(
+            client,
+            filtered,
+            total_debt if account_ids is None else 0.0,
+            usdkrw=usdkrw,
+            account_ids=account_ids,
+            account_label=account_label,
         )
     elif view == "보유":
         view_holdings(
