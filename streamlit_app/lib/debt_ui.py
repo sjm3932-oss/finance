@@ -270,9 +270,9 @@ def render_debt_forms(client, user) -> None:
                 or []
             )
             acct_options = [None] + [a["id"] for a in accounts]
-            acct_labels = {None: "(계좌 미연결)"} | {
-                a["id"]: a.get("institution") or a["id"] for a in accounts
-            }
+            acct_labels = {None: "(계좌 미연결)"}
+            for a in accounts:
+                acct_labels[a["id"]] = a.get("institution") or a["id"]
             link_account = st.selectbox(
                 "연결 계좌 (선택)",
                 options=acct_options,
