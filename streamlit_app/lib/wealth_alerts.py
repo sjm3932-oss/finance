@@ -12,21 +12,19 @@ from lib.ux import fmt_krw
 
 def _safe_insert_alert(client, row: dict) -> None:
     try:
-        # Deduplicate unacked same kind+title today
-        existing = (
+        q = (
             client.table("wealth_alert_events")
-            .select("id")
+            .select("id,title")
             .eq("user_id", row["user_id"])
             .eq("alert_kind", row["alert_kind"])
             .eq("acknowledged", False)
-            .limit(5)
-            .execute()
-            .data
-            or []
+            .limit(20)
         )
-        if existing and row["alert_kind"] != "monthly_digest":
-            return
-        if row["alert_kind"] == "monthly_digest" and existing:
+        existing = q.execute().data or []
+        if row["alert_kind"] == "debt_due":
+            if any(e.get("title") == row.get("title") for e in existing):
+                return
+        elif existing:
             return
         client.table("wealth_alert_events").insert(row).execute()
     except Exception:
