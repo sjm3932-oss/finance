@@ -280,16 +280,17 @@ def _donut(df: pd.DataFrame, title: str, *, top_n: int = 8) -> None:
             textinfo="percent",
             hovertemplate="%{label}<br>₩%{value:,.0f}<br>%{percent}<extra></extra>",
             marker=dict(colors=CHART_COLORS),
+            textfont=dict(size=13),
         )
     )
     # Pass layout as one dict — avoid title/legend/margin kwarg collisions
     fig.update_layout(
         chart_layout(
-            260,
+            340,
             title=title,
             showlegend=True,
-            legend=dict(orientation="h", y=-0.12, x=0, xanchor="left"),
-            margin=dict(l=8, r=8, t=44, b=72),
+            legend=dict(orientation="h", y=-0.18, x=0, xanchor="left"),
+            margin=dict(l=8, r=8, t=44, b=96),
         )
     )
     show_plotly(fig)
