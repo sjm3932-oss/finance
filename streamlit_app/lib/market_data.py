@@ -118,11 +118,13 @@ def fetch_yahoo_price(ticker: str, timeout: float = 15.0) -> dict[str, Any]:
         raise MarketDataError(f"No price in Yahoo response for {symbol}")
 
     currency = meta.get("currency") or "USD"
+    name = (meta.get("longName") or meta.get("shortName") or "").strip() or None
     return {
         "ticker": symbol,
         "price": float(price),
         "currency": currency,
         "updated_at": _now().isoformat(),
+        "name": name,
     }
 
 
@@ -181,8 +183,25 @@ def refresh_tickers(tickers: list[str]) -> tuple[list[dict[str, Any]], list[str]
                     "price": row["price"],
                     "currency": row["currency"],
                     "updated_at": row["updated_at"],
+                    "name": row.get("name"),
                 }
             )
         except Exception as exc:  # noqa: BLE001 — collect per-ticker failures
             errors.append(f"{symbol}: {exc}")
     return rows, errors
+
+
+def sync_holding_names(client, price_rows: list[dict[str, Any]]) -> int:
+    """Write resolved names from price fetch back onto holdings."""
+    updated = 0
+    for row in price_rows:
+        name = (row.get("name") or "").strip()
+        ticker = normalize_ticker(row.get("ticker"))
+        if not ticker or not name or name.upper() == ticker:
+            continue
+        try:
+            client.table("holdings").update({"name": name}).eq("ticker", ticker).execute()
+            updated += 1
+        except Exception:
+            continue
+    return updated

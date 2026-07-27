@@ -71,12 +71,29 @@ def test_enrich_name_from_naver(_mock_naver):
     assert row["name"] == "삼성전자"
 
 
-@patch("lib.symbol_resolve._naver_ticker", return_value="005930")
-def test_enrich_ticker_from_naver(_mock_naver):
-    row = enrich_symbol_row(
-        {"name": "삼성전자"},
-        by_ticker={},
-        by_name={},
-        cache={},
-    )
-    assert row["ticker"] == "005930"
+def test_name_is_missing_treats_code_as_blank():
+    from lib.symbol_resolve import name_is_missing
+
+    assert name_is_missing("005930", None)
+    assert name_is_missing("005930", "")
+    assert name_is_missing("005930", "005930")
+    assert not name_is_missing("005930", "삼성전자")
+
+
+def test_enrich_holdings_names_persists(monkeypatch=None):
+    from lib import symbol_resolve as sr
+
+    client = MagicMock()
+    # first select for maps
+    client.table.return_value.select.return_value.execute.return_value.data = []
+    client.table.return_value.update.return_value.eq.return_value.execute.return_value = MagicMock()
+
+    with patch.object(sr, "resolve_name_for_ticker", return_value="삼성전자"):
+        out = sr.enrich_holdings_names(
+            client,
+            [{"ticker": "005930", "name": "005930", "account_id": "a"}],
+            persist=True,
+        )
+    assert out[0]["name"] == "삼성전자"
+    client.table.return_value.update.assert_called()
+

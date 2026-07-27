@@ -34,6 +34,19 @@ def _is_blank(v: Any) -> bool:
     return not str(v or "").strip()
 
 
+def name_is_missing(ticker: Any, name: Any) -> bool:
+    """True when name is empty, equals ticker, or is itself a 6-digit code."""
+    t = _norm_ticker(ticker)
+    n = _norm_name(name)
+    if not n:
+        return True
+    if t and n.upper() == t:
+        return True
+    if _looks_kr_code(n):
+        return True
+    return False
+
+
 def _looks_kr_code(ticker: str) -> bool:
     return bool(_KR_CODE.match(ticker))
 
@@ -51,7 +64,7 @@ def _holdings_maps(client) -> tuple[dict[str, str], dict[str, str]]:
     for r in rows:
         t = _norm_ticker(r.get("ticker"))
         n = _norm_name(r.get("name"))
-        if t and n and n.upper() != t:
+        if t and n and n.upper() != t and not _looks_kr_code(n):
             by_ticker.setdefault(t, n)
             by_name.setdefault(n.lower(), t)
     return by_ticker, by_name
@@ -204,7 +217,7 @@ def enrich_symbol_row(
     ticker = _norm_ticker(out.get("ticker"))
     name = _norm_name(out.get("name"))
 
-    if ticker and _is_blank(name):
+    if ticker and name_is_missing(ticker, name):
         filled = resolve_name_for_ticker(ticker, by_ticker=by_ticker, cache=cache)
         if filled:
             name = filled
@@ -217,6 +230,48 @@ def enrich_symbol_row(
         out["ticker"] = ticker
     if name:
         out["name"] = name
+    return out
+
+
+def enrich_holdings_names(
+    client,
+    holdings: list[dict[str, Any]],
+    *,
+    persist: bool = True,
+) -> list[dict[str, Any]]:
+    """Fill missing 종목명 on holdings rows (Naver/Yahoo) and optionally persist."""
+    if not holdings:
+        return holdings
+    by_ticker, _by_name = _holdings_maps(client)
+    cache: dict[str, str] = {}
+    out: list[dict[str, Any]] = []
+    persisted: set[str] = set()
+
+    for h in holdings:
+        row = dict(h)
+        ticker = _norm_ticker(row.get("ticker"))
+        if ticker and name_is_missing(ticker, row.get("name")):
+            filled = resolve_name_for_ticker(
+                ticker, by_ticker=by_ticker, cache=cache
+            )
+            if filled:
+                row["name"] = filled
+                by_ticker[ticker] = filled
+                if persist and client is not None and ticker not in persisted:
+                    persisted.add(ticker)
+                    try:
+                        # Update every account row for this ticker
+                        client.table("holdings").update({"name": filled}).eq(
+                            "ticker", ticker
+                        ).execute()
+                        raw = str(h.get("ticker") or "").strip()
+                        if raw and raw != ticker:
+                            client.table("holdings").update({"name": filled}).eq(
+                                "ticker", raw
+                            ).execute()
+                    except Exception:
+                        pass
+        out.append(row)
     return out
 
 

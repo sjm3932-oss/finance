@@ -98,6 +98,10 @@ def _account_map(client) -> dict[str, str]:
 
 
 def _live_holdings(client, holdings: list[dict]) -> tuple[list[dict], float, float, float, bool]:
+    from lib.symbol_resolve import enrich_holdings_names
+
+    holdings = enrich_holdings_names(client, holdings, persist=True)
+
     prices = {
         p["ticker"]: p
         for p in (client.table("market_prices").select("*").execute().data or [])
@@ -167,7 +171,15 @@ def _aggregate_ticker(rows: list[dict]) -> dict:
     ret = ((float(price) - wavg) / wavg * 100) if price is not None and wavg else None
     return {
         "ticker": rows[0]["ticker"],
-        "name": rows[0].get("name"),
+        "name": next(
+            (
+                r.get("name")
+                for r in rows
+                if r.get("name")
+                and str(r.get("name")).strip().upper() != str(r.get("ticker") or "").strip().upper()
+            ),
+            rows[0].get("name"),
+        ),
         "qty": qty,
         "avg": wavg,
         "price": price,

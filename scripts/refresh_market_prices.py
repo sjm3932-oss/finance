@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "streamlit_app"))
 load_dotenv(ROOT / ".env")
 
-from lib.market_data import fetch_usdkrw, refresh_tickers  # noqa: E402
+from lib.market_data import fetch_usdkrw, refresh_tickers, sync_holding_names  # noqa: E402
 from lib.supabase_client import get_service_client  # noqa: E402
 
 
@@ -37,10 +37,15 @@ def main() -> int:
 
     rows, errors = refresh_tickers(tickers)
     if rows:
-        client.table("market_prices").upsert(rows, on_conflict="ticker").execute()
-        print(f"upserted {len(rows)} prices")
+        price_rows = [
+            {k: r[k] for k in ("ticker", "price", "currency", "updated_at") if k in r}
+            for r in rows
+        ]
+        client.table("market_prices").upsert(price_rows, on_conflict="ticker").execute()
+        n = sync_holding_names(client, rows)
+        print(f"upserted {len(rows)} prices; synced {n} holding names")
         for r in rows:
-            print(f"  {r['ticker']}: {r['price']} {r['currency']}")
+            print(f"  {r['ticker']}: {r['price']} {r['currency']} ({r.get('name') or '—'})")
     for e in errors:
         print(f"warn: {e}", file=sys.stderr)
 

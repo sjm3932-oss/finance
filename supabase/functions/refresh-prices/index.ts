@@ -1,5 +1,6 @@
 // Supabase Edge Function: refresh prices into market_prices
 // Korean 6-digit tickers → Naver, others → Yahoo; FX via Frankfurter
+// Also backfills holdings.name from the quote APIs.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -46,11 +47,13 @@ async function naverPrice(ticker: string) {
     );
   }
   if (price == null) throw new Error(`Naver ${code} no price`);
+  const name = String(data?.stockName || "").trim() || null;
   return {
     ticker: code,
     price,
     currency: "KRW",
     updated_at: new Date().toISOString(),
+    name,
   };
 }
 
@@ -75,11 +78,13 @@ async function yahooPrice(ticker: string) {
     }
   }
   if (price == null) throw new Error(`Yahoo ${symbol} no price`);
+  const name = String(meta.longName || meta.shortName || "").trim() || null;
   return {
     ticker: symbol,
     price: Number(price),
     currency: meta.currency ?? "USD",
     updated_at: new Date().toISOString(),
+    name,
   };
 }
 
@@ -126,8 +131,25 @@ Deno.serve(async (_req) => {
       }
     }
     if (rows.length) {
-      const { error: upErr } = await supabase.from("market_prices").upsert(rows);
+      const priceRows = rows.map(({ ticker, price, currency, updated_at }) => ({
+        ticker,
+        price,
+        currency,
+        updated_at,
+      }));
+      const { error: upErr } = await supabase.from("market_prices").upsert(priceRows);
       if (upErr) throw upErr;
+
+      // Backfill 종목명 onto holdings so UI shows full names, not 005930
+      for (const row of rows) {
+        const name = (row.name || "").trim();
+        if (!name || name.toUpperCase() === row.ticker) continue;
+        const { error: nameErr } = await supabase
+          .from("holdings")
+          .update({ name })
+          .eq("ticker", row.ticker);
+        if (nameErr) errors.push(`${row.ticker} name: ${nameErr.message}`);
+      }
     }
     const fx = await usdKrw();
     await supabase.from("market_prices").upsert({
