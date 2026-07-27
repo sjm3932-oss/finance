@@ -9,7 +9,7 @@ import plotly.express as px
 import streamlit as st
 
 from lib.theme import CHART_COLORS, PRIMARY, chart_layout, show_plotly
-from lib.ui_ko import DEBT_TX_KO
+from lib.ui_ko import DEBT_TX_KO, show_dataframe
 
 DEBT_KIND_KO = {
     "mortgage": "주택담보",
@@ -190,7 +190,7 @@ def render_debt_dashboard(
     )
     if hist:
         st.caption("이자율 이력")
-        st.dataframe(
+        show_dataframe(
             pd.DataFrame(
                 {
                     "적용일": [h["effective_date"] for h in hist],
@@ -222,7 +222,7 @@ def render_debt_dashboard(
         }
         for t in txs
     ]
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True, height=360)
+    show_dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True, height=360)
 
     pay_rows = [
         t

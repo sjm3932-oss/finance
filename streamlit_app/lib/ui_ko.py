@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+import streamlit as st
 
 COLUMN_KO: dict[str, str] = {
     # common
@@ -92,6 +93,111 @@ COLUMN_KO: dict[str, str] = {
     "ai_response": "답변",
 }
 
+# Money / amount columns shown in tables — format with thousand separators.
+MONEY_COLUMNS: frozenset[str] = frozenset(
+    {
+        # English / DB
+        "amount",
+        "price",
+        "avg_price",
+        "avg",
+        "fee",
+        "realized_pnl",
+        "unrealized_pnl",
+        "market_value",
+        "market_value_krw",
+        "value",
+        "cost",
+        "principal",
+        "original_principal",
+        "interest_portion",
+        "principal_portion",
+        "balance_before",
+        "balance_after",
+        "balance",
+        "cum_capital_gain",
+        "tax_threshold",
+        "dividend_tax",
+        "taxable_gain",
+        "estimated_tax",
+        "pnl",
+        "pnl_krw",
+        # Korean UI
+        "금액",
+        "단가",
+        "가격",
+        "평균단가",
+        "현재가",
+        "평단",
+        "수수료",
+        "실현손익",
+        "평가손익",
+        "평가금액",
+        "평가금액(원)",
+        "평가액",
+        "원금",
+        "최초원금",
+        "잔금",
+        "납부액",
+        "이자",
+        "원금상환",
+        "납부 전 잔금",
+        "납부 후 잔금",
+        "납부후잔금",
+        "손익",
+        "일합계",
+        "합계",
+        "유입",
+        "유출",
+        "누적양도차익",
+        "기본공제",
+        "배당세",
+        "과세대상양도차익",
+        "예상세금",
+        "투자자산",
+        "부채합계",
+        "순자산",
+    }
+)
+
+_MONEY_NAME_HINTS = (
+    "금액",
+    "손익",
+    "원금",
+    "잔금",
+    "납부",
+    "평가",
+    "수수료",
+    "단가",
+    "가격",
+    "평단",
+    "세금",
+    "공제",
+    "양도",
+    "amount",
+    "price",
+    "fee",
+    "pnl",
+    "principal",
+    "balance",
+    "value",
+    "cost",
+    "tax",
+)
+_NOT_MONEY_HINTS = (
+    "율",
+    "%",
+    "비중",
+    "수량",
+    "건수",
+    "비율",
+    "rate",
+    "qty",
+    "quantity",
+    "연도",
+    "year",
+)
+
 FLOW_KIND_KO = {
     "trade": "매매",
     "dividend": "배당",
@@ -123,6 +229,82 @@ STATUS_KO = {
     "rejected": "반려",
     "failed": "실패",
 }
+
+
+def is_money_column(name: Any) -> bool:
+    """True when a table column should show thousand separators."""
+    n = str(name or "").strip()
+    if not n:
+        return False
+    if n in MONEY_COLUMNS:
+        return True
+    low = n.lower()
+    if any(h in n or h in low for h in _NOT_MONEY_HINTS):
+        return False
+    return any(h in n or h in low for h in _MONEY_NAME_HINTS)
+
+
+def format_money_value(v: Any) -> str:
+    """Format a scalar money value with thousand separators (1,234,567)."""
+    if v is None:
+        return "—"
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return "—"
+        if s == "—":
+            return s
+        # Already display-formatted with commas or currency symbol
+        if "," in s or s.startswith(("₩", "$")):
+            return s
+        try:
+            v = float(s.replace(",", ""))
+        except ValueError:
+            return s
+    try:
+        if isinstance(v, float) and pd.isna(v):
+            return "—"
+        n = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    if abs(n - round(n)) < 1e-9:
+        return f"{n:,.0f}"
+    return f"{n:,.2f}"
+
+
+def format_money_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy with money columns formatted as comma-separated strings."""
+    if df is None or getattr(df, "empty", True):
+        return df
+    out = df.copy()
+    for col in out.columns:
+        if not is_money_column(col):
+            continue
+        series = out[col]
+        if pd.api.types.is_numeric_dtype(series) or series.dtype == object:
+            out[col] = series.map(format_money_value)
+    return out
+
+
+def money_column_config(df: pd.DataFrame | list[str] | None = None) -> dict[str, Any]:
+    """Streamlit NumberColumn config (thousand separators) for editable tables."""
+    if df is None:
+        cols: list[str] = []
+    elif isinstance(df, pd.DataFrame):
+        cols = [str(c) for c in df.columns]
+    else:
+        cols = [str(c) for c in df]
+    cfg: dict[str, Any] = {}
+    for c in cols:
+        if is_money_column(c):
+            cfg[c] = st.column_config.NumberColumn(c, format="localized")
+    return cfg
+
+
+def show_dataframe(df: pd.DataFrame, **kwargs: Any):
+    """st.dataframe with money columns shown as 1,000-unit comma format."""
+    view = format_money_columns(df)
+    return st.dataframe(view, **kwargs)
 
 
 def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -166,5 +348,6 @@ def localize_flow_df(rows: list[dict[str, Any]]) -> pd.DataFrame:
                 a, b = v.split(":", 1)
                 return f"{FLOW_TYPE_KO.get(a, a)}:{b}"
             return v
+
         df["flow_subtype"] = df["flow_subtype"].map(_sub)
     return rename_columns(df)

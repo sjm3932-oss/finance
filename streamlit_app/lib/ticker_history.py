@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from lib.export_csv import download_csv_button
-from lib.ui_ko import TRADE_TYPE_KO
+from lib.ui_ko import TRADE_TYPE_KO, show_dataframe
 
 
 def _fmt(n, ccy="KRW"):
@@ -71,7 +71,7 @@ def render_ticker_history(
                 "메모": [t.get("reason") or "" for t in trades],
             }
         )
-        st.dataframe(tdf, use_container_width=True, hide_index=True, height=260)
+        show_dataframe(tdf, use_container_width=True, hide_index=True, height=260)
         download_csv_button(
             tdf, filename_prefix=f"trades_{ticker}", key=f"export_trades_{ticker}"
         )
@@ -88,7 +88,7 @@ def render_ticker_history(
                 "메모": [d.get("memo") or "" for d in divs],
             }
         )
-        st.dataframe(ddf, use_container_width=True, hide_index=True, height=220)
+        show_dataframe(ddf, use_container_width=True, hide_index=True, height=220)
         download_csv_button(
             ddf, filename_prefix=f"divs_{ticker}", key=f"export_divs_{ticker}"
         )

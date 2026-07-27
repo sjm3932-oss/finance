@@ -11,7 +11,7 @@ import streamlit as st
 
 from lib.ocr_upload import DOC_TYPES, stage_screenshot
 from lib.symbol_resolve import enrich_parsed_symbols
-from lib.ui_ko import ACCOUNT_TYPE_KO, STATUS_KO
+from lib.ui_ko import ACCOUNT_TYPE_KO, STATUS_KO, money_column_config, show_dataframe
 
 # Display columns (Korean) → JSON keys
 _TRADE_COLS = {
@@ -142,6 +142,7 @@ def _editor(title: str, df: pd.DataFrame, key: str) -> pd.DataFrame:
         use_container_width=True,
         hide_index=True,
         key=key,
+        column_config=money_column_config(df),
     )
 
 
@@ -374,7 +375,7 @@ def render_staging_review(client, user) -> None:
         )
         if existing:
             with st.expander("기존 부채 (대출명 매칭 참고)", expanded=False):
-                st.dataframe(
+                show_dataframe(
                     pd.DataFrame(
                         {
                             "대출명": [d["lender"] for d in existing],

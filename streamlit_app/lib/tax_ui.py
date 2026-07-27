@@ -7,7 +7,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from lib.ui_ko import rename_columns
+from lib.ui_ko import rename_columns, show_dataframe
 
 
 def render_tax_dashboard(client) -> None:
@@ -43,7 +43,9 @@ def render_tax_dashboard(client) -> None:
         c1.metric("과세대상 양도차익", f"₩{taxable:,.0f}")
         c2.metric("예상 세금 (22%)", f"₩{estimated:,.0f}")
 
-    st.dataframe(rename_columns(pd.DataFrame(calc)), use_container_width=True, hide_index=True)
+    show_dataframe(
+        rename_columns(pd.DataFrame(calc)), use_container_width=True, hide_index=True
+    )
     st.caption("공식: max(누적양도차익 − 기본공제, 0) × 0.22")
 
 

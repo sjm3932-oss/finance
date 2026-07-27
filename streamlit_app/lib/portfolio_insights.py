@@ -733,7 +733,9 @@ def render_dividend_calendar(
                 "메모": window["memo"].fillna("") if "memo" in window.columns else "",
             }
         )
-        st.dataframe(cal, use_container_width=True, hide_index=True)
+        from lib.ui_ko import show_dataframe
+
+        show_dataframe(cal, use_container_width=True, hide_index=True)
 
     st.markdown("##### 최근 배당 내역")
     recent = work.sort_values("pay_date", ascending=False).head(50)
@@ -751,8 +753,8 @@ def render_dividend_calendar(
             "통화": recent["currency"],
         }
     )
-    st.dataframe(hist, use_container_width=True, hide_index=True, height=320)
-
     from lib.export_csv import download_csv_button
+    from lib.ui_ko import show_dataframe
 
+    show_dataframe(hist, use_container_width=True, hide_index=True, height=320)
     download_csv_button(hist, filename_prefix="dividends", key="export_div_csv")

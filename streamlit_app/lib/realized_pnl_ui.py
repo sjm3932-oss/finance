@@ -12,7 +12,7 @@ import streamlit as st
 from lib.chart_period import filter_by_period, period_radio
 from lib.export_csv import download_csv_button
 from lib.theme import CHART_COLORS, PRIMARY, apply_chart_layout, show_plotly
-from lib.ui_ko import PNL_KIND_KO
+from lib.ui_ko import PNL_KIND_KO, show_dataframe
 
 KIND_COLORS = {
     "매매실현": PRIMARY,
@@ -365,7 +365,7 @@ def _table_by_ticker(df: pd.DataFrame, value_col: str, *, use_krw: bool) -> None
         if c in ("종목", "티커"):
             continue
         disp[c] = disp[c].map(lambda v: _fmt(float(v), use_krw=use_krw))
-    st.dataframe(disp, use_container_width=True, hide_index=True)
+    show_dataframe(disp, use_container_width=True, hide_index=True)
 
 
 def _table_daily_ledger(df: pd.DataFrame, value_col: str, *, use_krw: bool) -> None:
@@ -387,7 +387,7 @@ def _table_daily_ledger(df: pd.DataFrame, value_col: str, *, use_krw: bool) -> N
     st.markdown("##### 일자별 합계")
     sum_disp = daily_sum.copy()
     sum_disp["일합계"] = sum_disp["일합계"].map(lambda v: _fmt(float(v), use_krw=use_krw))
-    st.dataframe(sum_disp, use_container_width=True, hide_index=True, height=220)
+    show_dataframe(sum_disp, use_container_width=True, hide_index=True, height=220)
 
     st.markdown("##### 건별 내역 (거래·배당·이자)")
     detail = pd.DataFrame(
@@ -401,7 +401,7 @@ def _table_daily_ledger(df: pd.DataFrame, value_col: str, *, use_krw: bool) -> N
             "내용": tmp["detail"].fillna("") if "detail" in tmp.columns else "",
         }
     )
-    st.dataframe(detail, use_container_width=True, hide_index=True, height=420)
+    show_dataframe(detail, use_container_width=True, hide_index=True, height=420)
 
 
 def render_total_realized_pnl(
@@ -499,6 +499,6 @@ def render_total_realized_pnl(
             )
             disp = by_kind.copy()
             disp["합계"] = disp["합계"].map(lambda v: _fmt(float(v), use_krw=use_krw))
-            st.dataframe(disp, use_container_width=True, hide_index=True)
+            show_dataframe(disp, use_container_width=True, hide_index=True)
         elif not compact:
             _table_by_ticker(df, value_col, use_krw=use_krw)

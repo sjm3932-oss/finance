@@ -223,8 +223,10 @@ def render_flow_charts(
             else "",
         }
     )
+    from lib.ui_ko import show_dataframe
+
     st.caption(f"{len(display):,}건 · 통화 혼합 합계는 참고용(손익 탭과 별개)")
-    st.dataframe(display, use_container_width=True, hide_index=True, height=420)
+    show_dataframe(display, use_container_width=True, hide_index=True, height=420)
     download_csv_button(display, filename_prefix="trades", key="export_trades_tab_csv")
 
 
