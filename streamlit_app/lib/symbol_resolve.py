@@ -206,6 +206,27 @@ def resolve_ticker_for_name(
     return ticker
 
 
+def _has_hangul(s: str) -> bool:
+    return bool(re.search(r"[\uac00-\ud7a3]", s))
+
+
+def _fix_misplaced_fields(ticker: Any, name: Any) -> tuple[str, str]:
+    """Swap when Gemini put the company name into ticker (or code into name)."""
+    t_raw = str(ticker or "").strip()
+    n_raw = _norm_name(name)
+
+    # ticker field holds Hangul company name → move to name
+    if t_raw and _has_hangul(t_raw) and not _looks_kr_code(t_raw):
+        code = n_raw if _looks_kr_code(n_raw) else ""
+        return code, t_raw
+
+    # name field is actually a 6-digit code and ticker empty
+    if n_raw and _looks_kr_code(n_raw) and not t_raw:
+        return n_raw, ""
+
+    return _norm_ticker(t_raw), n_raw
+
+
 def enrich_symbol_row(
     row: dict[str, Any],
     *,
@@ -213,22 +234,23 @@ def enrich_symbol_row(
     by_name: dict[str, str],
     cache: dict[str, str],
 ) -> dict[str, Any]:
+    """Ensure both ticker and 종목명 are present when either side is known."""
     out = dict(row)
-    ticker = _norm_ticker(out.get("ticker"))
-    name = _norm_name(out.get("name"))
+    ticker, name = _fix_misplaced_fields(out.get("ticker"), out.get("name"))
 
-    if ticker and name_is_missing(ticker, name):
-        filled = resolve_name_for_ticker(ticker, by_ticker=by_ticker, cache=cache)
-        if filled:
-            name = filled
     if name and _is_blank(ticker):
         filled = resolve_ticker_for_name(name, by_name=by_name, cache=cache)
         if filled:
             ticker = filled
 
+    if ticker and name_is_missing(ticker, name):
+        filled = resolve_name_for_ticker(ticker, by_ticker=by_ticker, cache=cache)
+        if filled:
+            name = filled
+
     if ticker:
         out["ticker"] = ticker
-    if name:
+    if name and not name_is_missing(ticker, name):
         out["name"] = name
     return out
 

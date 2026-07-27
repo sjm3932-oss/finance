@@ -71,6 +71,19 @@ def test_enrich_name_from_naver(_mock_naver):
     assert row["name"] == "삼성전자"
 
 
+@patch("lib.symbol_resolve._naver_ticker", return_value="005930")
+def test_enrich_swaps_hangul_ticker_field(_mock_naver):
+    """Gemini sometimes puts 삼성전자 into ticker — move to name and resolve code."""
+    row = enrich_symbol_row(
+        {"ticker": "삼성전자", "quantity": 1},
+        by_ticker={},
+        by_name={},
+        cache={},
+    )
+    assert row["ticker"] == "005930"
+    assert row["name"] == "삼성전자"
+
+
 def test_name_is_missing_treats_code_as_blank():
     from lib.symbol_resolve import name_is_missing
 

@@ -89,21 +89,36 @@ Rules:
 - Fill every section that is visible; use empty arrays when not visible.
 - Numbers must be plain JSON numbers (no commas, no currency symbols). Won amounts as integers when possible.
 - Tickers: US/ETF as Latin symbols (TQQQ, TSLA). Korean listed stocks as 6-digit codes (e.g. 005930) without .KS/.KQ.
-- Always fill BOTH ticker and name when either is visible. If only one is on screen, still include the other if you know it (e.g. 삼성전자 ↔ 005930).
+- CRITICAL — ticker AND name are BOTH required on every trade, dividend, and holdings_snapshot row:
+  * Never leave "name" empty if you have a ticker.
+  * Never leave "ticker" empty if you have a Korean/English stock name.
+  * Korean broker screens often show only the company name (삼성전자, SK하이닉스) — you MUST still output the 6-digit ticker (005930, 000660) when known.
+  * Screens that show only a 6-digit code — you MUST still output the Korean company full name.
+  * "name" must be the human-readable full name (삼성전자), never the same as the ticker code.
+  * Examples: {"ticker":"005930","name":"삼성전자"}, {"ticker":"QQQM","name":"Invesco NASDAQ 100 ETF"}.
 - If nothing can be parsed, return {"trades":[],"dividends":[],"holdings_snapshot":[],"debts":[],"debt_payments":[],"error":"unreadable"}.
 """
 
 DOC_TYPE_HINTS = {
-    "holdings": "This screenshot is mainly a holdings/balance screen. Focus on holdings_snapshot.",
-    "trades": "This screenshot is mainly a trade/order history. Focus on trades (buy/sell).",
-    "dividends": "This screenshot is mainly dividend / 배당 payout history. Focus on dividends.",
+    "holdings": (
+        "This screenshot is mainly a holdings/balance screen. Focus on holdings_snapshot. "
+        "Every row MUST include both ticker and full Korean/English name."
+    ),
+    "trades": (
+        "This screenshot is mainly a trade/order history. Focus on trades (buy/sell). "
+        "Every trade MUST include both ticker and full name."
+    ),
+    "dividends": (
+        "This screenshot is mainly dividend / 배당 payout history. Focus on dividends. "
+        "Every dividend MUST include both ticker and full name."
+    ),
     "debt": (
         "This screenshot is a loan/debt statement: 대출 잔금, 이자율, 월 납부/원리금 내역. "
         "Focus on debts and debt_payments."
     ),
     "auto": (
         "Detect whether this is holdings, trades, dividends, debt/loan, or a mix, "
-        "and fill matching arrays."
+        "and fill matching arrays. Equity rows MUST always include both ticker and name."
     ),
 }
 
