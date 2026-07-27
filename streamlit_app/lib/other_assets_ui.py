@@ -62,18 +62,86 @@ def render_allocation_drift(client, nw: dict) -> None:
         st.warning(f"목표 비중 합계가 {total_t:.0f}%입니다. 100%에 맞추는 것을 권장합니다.")
 
 
-def render_other_assets_dashboard(client, nw: dict) -> None:
-    section_header("기타 자산", "부동산 · 연금 · 보험 · 예적금 등")
+def render_other_assets_dashboard(
+    client,
+    nw: dict | None = None,
+    *,
+    ownership_filter: str | None = None,
+    standalone: bool = False,
+) -> None:
+    """기타 자산 현황. standalone=True면 전용 메뉴용 요약+목록."""
+    if standalone:
+        section_header("기타 자산 현황", "부동산 · 연금 · 보험 · 예적금 · 암호화폐 등")
+    else:
+        section_header("기타 자산", "부동산 · 연금 · 보험 · 예적금 등")
+
     if not _schema_ready(client):
         st.info(
             "기타 자산 테이블이 아직 없습니다. "
             "`supabase/migrations/0017_net_worth_wealth.sql` 을 적용하세요."
         )
         return
+
     rows = load_other_assets(client)
+    if ownership_filter in ("joint", "mine", "spouse"):
+        rows = [r for r in rows if (r.get("ownership") or "joint") == ownership_filter]
+
     if not rows:
-        st.caption("등록된 기타 자산이 없습니다. 「기록하기 → 수기 → 순자산」에서 추가하세요.")
+        empty = "등록된 기타 자산이 없습니다. 「기록하기 → 수기 → 순자산」에서 추가하세요."
+        if ownership_filter:
+            empty = "이 소유 구분의 기타 자산이 없습니다."
+        st.caption(empty)
         return
+
+    total = 0.0
+    by_kind: dict[str, float] = {}
+    by_own: dict[str, float] = {}
+    for r in rows:
+        try:
+            v = float(r.get("value_krw") or 0)
+        except (TypeError, ValueError):
+            v = 0.0
+        total += v
+        kind = str(r.get("asset_kind") or "other")
+        by_kind[kind] = by_kind.get(kind, 0.0) + v
+        own = str(r.get("ownership") or "joint")
+        by_own[own] = by_own.get(own, 0.0) + v
+
+    if standalone:
+        m1, m2, m3 = st.columns(3)
+        m1.metric("기타 자산 합계", fmt_krw(total))
+        m2.metric("종목 수", f"{len(rows)}건")
+        top_kind = max(by_kind.items(), key=lambda x: x[1]) if by_kind else None
+        m3.metric(
+            "최대 비중",
+            ASSET_KIND_KO.get(top_kind[0], top_kind[0]) if top_kind else "—",
+            delta=fmt_krw(top_kind[1]) if top_kind else None,
+            delta_color="off",
+        )
+        kind_disp = pd.DataFrame(
+            {
+                "종류": [ASSET_KIND_KO.get(k, k) for k in by_kind],
+                "평가액": list(by_kind.values()),
+                "비중(%)": [
+                    round(100.0 * v / total, 1) if total else 0.0 for v in by_kind.values()
+                ],
+            }
+        ).sort_values("평가액", ascending=False)
+        st.markdown("##### 종류별 합계")
+        show_dataframe(kind_disp, use_container_width=True, hide_index=True)
+
+        if not ownership_filter and len(by_own) > 1:
+            own_disp = pd.DataFrame(
+                {
+                    "소유": [OWNERSHIP_KO.get(k, k) for k in by_own],
+                    "평가액": list(by_own.values()),
+                }
+            ).sort_values("평가액", ascending=False)
+            st.markdown("##### 소유별 합계")
+            show_dataframe(own_disp, use_container_width=True, hide_index=True)
+
+    if standalone:
+        st.markdown("##### 상세 목록")
     disp = pd.DataFrame(
         {
             "이름": [r.get("name") for r in rows],
@@ -83,8 +151,16 @@ def render_other_assets_dashboard(client, nw: dict) -> None:
             "메모": [r.get("memo") or "" for r in rows],
         }
     )
+    try:
+        disp = disp.sort_values("평가액", ascending=False, na_position="last")
+    except Exception:
+        pass
     show_dataframe(disp, use_container_width=True, hide_index=True)
-    st.caption(f"기타 자산 합계 {fmt_krw(nw.get('other'))}")
+    if not standalone:
+        shown = nw.get("other") if nw else total
+        st.caption(f"기타 자산 합계 {fmt_krw(shown if shown is not None else total)}")
+    else:
+        st.caption("수정·추가는 「기록하기 → 수기 → 순자산」에서 할 수 있습니다.")
 
 
 def render_cash_accounts_panel(client) -> None:

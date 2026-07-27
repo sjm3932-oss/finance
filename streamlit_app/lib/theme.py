@@ -977,13 +977,14 @@ def render_grouped_asset_nav(
         "부채": "더보기",
         "세금": "더보기",
         "순자산": "더보기",
+        "기타자산": "더보기",
     }
     cur = st.session_state.get(state_key)
     if cur in legacy:
         st.session_state[state_key] = legacy[cur]
         if cur == "배당":
             st.session_state["dash_pnl_sub"] = "배당"
-        elif cur in ("관심", "부채", "세금", "순자산"):
+        elif cur in ("관심", "부채", "세금", "순자산", "기타자산"):
             st.session_state["dash_more_sub"] = cur
 
     group = render_subnav(primary, state_key=state_key, default="요약")
@@ -1003,7 +1004,7 @@ def render_grouped_asset_nav(
         return "손익" if sub == "실현손익" else "배당"
     # 더보기
     sub = render_subnav(
-        ["순자산", "관심", "부채", "세금"],
+        ["순자산", "기타자산", "관심", "부채", "세금"],
         state_key="dash_more_sub",
         default="순자산",
     )

@@ -768,6 +768,15 @@ def view_networth_detail(client, live_rows, total_debt, *, usdkrw, account_ids, 
     render_other_assets_dashboard(client, nw)
 
 
+def view_other_assets(client, *, ownership_filter: str | None = None) -> None:
+    """더보기 → 기타자산: 기타 자산만 전용으로 조회."""
+    render_other_assets_dashboard(
+        client,
+        None,
+        ownership_filter=ownership_filter,
+        standalone=True,
+    )
+
 
 def view_holdings(
     client,
@@ -1020,7 +1029,7 @@ def main() -> None:
     except Exception:
         pass
 
-    if view in ("홈", "보유", "손익", "배당", "거래", "순자산"):
+    if view in ("홈", "보유", "손익", "배당", "거래", "순자산", "기타자산"):
         _status_bar(client, any_stale=any_stale)
 
     if view == "홈":
@@ -1044,6 +1053,8 @@ def main() -> None:
             account_ids=account_ids,
             account_label=account_label,
         )
+    elif view == "기타자산":
+        view_other_assets(client, ownership_filter=ownership_filter)
     elif view == "보유":
         view_holdings(
             client,
