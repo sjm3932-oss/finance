@@ -1,0 +1,24 @@
+[server]
+headless = true
+enableStaticServing = true
+enableWebsocketCompression = true
+maxMessageSize = 200
+
+[browser]
+gatherUsageStats = false
+
+[runner]
+fastReruns = true
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true
+# Built-in page list off — Home.py draws the 4 menu links with st.page_link
+showSidebarNavigation = false
+
+[theme]
+primaryColor = "#03C75A"
+backgroundColor = "#F4F6F5"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1A1A1A"
+font = "sans serif"
