@@ -320,16 +320,33 @@ def render_allocation(live_rows: list[dict], usdkrw: float | None) -> None:
 
 
 def load_index_snaps(client, days: int = 400) -> pd.DataFrame:
+    """Load index snapshots. Tolerates DBs that have not applied migration 0016 (kospi)."""
     since = (date.today() - timedelta(days=days)).isoformat()
-    rows = (
-        client.table("market_index_snapshots")
-        .select("snapshot_date,nasdaq,sp500,kospi,usdkrw")
-        .gte("snapshot_date", since)
-        .order("snapshot_date")
-        .execute()
-        .data
-        or []
-    )
+    rows: list[dict] = []
+    try:
+        rows = (
+            client.table("market_index_snapshots")
+            .select("snapshot_date,nasdaq,sp500,kospi,usdkrw")
+            .gte("snapshot_date", since)
+            .order("snapshot_date")
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        # Column `kospi` missing until migration 0016 is applied
+        try:
+            rows = (
+                client.table("market_index_snapshots")
+                .select("snapshot_date,nasdaq,sp500,usdkrw")
+                .gte("snapshot_date", since)
+                .order("snapshot_date")
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            return pd.DataFrame()
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
@@ -388,16 +405,23 @@ def render_benchmark_chart(
     port = filter_by_period(
         load_portfolio_series(client, account_ids), months, date_col="snapshot_date"
     )
-    idx = filter_by_period(load_index_snaps(client), months, date_col="snapshot_date")
+    try:
+        idx = filter_by_period(load_index_snaps(client), months, date_col="snapshot_date")
+    except Exception:
+        idx = pd.DataFrame()
+        st.caption("지수 스냅샷을 불러오지 못했습니다. migration 0016 적용 여부를 확인하세요.")
+
     if port.empty:
         st.info("벤치마크 비교용 포트폴리오 스냅샷이 없습니다.")
         return
 
-    bench = st.selectbox(
-        "비교 지수",
-        ["S&P 500", "NASDAQ", "KOSPI"],
-        key="bench_index",
-    )
+    options = ["S&P 500", "NASDAQ"]
+    if not idx.empty and "kospi" in idx.columns:
+        options.append("KOSPI")
+    elif idx.empty or "kospi" not in idx.columns:
+        st.caption("KOSPI는 migration 0016 적용 + 시세 갱신 후 비교할 수 있습니다.")
+
+    bench = st.selectbox("비교 지수", options, key="bench_index")
     col_map = {"S&P 500": "sp500", "NASDAQ": "nasdaq", "KOSPI": "kospi"}
     col = col_map[bench]
 
