@@ -186,10 +186,7 @@ html, body, [class*="css"] {{
 }}
 
 .stApp {{
-  background:
-    radial-gradient(1200px 480px at 10% -10%, rgba(3,199,90,0.16), transparent 55%),
-    radial-gradient(900px 420px at 100% 0%, rgba(3,199,90,0.08), transparent 50%),
-    linear-gradient(180deg, #F7FBF8 0%, var(--np-canvas) 42%, #EEF2F0 100%) !important;
+  background: #FFFFFF !important;
 }}
 
 .block-container {{
@@ -215,7 +212,7 @@ hr {{
 }}
 
 section[data-testid="stSidebar"] {{
-  background: linear-gradient(180deg, #FFFFFF 0%, #F7FBF8 100%) !important;
+  background: #FFFFFF !important;
   border-right: 1px solid var(--np-line) !important;
 }}
 [data-testid="stSidebarNav"] a {{
@@ -271,17 +268,17 @@ div.stButton > button[kind="primary"],
 div.stFormSubmitButton > button[kind="primary"],
 div.stLinkButton > a[kind="primary"],
 button[data-testid="baseButton-primary"] {{
-  background: linear-gradient(180deg, {PRIMARY} 0%, {PRIMARY_DARK} 100%) !important;
+  background: {PRIMARY} !important;
   border: none !important;
   color: #fff !important;
-  box-shadow: 0 8px 20px rgba(3, 199, 90, 0.28) !important;
+  box-shadow: none !important;
 }}
 div.stButton > button[kind="primary"]:hover,
 div.stFormSubmitButton > button[kind="primary"]:hover,
 button[data-testid="baseButton-primary"]:hover {{
-  background: linear-gradient(180deg, {PRIMARY_DARK} 0%, {PRIMARY_DEEP} 100%) !important;
-  transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgba(3, 199, 90, 0.34) !important;
+  background: {PRIMARY_DARK} !important;
+  transform: none;
+  box-shadow: none !important;
 }}
 div.stButton > button[kind="secondary"],
 button[data-testid="baseButton-secondary"] {{
@@ -297,7 +294,7 @@ div.stButton > button[kind="secondary"]:hover {{
 /* Active subnav look */
 div.stButton > button[kind="primary"].np-active,
 div[data-testid="column"] button[kind="primary"] {{
-  box-shadow: 0 8px 20px rgba(3, 199, 90, 0.28) !important;
+  box-shadow: none !important;
 }}
 div.stLinkButton > a {{
   width: 100%;
@@ -479,7 +476,21 @@ div[data-testid="stVerticalBlockBorderWrapper"] {{
   border-bottom: 1px solid var(--np-line);
 }}
 .np-hold-row:last-child {{ border-bottom: none; }}
-.np-hold-left {{ min-width: 0; }}
+.np-hold-avatar {{
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  background: var(--np-soft);
+  color: var(--np-green-deep);
+  font-weight: 800;
+  font-size: 0.78rem;
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}}
+.np-hold-left {{ min-width: 0; flex: 1 1 auto; }}
 .np-hold-ticker {{
   font-weight: 800;
   font-size: 0.98rem;
@@ -508,6 +519,86 @@ div[data-testid="stVerticalBlockBorderWrapper"] {{
 .np-hold-ret.up {{ color: #E11D48; }}
 .np-hold-ret.down {{ color: #2563EB; }}
 .np-hold-ret.flat {{ color: var(--np-muted); }}
+
+/* Summary hero — one block instead of scattered metrics */
+.np-summary-hero {{
+  background: #fff;
+  border: 1px solid var(--np-line);
+  border-radius: 16px;
+  padding: 1rem 1.05rem 0.85rem;
+  margin: 0 0 0.65rem 0;
+  animation: npFadeUp 0.35s ease both;
+}}
+.np-summary-hero-label {{
+  color: var(--np-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}}
+.np-summary-hero-ret {{
+  font-size: clamp(1.65rem, 5vw, 2.15rem);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1.1;
+  margin-top: 0.2rem;
+  color: var(--np-ink);
+}}
+.np-summary-hero-ret.up {{ color: #E11D48 !important; }}
+.np-summary-hero-ret.down {{ color: #2563EB !important; }}
+.np-summary-hero-ret.flat {{ color: var(--np-ink) !important; }}
+.np-summary-hero-sub {{
+  color: var(--np-muted);
+  font-size: 0.8rem;
+  margin-top: 0.3rem;
+}}
+.np-summary-hero-grid {{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--np-line);
+}}
+@media (max-width: 520px) {{
+  .np-summary-hero-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+}}
+.np-summary-hero-cell-label {{
+  color: var(--np-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}}
+.np-summary-hero-cell-value {{
+  margin-top: 0.15rem;
+  font-weight: 800;
+  font-size: clamp(0.9rem, 2.4vw, 1.05rem);
+  letter-spacing: -0.03em;
+  color: var(--np-ink);
+  word-break: break-word;
+}}
+.np-summary-hero-cell-value.up {{ color: #E11D48; }}
+.np-summary-hero-cell-value.down {{ color: #2563EB; }}
+.np-summary-hero-cell-delta {{
+  margin-top: 0.1rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--np-muted);
+}}
+
+/* Account segment filter */
+.np-account-seg-label {{
+  color: var(--np-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin: 0 0 0.35rem 0;
+}}
+div[data-testid="stVerticalBlock"]:has(.np-sticky-marker) div[data-testid="stHorizontalBlock"] {{
+  gap: 0.35rem !important;
+}}
+div[data-testid="stVerticalBlock"]:has(.np-sticky-marker) div.stButton > button {{
+  min-height: 2.35rem !important;
+  border-radius: 999px !important;
+  font-size: 0.82rem !important;
+  padding: 0.35rem 0.65rem !important;
+}}
 
 .np-networth {{
   background: #fff;
@@ -690,7 +781,7 @@ div[data-testid="stVerticalBlock"]:has(.np-sticky-marker) {{
   position: sticky !important;
   top: 0 !important;
   z-index: 80 !important;
-  background: rgba(247, 251, 248, 0.96) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
   backdrop-filter: blur(8px);
   padding: 0.35rem 0.15rem 0.55rem !important;
   margin: 0 0 0.35rem 0 !important;

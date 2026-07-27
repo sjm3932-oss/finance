@@ -189,6 +189,127 @@ def _render_return_header(account_label: str, stats: dict[str, float | None]) ->
     st.caption("평가액 ÷ 매입원금 기준 미실현 수익률입니다.")
 
 
+def _summary_hero_html(
+    account_label: str,
+    stats: dict,
+    change: dict,
+    *,
+    total_debt: float | None = None,
+) -> str:
+    """One-block summary: return hero + compact stat cells."""
+    ret = stats.get("return_%")
+    if ret is None:
+        ret_txt = "—"
+    else:
+        sign = "+" if ret > 0.005 else ""
+        ret_txt = f"{sign}{ret:.2f}%"
+    title = (
+        f"{account_label} · 총 투자수익률"
+        if account_label and account_label != "전체"
+        else "총 투자수익률"
+    )
+    tone = ret_class(ret)
+
+    cells: list[tuple[str, str, str, str]] = []
+    # (label, value, tone, delta)
+    today_pnl = change.get("today_pnl")
+    today_pct = change.get("today_pct")
+    cells.append(
+        (
+            "오늘 손익",
+            fmt_krw(today_pnl, signed=True) if today_pnl is not None else "—",
+            ret_class(today_pct if today_pct is not None else today_pnl),
+            f"{today_pct:+.2f}%" if today_pct is not None else "",
+        )
+    )
+    cells.append(
+        (
+            "평가액",
+            fmt_krw(stats.get("value_krw")) if stats.get("value_krw") is not None else "—",
+            "flat",
+            "",
+        )
+    )
+    cells.append(
+        (
+            "매입원금",
+            fmt_krw(stats.get("cost_krw")) if stats.get("cost_krw") is not None else "—",
+            "flat",
+            "",
+        )
+    )
+    pnl = stats.get("pnl_krw")
+    cells.append(
+        (
+            "미실현",
+            fmt_krw(pnl, signed=True) if pnl is not None else "—",
+            ret_class(pnl),
+            "",
+        )
+    )
+    if account_label == "전체":
+        cells.append(
+            (
+                "부채",
+                fmt_krw(total_debt) if total_debt is not None else "—",
+                "flat",
+                "",
+            )
+        )
+    else:
+        week_pnl = change.get("week_pnl")
+        week_pct = change.get("week_pct")
+        cells.append(
+            (
+                "이번 주",
+                fmt_krw(week_pnl, signed=True) if week_pnl is not None else "—",
+                ret_class(week_pct if week_pct is not None else week_pnl),
+                f"{week_pct:+.2f}%" if week_pct is not None else "",
+            )
+        )
+
+    cell_html = []
+    for label, value, cell_tone, delta in cells:
+        delta_html = (
+            f'<div class="np-summary-hero-cell-delta">{_html_escape(delta)}</div>'
+            if delta
+            else ""
+        )
+        cell_html.append(
+            "<div class='np-summary-hero-cell'>"
+            f"<div class='np-summary-hero-cell-label'>{_html_escape(label)}</div>"
+            f"<div class='np-summary-hero-cell-value {cell_tone}'>{_html_escape(value)}</div>"
+            f"{delta_html}"
+            "</div>"
+        )
+
+    return (
+        '<div class="np-summary-hero">'
+        f'<div class="np-summary-hero-label">{_html_escape(title)}</div>'
+        f'<div class="np-summary-hero-ret {tone}">{_html_escape(ret_txt)}</div>'
+        '<div class="np-summary-hero-sub">평가액 ÷ 매입원금 기준 미실현 수익률</div>'
+        f'<div class="np-summary-hero-grid">{"".join(cell_html)}</div>'
+        "</div>"
+    )
+
+
+def _holding_initials(name: str | None, ticker: str | None) -> str:
+    """1–2 char circle label from name or ticker."""
+    src = (name or ticker or "?").strip()
+    if not src:
+        return "?"
+    # Latin tickers (AAPL) → 2 letters; numeric KR tickers → last 2 digits
+    compact = src.replace(".", "")
+    if compact.isascii() and compact.isalpha() and len(compact) <= 6:
+        return compact[:2].upper()
+    if compact.isdigit() and len(compact) >= 2:
+        return compact[-2:]
+    letters = [c for c in src if c.isalnum()]
+    if not letters:
+        return src[:1]
+    return letters[0].upper()
+
+
 def _live_holdings(client, holdings: list[dict]) -> tuple[list[dict], float, float, float, bool, float | None]:
     from lib.symbol_resolve import enrich_holdings_names
 
@@ -313,10 +434,13 @@ def _holding_rows_html(items: list[dict]) -> str:
     """Toss-style holding list (not a raw DB table). Name on top, ticker in meta."""
     parts = ['<div class="np-hold-list">']
     for it in items:
-        ticker = _html_escape(it.get("ticker") or "")
-        name = _html_escape(it.get("name") or it.get("ticker") or "")
+        raw_ticker = it.get("ticker") or ""
+        raw_name = it.get("name") or it.get("ticker") or ""
+        ticker = _html_escape(raw_ticker)
+        name = _html_escape(raw_name)
         meta = _html_escape(it.get("meta") or "")
         value = _html_escape(it.get("value_label") or "—")
+        initials = _html_escape(_holding_initials(str(raw_name), str(raw_ticker)))
         ret = it.get("return_%")
         if ret is None:
             ret_cls, ret_txt = "flat", "—"
@@ -332,6 +456,7 @@ def _holding_rows_html(items: list[dict]) -> str:
             sub = f"{ticker} · {meta}" if ticker else meta
         parts.append(
             '<div class="np-hold-row">'
+            f'<div class="np-hold-avatar" aria-hidden="true">{initials}</div>'
             '<div class="np-hold-left">'
             f'<div class="np-hold-ticker">{name}</div>'
             f'<div class="np-hold-meta">{sub}</div>'
@@ -358,31 +483,13 @@ def view_home(
     usdkrw: float | None,
 ) -> None:
     """홈(요약): 수익률 + 오늘 손익 + 핵심 지표. 나머지는 접기."""
-    _render_return_header(account_label, stats)
-
     change = period_change_stats(client, stats.get("value_krw"), account_ids)
-    # Compact today row only (week inside expander)
-    c1, c2 = st.columns(2, gap="small")
-    with c1:
-        st.metric(
-            "오늘 손익",
-            fmt_krw(change.get("today_pnl"), signed=True)
-            if change.get("today_pnl") is not None
-            else "—",
-            delta=(
-                f"{change['today_pct']:+.2f}%"
-                if change.get("today_pct") is not None
-                else None
-            ),
-            delta_color="inverse",
-        )
-    with c2:
-        st.metric(
-            "평가액",
-            fmt_krw(stats.get("value_krw"))
-            if stats.get("value_krw") is not None
-            else "—",
-        )
+    st.markdown(
+        _summary_hero_html(
+            account_label, stats, change, total_debt=total_debt
+        ),
+        unsafe_allow_html=True,
+    )
 
     if change.get("today_pnl") is None:
         empty_cta(
@@ -390,33 +497,6 @@ def view_home(
             button_label="자산 챗에서 스냅샷 만들기",
             page_title="자산 챗",
             key="cta_snap_home",
-        )
-
-    m1, m2, m3 = st.columns(3, gap="small")
-    m1.metric(
-        "매입원금",
-        fmt_krw(stats.get("cost_krw")) if stats.get("cost_krw") is not None else "—",
-    )
-    pnl = stats.get("pnl_krw")
-    m2.metric(
-        "미실현",
-        fmt_krw(pnl, signed=True) if pnl is not None else "—",
-        delta_color="inverse",
-    )
-    if account_label == "전체":
-        m3.metric("부채", fmt_krw(total_debt))
-    else:
-        m3.metric(
-            "이번 주",
-            fmt_krw(change.get("week_pnl"), signed=True)
-            if change.get("week_pnl") is not None
-            else "—",
-            delta=(
-                f"{change['week_pct']:+.2f}%"
-                if change.get("week_pct") is not None
-                else None
-            ),
-            delta_color="inverse",
         )
 
     realized = realized_pnl_ytd_krw(client, account_ids)

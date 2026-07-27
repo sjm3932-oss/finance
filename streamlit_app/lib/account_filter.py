@@ -24,6 +24,59 @@ def account_ids_for_label(client, label: str) -> list[str] | None:
     return ids
 
 
+def _segment_select(options: list[str], *, key: str) -> str:
+    """Toss-like pill segments instead of a selectbox."""
+    current = st.session_state.get(key)
+    if current not in options:
+        st.session_state[key] = options[0] if options else "전체"
+        current = st.session_state[key]
+
+    st.markdown(
+        '<div class="np-account-seg-label">계좌</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Prefer native segmented_control / pills when available
+    if hasattr(st, "segmented_control"):
+        chosen = st.segmented_control(
+            "계좌",
+            options,
+            key=key,
+            label_visibility="collapsed",
+            default=current if current in options else (options[0] if options else None),
+        )
+        if chosen is None:
+            return str(st.session_state.get(key) or "전체")
+        return str(chosen)
+
+    if hasattr(st, "pills"):
+        chosen = st.pills(
+            "계좌",
+            options,
+            key=key,
+            label_visibility="collapsed",
+            default=current if current in options else (options[0] if options else None),
+        )
+        if chosen is None:
+            return str(st.session_state.get(key) or "전체")
+        return str(chosen)
+
+    # Fallback: button row
+    cols = st.columns(len(options) if options else 1)
+    for i, opt in enumerate(options):
+        with cols[i]:
+            active = opt == current
+            if st.button(
+                opt,
+                key=f"{key}__btn_{i}",
+                type="primary" if active else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state[key] = opt
+                st.rerun()
+    return str(st.session_state.get(key) or "전체")
+
+
 def render_account_selector(
     client, *, key: str = "dash_account_filter", sticky: bool = True
 ) -> str:
@@ -33,12 +86,7 @@ def render_account_selector(
         st.session_state[key] = "전체"
 
     def _select() -> str:
-        return st.selectbox(
-            "계좌",
-            options,
-            key=key,
-            help="선택한 증권사 계좌의 데이터만 표시합니다.",
-        )
+        return _segment_select(options, key=key)
 
     if not sticky:
         return _select()

@@ -60,6 +60,14 @@ def test_treemap_layout_no_kwarg_collision():
     """Regression: never unpack chart_layout alongside title=/legend= kwargs."""
     import plotly.express as px
 
+    from lib.portfolio_insights import _TREEMAP_COLORSCALE, _treemap_display_label
+
+    assert _treemap_display_label("SK하이닉스", "000660") == "SK하이닉스"
+    assert _treemap_display_label("Very Long Company Name Inc", "AAPL") == "AAPL"
+    # US-style: low end red, high end green
+    assert _TREEMAP_COLORSCALE[0][1].upper() == "#E11D48"
+    assert _TREEMAP_COLORSCALE[-1][1].upper() == "#03C75A"
+
     df = pd.DataFrame(
         {
             "root": ["전체", "전체"],
@@ -68,6 +76,7 @@ def test_treemap_layout_no_kwarg_collision():
             "return_pct": [10.0, -5.0],
             "ret_label": ["+10.0%", "-5.0%"],
             "ticker": ["005930", "AAPL"],
+            "_full_name": ["삼성전자", "Apple Inc."],
         }
     )
     fig = px.treemap(
@@ -75,15 +84,19 @@ def test_treemap_layout_no_kwarg_collision():
         path=["root", "label"],
         values="value_krw",
         color="return_pct",
+        color_continuous_scale=_TREEMAP_COLORSCALE,
         color_continuous_midpoint=0,
-        custom_data=["ret_label", "ticker", "value_krw"],
+        custom_data=["ret_label", "ticker", "value_krw", "_full_name"],
     )
     layout = chart_layout(
         400,
         title="종목 비중",
         margin=dict(l=4, r=4, t=48, b=8),
+        coloraxis_showscale=False,
     )
+    layout["uniformtext"] = dict(minsize=8, mode="show")
     fig.update_layout(layout)  # must not raise TypeError
+    assert layout.get("coloraxis_showscale") is False
 
 
 def test_dividend_stats_empty():

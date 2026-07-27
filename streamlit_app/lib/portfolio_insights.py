@@ -218,12 +218,26 @@ def render_pnl_split(
 # Asset allocation (treemap heat map)
 # ---------------------------------------------------------------------------
 
-# KR market convention: up=red, down=blue
+# US-style: up=green, down=red (midpoint near ink for flat returns)
 _TREEMAP_COLORSCALE = [
-    [0.0, "#2563EB"],
+    [0.0, "#E11D48"],
     [0.5, "#1F2937"],
-    [1.0, "#E11D48"],
+    [1.0, "#03C75A"],
 ]
+
+
+def _treemap_display_label(name: str, ticker: str, max_chars: int = 10) -> str:
+    """Short label so small tiles still show a readable name."""
+    n = str(name or "").strip()
+    t = str(ticker or "").strip()
+    if not n or n.upper() == t.upper():
+        return t or "?"
+    if len(n) <= max_chars:
+        return n
+    # Prefer ticker when the company name is too long for the tile
+    if t and len(t) <= max_chars:
+        return t
+    return n[: max_chars - 1] + "…"
 
 
 def allocation_frames(
@@ -303,15 +317,25 @@ def _treemap(df: pd.DataFrame, path_cols: list[str], title: str) -> None:
 
     work["return_pct"] = pd.to_numeric(work.get("return_pct"), errors="coerce").fillna(0.0)
     work["ret_label"] = work["return_pct"].map(lambda x: f"{x:+.1f}%")
+    if "ticker" not in work.columns:
+        work["ticker"] = work.get("label", pd.Series(["?"] * len(work))).astype(str)
     work["root"] = "전체"
 
-    # Ensure path columns exist and are non-empty strings
-    path = ["root"] + path_cols
+    # Leaf path col → short display label; keep full name for hover
+    leaf_col = path_cols[-1]
     for col in path_cols:
         if col not in work.columns:
             st.caption(f"{title}: 데이터 컬럼 오류 ({col})")
             return
         work[col] = work[col].astype(str).replace({"": "?", "nan": "?"})
+
+    work["_full_name"] = work[leaf_col]
+    work[leaf_col] = [
+        _treemap_display_label(n, t)
+        for n, t in zip(work["_full_name"], work["ticker"].astype(str), strict=False)
+    ]
+
+    path = ["root"] + path_cols
 
     try:
         import plotly.express as px
@@ -326,38 +350,35 @@ def _treemap(df: pd.DataFrame, path_cols: list[str], title: str) -> None:
         color="return_pct",
         color_continuous_scale=_TREEMAP_COLORSCALE,
         color_continuous_midpoint=0,
-        custom_data=["ret_label", "ticker", "value_krw"],
+        custom_data=["ret_label", "ticker", "value_krw", "_full_name"],
         hover_data={"return_pct": ":.2f", "value_krw": ":,.0f"},
     )
     fig.update_traces(
         texttemplate="%{label}<br>%{customdata[0]}",
         textposition="middle center",
+        textfont=dict(size=11, color="#F8FAFC"),
         root_color="rgba(0,0,0,0)",
         hovertemplate=(
-            "<b>%{label}</b><br>"
+            "<b>%{customdata[3]}</b><br>"
             "평가 ₩%{customdata[2]:,.0f}<br>"
             "수익률 %{customdata[0]}"
             "<extra></extra>"
         ),
         marker=dict(line=dict(width=1.5, color="#0B1220")),
+        pathbar=dict(visible=False),
     )
     # One dict only — never **chart_layout(..., legend=...) style collisions
     layout = chart_layout(
         400,
         title=title,
         margin=dict(l=4, r=4, t=48, b=8),
-        coloraxis_colorbar=dict(
-            title=dict(text="수익률%", side="right"),
-            ticksuffix="%",
-            thickness=12,
-            len=0.7,
-        ),
+        coloraxis_showscale=False,
     )
-    # Hide root path breadcrumb clutter a bit
-    layout["uniformtext"] = dict(minsize=11, mode="hide")
+    # Force labels on small tiles (mode=hide was blanking most rectangles)
+    layout["uniformtext"] = dict(minsize=8, mode="show")
     fig.update_layout(layout)
     show_plotly(fig)
-    st.caption("사각형 크기 = 평가액 비중 · 색 = 수익률 (상승 빨강 / 하락 파랑)")
+    st.caption("사각형 크기 = 평가액 비중 · 색 = 수익률 (상승 초록 / 하락 빨강)")
 
 
 def render_allocation(live_rows: list[dict], usdkrw: float | None) -> None:
