@@ -23,7 +23,7 @@ from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.chart_period import filter_by_period, period_radio  # noqa: E402
 from lib.debt_ui import render_debt_dashboard  # noqa: E402
 from lib.export_csv import download_csv_button  # noqa: E402
-from lib.market_data import STALE_HOURS, is_stale  # noqa: E402
+from lib.market_data import is_stale  # noqa: E402
 from lib.portfolio_insights import (  # noqa: E402
     period_change_stats,
     realized_pnl_ytd_krw,
