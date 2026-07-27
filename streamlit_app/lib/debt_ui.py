@@ -139,7 +139,7 @@ def render_debt_dashboard(
             color_discrete_sequence=CHART_COLORS,
             hole=0.4,
         )
-        fig.update_layout(**chart_layout(260, with_title=True), title="종류별 잔금")
+        fig.update_layout(chart_layout(260, title="종류별 잔금"))
         show_plotly(fig)
 
     st.markdown("##### 부채 목록")
@@ -238,7 +238,7 @@ def render_debt_dashboard(
         )
         fig2 = px.line(tdf, x="일자", y="잔금", markers=True)
         fig2.update_traces(line_color=PRIMARY)
-        fig2.update_layout(**chart_layout(240, with_title=True), title="잔금 추이")
+        fig2.update_layout(chart_layout(240, title="잔금 추이"))
         show_plotly(fig2)
 
 

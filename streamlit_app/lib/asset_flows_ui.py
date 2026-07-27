@@ -199,9 +199,11 @@ def render_flow_charts(
             labels={"금액": "금액"},
         )
         fig.update_layout(
-            **chart_layout(240, with_title=True),
-            title="월별 자금 이동",
-            legend_title_text="",
+            chart_layout(
+                240,
+                title="월별 자금 이동",
+                legend_title_text="",
+            )
         )
         show_plotly(fig)
 

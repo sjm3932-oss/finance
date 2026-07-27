@@ -456,9 +456,11 @@ def view_home(
                     )
                 )
                 fig.update_layout(
-                    **chart_layout(220, with_title=True),
-                    title=f"{account_label} 평가액 추이",
-                    yaxis_title="원",
+                    chart_layout(
+                        220,
+                        title=f"{account_label} 평가액 추이",
+                        yaxis_title="원",
+                    )
                 )
                 show_plotly(fig)
             else:
@@ -486,9 +488,11 @@ def view_home(
                     )
                 )
                 fig.update_layout(
-                    **chart_layout(220, with_title=True),
-                    title="순자산 추이",
-                    yaxis_title="원",
+                    chart_layout(
+                        220,
+                        title="순자산 추이",
+                        yaxis_title="원",
+                    )
                 )
                 show_plotly(fig)
             else:
@@ -689,9 +693,11 @@ def view_holdings(
                 )
                 title_name = chosen.get("name") or pick
                 fig.update_layout(
-                    **chart_layout(220, with_title=True),
-                    title=f"{title_name} 평가액",
-                    yaxis_title="원",
+                    chart_layout(
+                        220,
+                        title=f"{title_name} 평가액",
+                        yaxis_title="원",
+                    )
                 )
                 show_plotly(fig)
             else:

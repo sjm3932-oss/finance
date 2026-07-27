@@ -282,12 +282,15 @@ def _donut(df: pd.DataFrame, title: str, *, top_n: int = 8) -> None:
             marker=dict(colors=CHART_COLORS),
         )
     )
+    # Pass layout as one dict — avoid title/legend/margin kwarg collisions
     fig.update_layout(
-        **chart_layout(260, with_title=True),
-        title=title,
-        showlegend=True,
-        legend=dict(orientation="h", y=-0.12, x=0, xanchor="left"),
-        margin=dict(l=8, r=8, t=44, b=72),
+        chart_layout(
+            260,
+            title=title,
+            showlegend=True,
+            legend=dict(orientation="h", y=-0.12, x=0, xanchor="left"),
+            margin=dict(l=8, r=8, t=44, b=72),
+        )
     )
     show_plotly(fig)
 
@@ -438,9 +441,11 @@ def render_benchmark_chart(
     if not fig.data:
         return
     fig.update_layout(
-        **chart_layout(260, with_title=True),
-        title=f"수익률 비교 (시작=100) · {bench}",
-        yaxis_title="지수화",
+        chart_layout(
+            260,
+            title=f"수익률 비교 (시작=100) · {bench}",
+            yaxis_title="지수화",
+        )
     )
     show_plotly(fig)
 
@@ -559,10 +564,12 @@ def render_dividend_calendar(
             )
         )
         fig.update_layout(
-            **chart_layout(240, with_title=True),
-            title="월별 배당 수입",
-            yaxis_title="원",
-            showlegend=False,
+            chart_layout(
+                240,
+                title="월별 배당 수입",
+                yaxis_title="원",
+                showlegend=False,
+            )
         )
         show_plotly(fig)
 
