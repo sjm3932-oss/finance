@@ -358,7 +358,6 @@ def view_home(
     *,
     account_label: str,
     stats: dict,
-    usdkrw: float | None,
 ) -> None:
     """홈: 계좌별 총 수익률 + 추이 + 보유 리스트."""
     _render_return_header(account_label, stats)
@@ -634,7 +633,6 @@ def main() -> None:
                 any_stale,
                 account_label=account_label,
                 stats=stats,
-                usdkrw=usdkrw,
             )
         else:
             view_holdings(
