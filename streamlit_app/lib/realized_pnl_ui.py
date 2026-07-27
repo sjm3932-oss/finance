@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from lib.chart_period import filter_by_period, period_radio
+from lib.export_csv import download_csv_button
 from lib.theme import CHART_COLORS, PRIMARY, apply_chart_layout, show_plotly
 from lib.ui_ko import PNL_KIND_KO
 
@@ -466,6 +467,22 @@ def render_total_realized_pnl(
         return
 
     _kpi_row(df, value_col, unit, use_krw=use_krw)
+
+    export = df.dropna(subset=["event_date"]).copy()
+    if not export.empty:
+        export_disp = pd.DataFrame(
+            {
+                "일자": export["event_date"].dt.strftime("%Y-%m-%d"),
+                "구분": export["pnl_kind_ko"],
+                "종목": export["asset_name"],
+                "티커": export["asset_ref"],
+                "손익": export[value_col],
+                "통화": export["currency"],
+            }
+        )
+        download_csv_button(
+            export_disp, filename_prefix="realized_pnl", key="export_pnl_csv"
+        )
 
     if grain == "일자별":
         _chart_daily(df, value_col, unit, height=280 if not compact else 240)

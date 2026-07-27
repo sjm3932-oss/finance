@@ -148,6 +148,47 @@ def fetch_usdkrw(timeout: float = 15.0) -> float:
     return float(rate)
 
 
+# Yahoo index symbols → market_index_snapshots columns
+INDEX_YAHOO = {
+    "sp500": "^GSPC",
+    "nasdaq": "^IXIC",
+    "kospi": "^KS11",
+}
+
+
+def fetch_yahoo_index(symbol: str, timeout: float = 15.0) -> float:
+    """Last price for a Yahoo index symbol (e.g. ^GSPC)."""
+    url = YAHOO_CHART.format(ticker=symbol)
+    with httpx.Client(timeout=timeout, headers=_UA, follow_redirects=True) as client:
+        resp = client.get(url, params={"interval": "1d", "range": "5d"})
+        resp.raise_for_status()
+        payload = resp.json()
+    result = (payload.get("chart") or {}).get("result") or []
+    if not result:
+        raise MarketDataError(f"Yahoo returned no data for index {symbol}")
+    meta = result[0].get("meta") or {}
+    price = meta.get("regularMarketPrice")
+    if price is None:
+        quote = ((result[0].get("indicators") or {}).get("quote") or [{}])[0]
+        closes = quote.get("close") or []
+        price = next((c for c in reversed(closes) if c is not None), None)
+    if price is None:
+        raise MarketDataError(f"No price for index {symbol}")
+    return float(price)
+
+
+def fetch_market_indices(timeout: float = 15.0) -> tuple[dict[str, float], list[str]]:
+    """Fetch S&P500 / NASDAQ / KOSPI. Returns (values_by_column, errors)."""
+    out: dict[str, float] = {}
+    errors: list[str] = []
+    for col, yahoo_sym in INDEX_YAHOO.items():
+        try:
+            out[col] = fetch_yahoo_index(yahoo_sym, timeout=timeout)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{col}({yahoo_sym}): {exc}")
+    return out, errors
+
+
 def is_stale(updated_at: str | datetime | None, stale_hours: float = STALE_HOURS) -> bool:
     if not updated_at:
         return True

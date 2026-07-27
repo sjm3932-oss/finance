@@ -22,7 +22,17 @@ from lib.asset_flows_ui import render_flow_charts  # noqa: E402
 from lib.auth import ensure_profile, require_auth  # noqa: E402
 from lib.chart_period import filter_by_period, period_radio  # noqa: E402
 from lib.debt_ui import render_debt_dashboard  # noqa: E402
+from lib.export_csv import download_csv_button  # noqa: E402
 from lib.market_data import STALE_HOURS, is_stale  # noqa: E402
+from lib.portfolio_insights import (  # noqa: E402
+    period_change_stats,
+    realized_pnl_ytd_krw,
+    render_allocation,
+    render_benchmark_chart,
+    render_dividend_calendar,
+    render_period_change_row,
+    render_pnl_split,
+)
 from lib.realized_pnl_ui import render_total_realized_pnl  # noqa: E402
 from lib.tax_ui import render_tax_dashboard  # noqa: E402
 from lib.theme import (  # noqa: E402
@@ -34,10 +44,12 @@ from lib.theme import (  # noqa: E402
     render_subnav,
     show_plotly,
 )
+from lib.ticker_history import render_ticker_history  # noqa: E402
+from lib.watchlist_ui import evaluate_alerts, render_alert_banners, render_watchlist_panel  # noqa: E402
 
 apply_theme(max_width=1280)
 
-VIEWS = ["홈", "보유", "손익", "거래", "부채", "세금"]
+VIEWS = ["홈", "보유", "손익", "배당", "거래", "관심", "부채", "세금"]
 
 
 def _fmt_money(v, currency="KRW") -> str:
@@ -170,7 +182,7 @@ def _render_return_header(account_label: str, stats: dict[str, float | None]) ->
     if stats.get("pnl_krw") is not None:
         pnl = stats["pnl_krw"]
         sign = "+" if pnl > 0 else ""
-        sub_parts.append(f"손익 {sign}{_fmt_money(pnl, 'KRW')}")
+        sub_parts.append(f"미실현 {sign}{_fmt_money(pnl, 'KRW')}")
     networth_banner(title, ret_txt, sub=" · ".join(sub_parts))
     st.caption("평가액 ÷ 매입원금 기준 미실현 수익률입니다.")
 
@@ -342,37 +354,63 @@ def view_home(
     any_stale,
     *,
     account_label: str,
+    account_ids: list[str] | None,
     stats: dict,
+    usdkrw: float | None,
 ) -> None:
-    """홈: 계좌별 총 수익률 + 추이 + 보유 리스트."""
+    """홈: 오늘/주간 손익 · 미실현/실현 · 배분 · 추이 · 벤치마크 · 보유 미리보기."""
     _render_return_header(account_label, stats)
 
+    change = period_change_stats(client, stats.get("value_krw"), account_ids)
+    render_period_change_row(change)
+
+    realized = realized_pnl_ytd_krw(client, account_ids)
+    render_pnl_split(unrealized=stats.get("pnl_krw"), realized_ytd=realized)
+
     m1, m2, m3 = st.columns(3, gap="small")
-    m1.metric("평가액", _fmt_money(stats.get("value_krw"), "KRW") if stats.get("value_krw") is not None else "—")
-    m2.metric("매입원금", _fmt_money(stats.get("cost_krw"), "KRW") if stats.get("cost_krw") is not None else "—")
+    m1.metric(
+        "평가액",
+        _fmt_money(stats.get("value_krw"), "KRW")
+        if stats.get("value_krw") is not None
+        else "—",
+    )
+    m2.metric(
+        "매입원금",
+        _fmt_money(stats.get("cost_krw"), "KRW")
+        if stats.get("cost_krw") is not None
+        else "—",
+    )
     if account_label == "전체":
         m3.metric("부채", _fmt_money(total_debt, "KRW"))
     else:
         pnl = stats.get("pnl_krw")
         m3.metric(
-            "평가손익",
-            (f"+{_fmt_money(pnl, 'KRW')}" if pnl is not None and pnl >= 0 else _fmt_money(pnl, "KRW"))
+            "미실현 손익",
+            (
+                f"+{_fmt_money(pnl, 'KRW')}"
+                if pnl is not None and pnl >= 0
+                else _fmt_money(pnl, "KRW")
+            )
             if pnl is not None
             else "—",
         )
     if any_stale:
         st.caption("일부 시세가 지연되었습니다. 「자산 챗」에서 시세를 새로고침하세요.")
 
+    st.markdown("##### 자산 배분")
+    render_allocation(live_rows, usdkrw)
+
     months = period_radio(key="dash_period_home", default="1년")
-    account_ids = {
+    account_id_set = {
         r.get("account_id") for r in live_rows if r.get("account_id")
     }
 
-    # Account-scoped chart from holding snapshots; whole-portfolio uses daily_snapshots
-    if account_label != "전체" and account_ids:
-        hdf = filter_by_period(_load_holding_snaps(client, days=400), months, date_col="snapshot_date")
+    if account_label != "전체" and account_id_set:
+        hdf = filter_by_period(
+            _load_holding_snaps(client, days=400), months, date_col="snapshot_date"
+        )
         if not hdf.empty and "account_id" in hdf.columns:
-            hdf = hdf[hdf["account_id"].astype(str).isin(account_ids)]
+            hdf = hdf[hdf["account_id"].astype(str).isin(account_id_set)]
         if not hdf.empty and "market_value_krw" in hdf.columns:
             summed = (
                 hdf.groupby("snapshot_date", as_index=False)["market_value_krw"]
@@ -398,7 +436,9 @@ def view_home(
             )
             show_plotly(fig)
         else:
-            st.info("이 계좌의 스냅샷이 없습니다. 「자산 챗」에서 오늘 스냅샷을 만들어 보세요.")
+            st.info(
+                "이 계좌의 스냅샷이 없습니다. 「자산 챗」에서 오늘 스냅샷을 만들어 보세요."
+            )
     else:
         tdf = filter_by_period(_load_daily_totals(client), months, date_col="snapshot_date")
         if not tdf.empty:
@@ -414,10 +454,17 @@ def view_home(
                     fillcolor="rgba(3,199,90,0.10)",
                 )
             )
-            fig.update_layout(**chart_layout(220, with_title=True), title="순자산 추이", yaxis_title="원")
+            fig.update_layout(
+                **chart_layout(220, with_title=True),
+                title="순자산 추이",
+                yaxis_title="원",
+            )
             show_plotly(fig)
         else:
             st.info("스냅샷이 없습니다. 「자산 챗」에서 오늘 스냅샷을 만들어 보세요.")
+
+    st.markdown("##### 벤치마크 비교")
+    render_benchmark_chart(client, account_ids, months=months)
 
     groups: dict[str, list] = {}
     for r in live_rows:
@@ -439,11 +486,15 @@ def view_home(
             }
         )
     preview.sort(key=lambda x: x["sort"], reverse=True)
-    st.caption(f"보유 {len(preview)}종목" + (f" · {account_label}" if account_label != "전체" else ""))
+    st.caption(
+        f"보유 {len(preview)}종목"
+        + (f" · {account_label}" if account_label != "전체" else "")
+    )
     if preview:
         st.markdown(_holding_rows_html(preview[:12]), unsafe_allow_html=True)
     else:
         st.info("이 계좌에 표시할 보유 종목이 없습니다.")
+
 
 
 def view_holdings(
@@ -451,9 +502,10 @@ def view_holdings(
     live_rows,
     *,
     account_label: str,
+    account_ids: list[str] | None,
     stats: dict,
 ) -> None:
-    """보유: 선택한 계좌의 종목 리스트 + 총 수익률."""
+    """보유: 선택한 계좌의 종목 리스트 + 총 수익률 + 매매/배당 이력."""
     _render_return_header(account_label, stats)
 
     if not live_rows:
@@ -512,6 +564,23 @@ def view_holdings(
     st.caption(f"{len(items)}종목")
     st.markdown(_holding_rows_html(items), unsafe_allow_html=True)
 
+    export_df = pd.DataFrame(
+        [
+            {
+                "티커": i["ticker"],
+                "종목명": i.get("name") or i["ticker"],
+                "수량": i["tot"].get("qty"),
+                "평균단가": i["tot"].get("avg"),
+                "현재가": i["tot"].get("price"),
+                "평가금액": i["tot"].get("value"),
+                "수익률(%)": i["tot"].get("return_%"),
+                "통화": i["tot"].get("ccy"),
+            }
+            for i in items
+        ]
+    )
+    download_csv_button(export_df, filename_prefix="holdings", key="export_holdings_csv")
+
     tickers = [i["ticker"] for i in items]
     if not tickers:
         st.info("검색 결과가 없습니다.")
@@ -556,43 +625,46 @@ def view_holdings(
 
     months = period_radio(key="dash_period_holdings", default="1년")
     hdf = filter_by_period(_load_holding_snaps(client), months, date_col="snapshot_date")
-    if hdf.empty or "market_value_krw" not in hdf.columns:
+    if not hdf.empty and "market_value_krw" in hdf.columns:
+        one = hdf[hdf["ticker"] == pick]
+        if account_label != "전체":
+            ids = {r.get("account_id") for r in chosen["accounts"] if r.get("account_id")}
+            if ids and "account_id" in one.columns:
+                one = one[one["account_id"].astype(str).isin(ids)]
+        one = one.sort_values("snapshot_date")
+        if not one.empty:
+            summed = one.groupby("snapshot_date", as_index=False)["market_value_krw"].sum()
+            fig = go.Figure(
+                go.Scatter(
+                    x=summed["snapshot_date"],
+                    y=summed["market_value_krw"],
+                    mode="lines",
+                    line=dict(color=PRIMARY, width=2.5),
+                    fill="tozeroy",
+                    fillcolor="rgba(3,199,90,0.10)",
+                    name="평가액(원)",
+                )
+            )
+            title_name = chosen.get("name") or pick
+            fig.update_layout(
+                **chart_layout(220, with_title=True),
+                title=f"{title_name} 평가액",
+                yaxis_title="원",
+            )
+            show_plotly(fig)
+        else:
+            st.caption("이 종목의 추이 데이터가 없습니다.")
+    else:
         st.caption("선택한 기간에 평가액 추이가 없습니다.")
-        return
-    one = hdf[hdf["ticker"] == pick]
-    if account_label != "전체":
-        ids = {r.get("account_id") for r in chosen["accounts"] if r.get("account_id")}
-        if ids and "account_id" in one.columns:
-            one = one[one["account_id"].astype(str).isin(ids)]
-    one = one.sort_values("snapshot_date")
-    if one.empty:
-        st.caption("이 종목의 추이 데이터가 없습니다.")
-        return
-    summed = one.groupby("snapshot_date", as_index=False)["market_value_krw"].sum()
-    fig = go.Figure(
-        go.Scatter(
-            x=summed["snapshot_date"],
-            y=summed["market_value_krw"],
-            mode="lines",
-            line=dict(color=PRIMARY, width=2.5),
-            fill="tozeroy",
-            fillcolor="rgba(3,199,90,0.10)",
-            name="평가액(원)",
-        )
-    )
-    title_name = chosen.get("name") or pick
-    fig.update_layout(
-        **chart_layout(220, with_title=True),
-        title=f"{title_name} 평가액",
-        yaxis_title="원",
-    )
-    show_plotly(fig)
+
+    render_ticker_history(client, pick, account_ids=account_ids)
+
 
 
 def main() -> None:
     page_hero(
         "내 자산",
-        "계좌를 고르면 홈·보유·손익·거래·부채를 그 증권사 기준으로 봅니다.",
+        "계좌를 고르면 홈·보유·손익·배당·거래·관심·부채를 그 증권사 기준으로 봅니다.",
         compact=True,
     )
     view = render_subnav(VIEWS, state_key="dash_view", default="홈")
@@ -600,9 +672,17 @@ def main() -> None:
     user, client = require_auth()
     ensure_profile(user, client)
 
+    # Surface price alerts early
+    try:
+        evaluate_alerts(client, str(user.id))
+        if view not in ("관심",):
+            render_alert_banners(client, str(user.id))
+    except Exception:
+        pass
+
     account_label = "전체"
     account_ids = None
-    if view != "세금":
+    if view not in ("세금", "관심"):
         account_label = render_account_selector(client)
         account_ids = account_ids_for_label(client, account_label)
 
@@ -622,13 +702,16 @@ def main() -> None:
                 total_debt if account_ids is None else 0.0,
                 any_stale,
                 account_label=account_label,
+                account_ids=account_ids,
                 stats=stats,
+                usdkrw=usdkrw,
             )
         else:
             view_holdings(
                 client,
                 filtered,
                 account_label=account_label,
+                account_ids=account_ids,
                 stats=stats,
             )
     elif view == "손익":
@@ -638,12 +721,21 @@ def main() -> None:
             account_ids=account_ids,
             account_label=account_label,
         )
+    elif view == "배당":
+        render_dividend_calendar(
+            client,
+            account_ids=account_ids,
+            account_label=account_label,
+            usdkrw=usdkrw,
+        )
     elif view == "거래":
         render_flow_charts(
             client,
             account_ids=account_ids,
             account_label=account_label,
         )
+    elif view == "관심":
+        render_watchlist_panel(client, user)
     elif view == "부채":
         render_debt_dashboard(
             client,

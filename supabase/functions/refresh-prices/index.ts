@@ -105,6 +105,47 @@ async function usdKrw() {
   return Number(rate);
 }
 
+async function yahooIndex(symbol: string): Promise<number> {
+  const url =
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+  const res = await fetch(url, { headers: UA });
+  if (!res.ok) throw new Error(`Yahoo index ${symbol} HTTP ${res.status}`);
+  const payload = await res.json();
+  const result = payload?.chart?.result?.[0];
+  if (!result) throw new Error(`Yahoo index ${symbol} empty`);
+  const meta = result.meta ?? {};
+  let price = meta.regularMarketPrice;
+  if (price == null) {
+    const closes = result.indicators?.quote?.[0]?.close ?? [];
+    for (let i = closes.length - 1; i >= 0; i--) {
+      if (closes[i] != null) {
+        price = closes[i];
+        break;
+      }
+    }
+  }
+  if (price == null) throw new Error(`Yahoo index ${symbol} no price`);
+  return Number(price);
+}
+
+async function fetchIndices(): Promise<{ values: Record<string, number>; errors: string[] }> {
+  const map: Record<string, string> = {
+    sp500: "^GSPC",
+    nasdaq: "^IXIC",
+    kospi: "^KS11",
+  };
+  const values: Record<string, number> = {};
+  const errors: string[] = [];
+  for (const [col, sym] of Object.entries(map)) {
+    try {
+      values[col] = await yahooIndex(sym);
+    } catch (e) {
+      errors.push(`${col}(${sym}): ${e}`);
+    }
+  }
+  return { values, errors };
+}
+
 Deno.serve(async (_req) => {
   try {
     const supabase = createClient(
@@ -158,10 +199,13 @@ Deno.serve(async (_req) => {
       currency: "KRW",
       updated_at: new Date().toISOString(),
     });
+    const { values: indices, errors: idxErrors } = await fetchIndices();
+    errors.push(...idxErrors);
     const today = new Date().toISOString().slice(0, 10);
     await supabase.from("market_index_snapshots").upsert({
       snapshot_date: today,
       usdkrw: fx,
+      ...indices,
     });
     const { data: snapshot, error: snapErr } = await supabase.rpc(
       "compute_daily_snapshot",
@@ -171,10 +215,18 @@ Deno.serve(async (_req) => {
         ok: true,
         updated: rows.length,
         fx,
+        indices,
         errors: [...errors, `snapshot: ${snapErr.message}`],
       });
     }
-    return Response.json({ ok: true, updated: rows.length, fx, errors, snapshot });
+    return Response.json({
+      ok: true,
+      updated: rows.length,
+      fx,
+      indices,
+      errors,
+      snapshot,
+    });
   } catch (e) {
     return Response.json({ ok: false, error: String(e) }, { status: 500 });
   }

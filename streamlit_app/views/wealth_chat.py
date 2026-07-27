@@ -16,6 +16,7 @@ from lib.gemini_client import GeminiError, chat_about_wealth  # noqa: E402
 from lib.jobs import briefing_text_from_result, invoke_edge  # noqa: E402
 from lib.push_ui import render_push_subscribe  # noqa: E402
 from lib.theme import apply_theme, page_hero  # noqa: E402
+from lib.watchlist_ui import evaluate_alerts, render_alert_banners  # noqa: E402
 from lib.wealth_context import (  # noqa: E402
     build_wealth_context,
     context_to_prompt_block,
@@ -96,7 +97,14 @@ def main() -> None:
         render_push_subscribe(user_id=str(user.id), access_token=access)
         c1, c2, c3 = st.columns(3)
         if c1.button("시세 갱신", key="chat_refresh_px"):
-            st.json(invoke_edge("refresh-prices", access))
+            result = invoke_edge("refresh-prices", access)
+            st.json(result)
+            try:
+                n = evaluate_alerts(client, str(user.id))
+                if n:
+                    st.success(f"목표가/손절가 알림 {len(n)}건 발생")
+            except Exception:
+                pass
         if c2.button("야간 백업", key="chat_backup"):
             st.json(invoke_edge("nightly-backup", access))
         if c3.button("오늘 스냅샷", key="chat_snap"):
@@ -104,6 +112,11 @@ def main() -> None:
                 st.success(client.rpc("compute_daily_snapshot").execute().data)
             except Exception as exc:
                 st.error(str(exc))
+
+    try:
+        render_alert_banners(client, str(user.id))
+    except Exception:
+        pass
 
     if want_brief:
         st.session_state.wealth_chat.append(

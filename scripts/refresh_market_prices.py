@@ -15,7 +15,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "streamlit_app"))
 load_dotenv(ROOT / ".env")
 
-from lib.market_data import fetch_usdkrw, refresh_tickers, sync_holding_names  # noqa: E402
+from lib.market_data import (  # noqa: E402
+    fetch_market_indices,
+    fetch_usdkrw,
+    refresh_tickers,
+    sync_holding_names,
+)
 from lib.supabase_client import get_service_client  # noqa: E402
 
 
@@ -49,16 +54,10 @@ def main() -> int:
     for e in errors:
         print(f"warn: {e}", file=sys.stderr)
 
+    index_row: dict = {"snapshot_date": date.today().isoformat()}
     try:
         usdkrw = fetch_usdkrw()
-        client.table("market_index_snapshots").upsert(
-            {
-                "snapshot_date": date.today().isoformat(),
-                "usdkrw": usdkrw,
-            },
-            on_conflict="snapshot_date",
-        ).execute()
-        # also store FX as pseudo ticker for joins if useful
+        index_row["usdkrw"] = usdkrw
         client.table("market_prices").upsert(
             {
                 "ticker": "USDKRW",
@@ -70,6 +69,23 @@ def main() -> int:
         print(f"USD/KRW={usdkrw}")
     except Exception as exc:  # noqa: BLE001
         print(f"warn: FX failed: {exc}", file=sys.stderr)
+
+    try:
+        indices, idx_errs = fetch_market_indices()
+        index_row.update(indices)
+        for e in idx_errs:
+            print(f"warn: index {e}", file=sys.stderr)
+        print(f"indices={indices}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"warn: indices failed: {exc}", file=sys.stderr)
+
+    if len(index_row) > 1:
+        try:
+            client.table("market_index_snapshots").upsert(
+                index_row, on_conflict="snapshot_date"
+            ).execute()
+        except Exception as exc:  # noqa: BLE001
+            print(f"warn: index snapshot upsert failed: {exc}", file=sys.stderr)
 
     return 0 if rows or not tickers else 1
 
