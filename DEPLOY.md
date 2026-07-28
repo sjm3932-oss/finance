@@ -63,7 +63,7 @@ Supabase 콜백만 있으면 됩니다 (앱 URL이 바뀌어도 동일):
 북마크는 **오직** `https://….streamlit.app`  
 `trycloudflare.com` / `pinggy.net` / `app-gateway` 는 더 이상 쓰지 않습니다.
 
-## Next.js (Phase 0, 병행)
+## Next.js (Phase 0–1, 병행)
 
 `web/` 앱은 Vercel 등에 별도 배포합니다. Root Directory = `web`.
 
