@@ -11,7 +11,7 @@
 
 | 앱 | 경로 | 상태 |
 |----|------|------|
-| **Next.js (신규)** | [`web/`](./web/) | Phase 0–2a: 읽기 UX + 수기 기록 |
+| **Next.js (신규)** | [`web/`](./web/) | Streamlit 읽기 UX 이식 + 수기 기록 (OCR/챗/한투는 병행) |
 | **Streamlit** | `streamlit_app/` | 기록(OCR/수기)·승인·챗 등 기존 기능 |
 
 Next 로컬: `cd web && cp .env.example .env.local && npm i && npm run dev`  
