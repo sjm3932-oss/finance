@@ -23,17 +23,23 @@ const LINKS = [
   },
   {
     title: "관심종목",
-    body: "목표가 · 손절 알림",
+    body: "등록 · 목표가/손절 · 알림",
     href: "/more/watchlist",
   },
   {
     title: "세금",
-    body: "양도차익 · 예상세",
+    body: "양도차익 입력 · 예상세",
     href: "/more/tax",
   },
   {
     title: "OCR · 승인 (Streamlit)",
-    body: "스크린샷 업로드는 당분간 Streamlit",
+    body: "스크린샷 AI 인식은 당분간 Streamlit (아래 설명 참고)",
+    href: process.env.NEXT_PUBLIC_STREAMLIT_URL || "https://richddoong.streamlit.app",
+    external: true,
+  },
+  {
+    title: "자산 챗 (Streamlit)",
+    body: "Gemini 상담은 당분간 Streamlit",
     href: process.env.NEXT_PUBLIC_STREAMLIT_URL || "https://richddoong.streamlit.app",
     external: true,
   },
