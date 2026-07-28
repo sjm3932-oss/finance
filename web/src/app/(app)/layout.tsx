@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { BottomNav } from "@/components/BottomNav";
-import { RecordFab } from "@/components/RecordFab";
+import { AiFab } from "@/components/AiFab";
 import { LogoutButton } from "@/components/AuthButtons";
 import { displayNameFromUser, isEmailAllowed } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -52,7 +52,7 @@ export default async function AppLayout({
         <LogoutButton />
       </header>
       <div className="safe-pb px-4 pt-4">{children}</div>
-      <RecordFab />
+      <AiFab />
       <BottomNav />
     </div>
   );

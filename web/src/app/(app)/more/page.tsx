@@ -2,19 +2,14 @@ import Link from "next/link";
 
 const LINKS = [
   {
-    title: "기록하기 (수기)",
-    body: "계좌 · 기타자산 · 매매 · 부채",
+    title: "기록하기",
+    body: "계좌 · 매매 · 배당 · 현금 · 부채 · 기타자산",
     href: "/record",
   },
   {
     title: "OCR · 승인",
     body: "스크린샷 → Edge Gemini → 검토/승인",
     href: "/ocr",
-  },
-  {
-    title: "자산 챗",
-    body: "Edge Gemini · 보유/시세 기반 질의",
-    href: "/chat",
   },
   {
     title: "순자산 구성",
@@ -52,7 +47,9 @@ export default function MorePage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">더보기</h1>
-        <p className="mt-1 text-sm text-muted">기록 · OCR · 챗 · 순자산 · 세금</p>
+        <p className="mt-1 text-sm text-muted">
+          기록 · OCR · 순자산 · 세금 · 관심종목
+        </p>
       </div>
       <div className="space-y-3">
         {LINKS.map((item) => {
