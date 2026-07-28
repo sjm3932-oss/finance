@@ -71,6 +71,15 @@ After the couple user has logged in once, replace OCR uploads / sparse ledger ro
 
 This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tables for `sjm3932@gmail.com`. Re-run anytime to reset.
 
+**실데이터로 전환할 때 (더미 삭제):** Supabase SQL Editor에서 [`supabase/clear_dummy_data.sql`](./supabase/clear_dummy_data.sql) 실행.  
+또는:
+
+```bash
+.venv/bin/python scripts/clear_dummy_data.py
+```
+
+삭제 후 Next 「기록 → 계좌」에서 실계좌를 다시 만드세요. `seed_dummy_data.py`는 다시 돌리지 마세요.
+
 ### Supabase Auth
 
 1. Enable Google provider in Authentication → Providers
