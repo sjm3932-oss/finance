@@ -4,12 +4,38 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { splitMonthlyPayment, type ActionResult } from "@/lib/record";
 
+function humanizeDbError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("duplicate") || m.includes("unique")) {
+    return "이미 같은 데이터가 있습니다.";
+  }
+  if (m.includes("foreign key") || m.includes("violates")) {
+    return "연결된 계좌/항목을 확인하세요.";
+  }
+  if (m.includes("permission") || m.includes("rls") || m.includes("policy")) {
+    return "저장 권한이 없습니다. 로그인 상태를 확인하세요.";
+  }
+  if (m.includes("oversell") || m.includes("insufficient")) {
+    return "매도 수량이 보유보다 많습니다.";
+  }
+  if (m.includes("jwt") || m.includes("auth")) {
+    return "로그인이 만료되었습니다. 다시 로그인해 주세요.";
+  }
+  // Keep short original if already Korean-ish, else generic
+  if (/[가-힣]/.test(message)) return message;
+  return "저장에 실패했습니다. 입력값을 확인한 뒤 다시 시도하세요.";
+}
+
 function fail(message: string): ActionResult {
   return { ok: false, message };
 }
 
 function ok(message: string): ActionResult {
   return { ok: true, message };
+}
+
+function dbFail(error: { message: string } | null): ActionResult {
+  return fail(humanizeDbError(error?.message || "저장 실패"));
 }
 
 async function requireUser() {
@@ -78,7 +104,7 @@ export async function createAccount(formData: FormData): Promise<ActionResult> {
         currency,
       }));
     }
-    if (error) return fail(error.message);
+    if (error) return dbFail(error);
     revalidateRecord();
     return ok(`${institution} (${currency}) 계좌를 추가했습니다.`);
   } catch (e) {
@@ -101,7 +127,7 @@ export async function updateAccountCash(formData: FormData): Promise<ActionResul
       .from("accounts")
       .update({ cash_balance, ownership })
       .eq("id", id);
-    if (error) return fail(error.message);
+    if (error) return dbFail(error);
     revalidateRecord();
     return ok("계좌 현금·소유를 저장했습니다.");
   } catch (e) {
@@ -131,7 +157,7 @@ export async function createOtherAsset(formData: FormData): Promise<ActionResult
       memo,
       updated_at: new Date().toISOString(),
     });
-    if (error) return fail(error.message);
+    if (error) return dbFail(error);
     revalidateRecord();
     return ok("기타자산을 추가했습니다.");
   } catch (e) {
@@ -153,7 +179,7 @@ export async function updateOtherAssetValue(formData: FormData): Promise<ActionR
       .from("other_assets")
       .update({ value_krw, updated_at: new Date().toISOString() })
       .eq("id", id);
-    if (error) return fail(error.message);
+    if (error) return dbFail(error);
     revalidateRecord();
     return ok("평가액을 수정했습니다.");
   } catch (e) {
@@ -167,7 +193,7 @@ export async function deleteOtherAsset(formData: FormData): Promise<ActionResult
     const id = str(formData.get("id"));
     if (!id) return fail("항목을 선택하세요.");
     const { error } = await supabase.from("other_assets").delete().eq("id", id);
-    if (error) return fail(error.message);
+    if (error) return dbFail(error);
     revalidateRecord();
     return ok("기타자산을 삭제했습니다.");
   } catch (e) {
@@ -190,7 +216,7 @@ export async function saveAllocationTargets(formData: FormData): Promise<ActionR
         target_pct: pct,
         updated_at: now,
       });
-      if (error) return fail(error.message);
+      if (error) return dbFail(error);
     }
     revalidateRecord();
     return ok("목표 배분을 저장했습니다.");
@@ -231,7 +257,7 @@ export async function createTrade(formData: FormData): Promise<ActionResult> {
       created_by: user.id,
       adjust_holdings: true,
     });
-    if (error) return fail(error.message);
+    if (error) return dbFail(error);
     revalidateRecord();
     return ok("매매를 기록했습니다. 보유가 반영됩니다.");
   } catch (e) {
@@ -266,7 +292,7 @@ export async function createDividend(formData: FormData): Promise<ActionResult> 
     if (account_id) payload.account_id = account_id;
 
     const { error } = await supabase.from("dividends").insert(payload);
-    if (error) return fail(error.message);
+    if (error) return dbFail(error);
     revalidateRecord();
     return ok("배당을 기록했습니다.");
   } catch (e) {
@@ -301,7 +327,7 @@ export async function createCashFlow(formData: FormData): Promise<ActionResult> 
     if (account_id) payload.account_id = account_id;
 
     const { error } = await supabase.from("cash_flows").insert(payload);
-    if (error) return fail(error.message);
+    if (error) return dbFail(error);
     revalidateRecord();
     return ok("현금흐름을 기록했습니다.");
   } catch (e) {
@@ -319,6 +345,7 @@ export async function createDebt(formData: FormData): Promise<ActionResult> {
     const interest_rate = num(formData.get("interest_rate"));
     const due_date = str(formData.get("due_date")) || null;
     const account_id = str(formData.get("account_id")) || null;
+    const ownership = str(formData.get("ownership")) || "joint";
     const memo = str(formData.get("memo")) || null;
 
     if (!lender) return fail("대출명/기관을 입력하세요.");
@@ -338,6 +365,7 @@ export async function createDebt(formData: FormData): Promise<ActionResult> {
       original_principal,
       interest_rate,
       due_date,
+      ownership,
       memo,
     };
     if (account_id) payload.account_id = account_id;
@@ -355,7 +383,7 @@ export async function createDebt(formData: FormData): Promise<ActionResult> {
         .select("id")
         .single());
     }
-    if (error) return fail(error.message);
+    if (error) return dbFail(error);
 
     if (data?.id) {
       await supabase.from("debt_rate_history").insert({
@@ -393,7 +421,7 @@ export async function changeDebtRate(formData: FormData): Promise<ActionResult> 
       .from("debts")
       .update({ interest_rate })
       .eq("id", debt_id);
-    if (uerr) return fail(uerr.message);
+    if (uerr) return dbFail(uerr);
 
     const { error } = await supabase.from("debt_rate_history").insert({
       debt_id,
@@ -402,7 +430,7 @@ export async function changeDebtRate(formData: FormData): Promise<ActionResult> 
       interest_rate,
       memo,
     });
-    if (error) return fail(error.message);
+    if (error) return dbFail(error);
     revalidateRecord();
     return ok("이자율을 변경했습니다.");
   } catch (e) {
@@ -427,7 +455,7 @@ export async function recordDebtPayment(formData: FormData): Promise<ActionResul
       .select("id,principal,interest_rate")
       .eq("id", debt_id)
       .single();
-    if (derr || !debt) return fail(derr?.message || "부채를 찾을 수 없습니다.");
+    if (derr || !debt) return fail(derr ? humanizeDbError(derr.message) : "부채를 찾을 수 없습니다.");
 
     const bal = Number(debt.principal || 0);
     const rate = Number(debt.interest_rate || 0);
@@ -447,7 +475,7 @@ export async function recordDebtPayment(formData: FormData): Promise<ActionResul
       balance_after,
       rate_used: rate,
     });
-    if (error) return fail(error.message);
+    if (error) return dbFail(error);
     revalidateRecord();
     return ok("납부를 기록했습니다. 잔금이 반영됩니다.");
   } catch (e) {
@@ -476,7 +504,7 @@ export async function adjustDebt(formData: FormData): Promise<ActionResult> {
       .select("id,principal,interest_rate")
       .eq("id", debt_id)
       .single();
-    if (derr || !debt) return fail(derr?.message || "부채를 찾을 수 없습니다.");
+    if (derr || !debt) return fail(derr ? humanizeDbError(derr.message) : "부채를 찾을 수 없습니다.");
 
     const bal = Number(debt.principal || 0);
     const rate = Number(debt.interest_rate || 0);
@@ -492,7 +520,7 @@ export async function adjustDebt(formData: FormData): Promise<ActionResult> {
       balance_before: bal,
       rate_used: rate,
     });
-    if (error) return fail(error.message);
+    if (error) return dbFail(error);
     revalidateRecord();
     return ok(
       tx_type === "increase" ? "추가 차입을 기록했습니다." : "원금 상환을 기록했습니다."

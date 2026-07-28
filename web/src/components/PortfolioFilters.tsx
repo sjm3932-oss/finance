@@ -1,5 +1,6 @@
 "use client";
 
+import { useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { OWNERSHIP_KO } from "@/lib/portfolio";
 
@@ -18,6 +19,7 @@ export function PortfolioFilters({
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const [pending, start] = useTransition();
   const own = params.get("own") || "전체";
   const inst = params.get("inst") || "전체";
 
@@ -26,13 +28,18 @@ export function PortfolioFilters({
     if (!value || value === "전체") next.delete(key);
     else next.set(key, value);
     const q = next.toString();
-    router.push(q ? `${pathname}?${q}` : pathname);
+    start(() => {
+      router.push(q ? `${pathname}?${q}` : pathname);
+    });
   }
 
   const instOpts = ["전체", ...institutions];
 
   return (
-    <div className="space-y-2">
+    <div className={`space-y-2 ${pending ? "opacity-70" : ""}`}>
+      {pending ? (
+        <p className="text-[11px] font-semibold text-brand">필터 적용 중…</p>
+      ) : null}
       <div className="flex flex-wrap gap-1.5">
         {OWNER_OPTS.map((o) => {
           const active = own === o.value;
@@ -40,8 +47,10 @@ export function PortfolioFilters({
             <button
               key={o.value}
               type="button"
+              disabled={pending}
+              aria-pressed={active}
               onClick={() => setParam("own", o.value)}
-              className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition ${
+              className={`min-h-9 rounded-lg px-3 py-2 text-xs font-bold transition disabled:cursor-wait ${
                 active
                   ? "bg-brand text-white"
                   : "bg-surface text-muted ring-1 ring-line"
@@ -60,8 +69,10 @@ export function PortfolioFilters({
               <button
                 key={name}
                 type="button"
+                disabled={pending}
+                aria-pressed={active}
                 onClick={() => setParam("inst", name)}
-                className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition ${
+                className={`min-h-9 rounded-lg px-3 py-2 text-xs font-bold transition disabled:cursor-wait ${
                   active
                     ? "bg-ink text-white"
                     : "bg-surface text-muted ring-1 ring-line"
@@ -72,6 +83,11 @@ export function PortfolioFilters({
             );
           })}
         </div>
+      ) : null}
+      {inst !== "전체" ? (
+        <p className="text-[11px] text-muted">
+          계좌 필터 중에는 기타자산·부채가 순자산에서 제외됩니다.
+        </p>
       ) : null}
     </div>
   );

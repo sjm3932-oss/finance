@@ -29,7 +29,18 @@ export default async function HoldingsPage({
       <Suspense fallback={null}>
         <PortfolioFilters institutions={institutions} />
       </Suspense>
-      <HoldingList items={byTicker} linkable />
+      <HoldingList
+        items={byTicker}
+        linkable
+        query={
+          [
+            sp.own ? `own=${encodeURIComponent(sp.own)}` : "",
+            sp.inst ? `inst=${encodeURIComponent(sp.inst)}` : "",
+          ]
+            .filter(Boolean)
+            .join("&")
+        }
+      />
     </div>
   );
 }

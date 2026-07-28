@@ -153,7 +153,14 @@ export function buildLiveHoldings(
     const price = mp?.price ?? null;
     const qty = Number(h.quantity || 0);
     const avg = Number(h.avg_price || 0);
-    const ccy = (h.currency || mp?.currency || "USD").toUpperCase();
+    // Prefer holding currency → price currency → account currency → KRW
+    // (never assume USD; that silently breaks KRW tickers)
+    const ccy = (
+      h.currency ||
+      mp?.currency ||
+      acct?.currency ||
+      "KRW"
+    ).toUpperCase();
     const value = price !== null ? price * qty : null;
     const value_krw = value !== null ? toKrw(value, ccy, usdkrw) : null;
     const cost_krw = toKrw(qty * avg, ccy, usdkrw);

@@ -62,18 +62,63 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
     ).map((a) => ({ ...a, ownership: "joint", cash_balance: 0 }));
   }
 
-  const holdings = await safeSelect<HoldingRow>(() =>
-    supabase.from("holdings").select("*")
-  );
-  const priceRows = await safeSelect<PriceRow>(() =>
-    supabase.from("market_prices").select("ticker,price,currency,updated_at")
-  );
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  const monthIso = monthStart.toISOString().slice(0, 10);
 
-  let debts = await safeSelect<DebtRow>(() =>
-    supabase
-      .from("debts")
-      .select("id,lender,principal,due_date,ownership,interest_rate,debt_kind")
-  );
+  const [
+    holdings,
+    priceRows,
+    debtsRaw,
+    otherRaw,
+    targetRows,
+    snaps,
+    alerts,
+    realizedRows,
+  ] = await Promise.all([
+    safeSelect<HoldingRow>(() => supabase.from("holdings").select("*")),
+    safeSelect<PriceRow>(() =>
+      supabase.from("market_prices").select("ticker,price,currency,updated_at")
+    ),
+    safeSelect<DebtRow>(() =>
+      supabase
+        .from("debts")
+        .select("id,lender,principal,due_date,ownership,interest_rate,debt_kind")
+    ),
+    safeSelect<OtherAssetRow>(() =>
+      supabase
+        .from("other_assets")
+        .select("id,name,asset_kind,value_krw,ownership,memo")
+    ),
+    safeSelect<{ category: string; target_pct: number | null }>(() =>
+      supabase.from("allocation_targets").select("category,target_pct")
+    ),
+    safeSelect<DailySnap>(() =>
+      supabase
+        .from("daily_snapshots")
+        .select(
+          "snapshot_date,net_assets,total_investment,total_debt,total_cash,total_other"
+        )
+        .order("snapshot_date", { ascending: false })
+        .limit(400)
+    ),
+    safeSelect<WealthAlert>(() =>
+      supabase
+        .from("wealth_alert_events")
+        .select("id,alert_kind,title,body,created_at")
+        .eq("acknowledged", false)
+        .order("created_at", { ascending: false })
+        .limit(10)
+    ),
+    safeSelect<{ pnl_krw?: number | null; pnl?: number | null }>(() =>
+      supabase
+        .from("v_total_realized_pnl")
+        .select("event_date,pnl_krw,pnl,currency")
+        .gte("event_date", monthIso)
+    ),
+  ]);
+
+  let debts = debtsRaw;
   if (!debts.length) {
     debts = (
       await safeSelect<{ principal: number | null }>(() =>
@@ -86,53 +131,13 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
     }));
   }
 
-  let otherAssets = await safeSelect<OtherAssetRow>(() =>
-    supabase
-      .from("other_assets")
-      .select("id,name,asset_kind,value_krw,ownership,memo")
-  );
+  let otherAssets = otherRaw;
   if (!otherAssets.length) {
     otherAssets = await safeSelect<OtherAssetRow>(() =>
       supabase.from("other_assets").select("value_krw,ownership")
     );
   }
 
-  const targetRows = await safeSelect<{
-    category: string;
-    target_pct: number | null;
-  }>(() => supabase.from("allocation_targets").select("category,target_pct"));
-
-  const snaps = await safeSelect<DailySnap>(() =>
-    supabase
-      .from("daily_snapshots")
-      .select(
-        "snapshot_date,net_assets,total_investment,total_debt,total_cash,total_other"
-      )
-      .order("snapshot_date", { ascending: false })
-      .limit(90)
-  );
-
-  const alerts = await safeSelect<WealthAlert>(() =>
-    supabase
-      .from("wealth_alert_events")
-      .select("id,alert_kind,title,body,created_at")
-      .eq("acknowledged", false)
-      .order("created_at", { ascending: false })
-      .limit(10)
-  );
-
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  const monthIso = monthStart.toISOString().slice(0, 10);
-  const realizedRows = await safeSelect<{
-    pnl_krw?: number | null;
-    pnl?: number | null;
-  }>(() =>
-    supabase
-      .from("v_total_realized_pnl")
-      .select("event_date,pnl_krw,pnl,currency")
-      .gte("event_date", monthIso)
-  );
   const realizedMonth = realizedRows.length
     ? realizedRows.reduce(
         (s, r) => s + Number(r.pnl_krw ?? r.pnl ?? 0),

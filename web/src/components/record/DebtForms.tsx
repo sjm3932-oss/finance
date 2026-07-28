@@ -6,7 +6,7 @@ import {
   recordDebtPayment,
   adjustDebt,
 } from "@/lib/actions/record";
-import { DEBT_KIND_OPTIONS } from "@/lib/record";
+import { DEBT_KIND_OPTIONS, OWNERSHIP_OPTIONS } from "@/lib/record";
 import { ActionForm, Field, Panel, inputClass } from "@/components/record/FormUI";
 import { fmtKrw } from "@/lib/money";
 
@@ -73,6 +73,15 @@ export function DebtForms({
           </Field>
           <Field label="만기일">
             <input name="due_date" type="date" className={inputClass} />
+          </Field>
+          <Field label="소유">
+            <select name="ownership" className={inputClass} defaultValue="joint">
+              {OWNERSHIP_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           </Field>
           <Field label="연결 계좌 (선택)">
             <select name="account_id" className={inputClass} defaultValue="">

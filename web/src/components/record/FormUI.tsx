@@ -53,8 +53,11 @@ export function ActionForm({
       </button>
       {msg ? (
         <p
-          className={`text-sm font-semibold ${
-            msg.ok ? "text-brand-dark" : "text-up"
+          role="status"
+          className={`rounded-xl px-3 py-2 text-sm font-semibold ${
+            msg.ok
+              ? "bg-brand-soft text-brand-dark"
+              : "bg-rose-50 text-up"
           }`}
         >
           {msg.text}

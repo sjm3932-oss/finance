@@ -99,26 +99,58 @@ export async function loadRealizedRows(
   const supabase = await createClient();
   const rows: RealizedRow[] = [];
 
-  let trades = await safeSelect<{
-    trade_date: string;
-    ticker: string;
-    realized_pnl: number | null;
-    currency: string | null;
-    account_id: string;
-    quantity: number | null;
-    price: number | null;
-    trade_type: string;
-  }>(() =>
-    supabase
-      .from("trades")
-      .select(
-        "trade_date,ticker,realized_pnl,currency,account_id,quantity,price,trade_type"
-      )
-      .eq("trade_type", "sell")
-      .not("realized_pnl", "is", null)
-      .order("trade_date", { ascending: false })
-      .limit(500)
-  );
+  const [tradesAll, dividendsAll, cash] = await Promise.all([
+    safeSelect<{
+      trade_date: string;
+      ticker: string;
+      realized_pnl: number | null;
+      currency: string | null;
+      account_id: string;
+      quantity: number | null;
+      price: number | null;
+      trade_type: string;
+    }>(() =>
+      supabase
+        .from("trades")
+        .select(
+          "trade_date,ticker,realized_pnl,currency,account_id,quantity,price,trade_type"
+        )
+        .eq("trade_type", "sell")
+        .not("realized_pnl", "is", null)
+        .order("trade_date", { ascending: false })
+        .limit(500)
+    ),
+    safeSelect<{
+      pay_date: string;
+      ticker: string;
+      name: string | null;
+      amount: number;
+      currency: string | null;
+      account_id: string | null;
+    }>(() =>
+      supabase
+        .from("dividends")
+        .select("pay_date,ticker,name,amount,currency,account_id")
+        .order("pay_date", { ascending: false })
+        .limit(500)
+    ),
+    safeSelect<{
+      flow_date: string;
+      category: string | null;
+      amount: number;
+      currency: string | null;
+      account_id: string | null;
+      flow_type: string;
+    }>(() =>
+      supabase
+        .from("cash_flows")
+        .select("flow_date,category,amount,currency,account_id,flow_type")
+        .eq("flow_type", "income")
+        .limit(300)
+    ),
+  ]);
+
+  let trades = tradesAll;
   if (accountIds) {
     trades = trades.filter((t) => accountIds.includes(t.account_id));
   }
@@ -139,20 +171,7 @@ export async function loadRealizedRows(
     });
   }
 
-  let dividends = await safeSelect<{
-    pay_date: string;
-    ticker: string;
-    name: string | null;
-    amount: number;
-    currency: string | null;
-    account_id: string | null;
-  }>(() =>
-    supabase
-      .from("dividends")
-      .select("pay_date,ticker,name,amount,currency,account_id")
-      .order("pay_date", { ascending: false })
-      .limit(500)
-  );
+  let dividends = dividendsAll;
   if (accountIds) {
     dividends = dividends.filter(
       (d) => d.account_id && accountIds.includes(d.account_id)
@@ -175,20 +194,6 @@ export async function loadRealizedRows(
     });
   }
 
-  const cash = await safeSelect<{
-    flow_date: string;
-    category: string | null;
-    amount: number;
-    currency: string | null;
-    account_id: string | null;
-    flow_type: string;
-  }>(() =>
-    supabase
-      .from("cash_flows")
-      .select("flow_date,category,amount,currency,account_id,flow_type")
-      .eq("flow_type", "income")
-      .limit(300)
-  );
   for (const c of cash) {
     if (!(c.category || "").includes("이자")) continue;
     if (accountIds && c.account_id && !accountIds.includes(c.account_id)) {

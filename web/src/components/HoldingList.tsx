@@ -22,17 +22,26 @@ function initials(name: string, ticker: string) {
 export function HoldingList({
   items,
   linkable = false,
+  query = "",
 }: {
   items: Item[];
   linkable?: boolean;
+  /** Preserve filters, e.g. `own=mine&inst=키움` */
+  query?: string;
 }) {
   if (!items.length) {
     return (
       <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-10 text-center text-sm text-muted">
-        표시할 보유가 없습니다. 「기록」에서 수기로 등록하세요.
+        표시할 보유가 없습니다.{" "}
+        <Link href="/record" className="font-semibold text-brand">
+          더보기 → 기록하기
+        </Link>
+        에서 등록하세요.
       </div>
     );
   }
+
+  const q = query ? `?${query}` : "";
 
   return (
     <div className="overflow-hidden rounded-2xl border border-line bg-surface">
@@ -81,11 +90,11 @@ export function HoldingList({
           </>
         );
         const className =
-          "flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-b-0";
+          "flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-b-0 active:bg-canvas";
         return linkable ? (
           <Link
             key={it.ticker}
-            href={`/holdings/${encodeURIComponent(it.ticker)}`}
+            href={`/holdings/${encodeURIComponent(it.ticker)}${q}`}
             className={className}
           >
             {inner}

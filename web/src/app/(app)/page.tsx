@@ -113,7 +113,18 @@ export default async function HomePage({
             전체
           </Link>
         </div>
-        <HoldingList items={byTicker.slice(0, 8)} linkable />
+        <HoldingList
+          items={byTicker.slice(0, 8)}
+          linkable
+          query={
+            [
+              sp.own ? `own=${encodeURIComponent(sp.own)}` : "",
+              sp.inst ? `inst=${encodeURIComponent(sp.inst)}` : "",
+            ]
+              .filter(Boolean)
+              .join("&")
+          }
+        />
       </section>
 
       <div className="flex flex-wrap gap-3 text-sm font-semibold">

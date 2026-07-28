@@ -121,7 +121,7 @@ export default async function FlowsPage({
         })}
         {!flows.length ? (
           <p className="px-4 py-8 text-center text-sm text-muted">
-            거래 데이터가 없습니다. (`v_asset_flows`)
+            거래 데이터가 없습니다. 매매·배당·현금을 기록하면 여기에 쌓입니다.
           </p>
         ) : null}
       </section>

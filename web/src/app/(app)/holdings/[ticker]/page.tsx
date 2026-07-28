@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { loadPortfolioSnapshot } from "@/lib/data";
 import { loadTickerHistory } from "@/lib/data-insights";
 import { accountIdsForInstitution } from "@/lib/portfolio";
@@ -7,18 +8,29 @@ import { NetWorthTrend } from "@/components/NetWorthTrend";
 
 export const dynamic = "force-dynamic";
 
+function safeTicker(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 export default async function HoldingDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ ticker: string }>;
-  searchParams: Promise<{ inst?: string }>;
+  searchParams: Promise<{ inst?: string; own?: string }>;
 }) {
   const { ticker: raw } = await params;
-  const ticker = decodeURIComponent(raw);
+  const ticker = safeTicker(raw).trim();
+  if (!ticker) notFound();
+
   const sp = await searchParams;
   const { byTicker, accounts, live } = await loadPortfolioSnapshot({
     institution: sp.inst,
+    ownership: sp.own,
   });
   const accountIds = accountIdsForInstitution(
     accounts,
@@ -33,11 +45,18 @@ export default async function HoldingDetailPage({
     net_assets: p.value,
   }));
 
+  const backQ = new URLSearchParams();
+  if (sp.own) backQ.set("own", sp.own);
+  if (sp.inst) backQ.set("inst", sp.inst);
+  const backHref = backQ.toString()
+    ? `/holdings?${backQ.toString()}`
+    : "/holdings";
+
   return (
     <div className="space-y-5">
       <div>
         <p className="text-xs font-bold text-muted">
-          <Link href="/holdings" className="text-brand">
+          <Link href={backHref} className="text-brand">
             보유
           </Link>{" "}
           / {ticker}
@@ -46,7 +65,7 @@ export default async function HoldingDetailPage({
           {agg?.name || ticker}
         </h1>
         <p className="mt-1 text-sm text-muted">
-          {fmtKrw(agg?.value_krw)} · {agg?.qty?.toLocaleString("ko-KR")}주
+          {fmtKrw(agg?.value_krw)} · {agg?.qty?.toLocaleString("ko-KR") || 0}주
         </p>
       </div>
 
