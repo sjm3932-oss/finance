@@ -26,7 +26,7 @@ export default async function ChatPage() {
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">자산 챗</h1>
         <p className="mt-1 text-sm text-muted">
-          Edge Function · Gemini · 보유/시세 컨텍스트 기반
+          종합 자산관리 전문가 · 보유·시세·손익 기준으로 답합니다
         </p>
       </div>
       <ChatClient initialTurns={initialTurns} />
