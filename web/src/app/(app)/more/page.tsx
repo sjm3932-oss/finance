@@ -48,7 +48,7 @@ export default function MorePage() {
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">더보기</h1>
         <p className="mt-1 text-sm text-muted">
-          기록 · OCR · 순자산 · 세금 · 관심종목
+          하단 메뉴로 기록·OCR·순자산 등에 바로 이동할 수 있어요
         </p>
       </div>
       <div className="space-y-3">
