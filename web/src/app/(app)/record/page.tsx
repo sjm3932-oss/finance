@@ -9,10 +9,10 @@ import { createClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 const TABS = [
+  { id: "account", label: "계좌" },
   { id: "wealth", label: "순자산" },
   { id: "flows", label: "매매·배당" },
   { id: "debt", label: "부채" },
-  { id: "account", label: "계좌" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -57,7 +57,7 @@ export default async function RecordPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const sp = await searchParams;
-  const tab = (TABS.some((t) => t.id === sp.tab) ? sp.tab : "wealth") as TabId;
+  const tab = (TABS.some((t) => t.id === sp.tab) ? sp.tab : "account") as TabId;
 
   const { accounts, otherAssets } = await loadPortfolioSnapshot();
   const [targets, debts] = await Promise.all([loadTargets(), loadDebtsFull()]);

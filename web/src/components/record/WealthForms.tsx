@@ -12,6 +12,7 @@ import {
   OWNERSHIP_OPTIONS,
 } from "@/lib/record";
 import { ActionForm, Field, Panel, inputClass } from "@/components/record/FormUI";
+import { CreateAccountFields } from "@/components/record/CreateAccountFields";
 import { fmtKrw } from "@/lib/money";
 
 type OtherAsset = {
@@ -43,6 +44,61 @@ export function WealthForms({
 
   return (
     <div className="space-y-4">
+      <Panel title="새 계좌 추가">
+        <p className="mb-3 text-xs text-muted">
+          아래 목록은 고정 메뉴가 아닙니다. 금융기관·통화는 직접 입력해 얼마든지
+          추가할 수 있습니다.
+        </p>
+        <CreateAccountFields submitLabel="계좌 추가" />
+      </Panel>
+
+      <Panel title={`등록된 계좌 현금 · 소유 (${accounts.length})`}>
+        {!accounts.length ? (
+          <p className="text-sm text-muted">
+            아직 등록된 계좌가 없습니다. 위에서 먼저 추가하세요.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {accounts.map((a) => (
+              <div key={a.id} className="rounded-xl bg-canvas p-3">
+                <p className="mb-2 text-sm font-extrabold">
+                  {a.institution || "계좌"}{" "}
+                  <span className="text-xs font-semibold text-muted">
+                    {a.currency || "KRW"}
+                  </span>
+                </p>
+                <ActionForm action={updateAccountCash} submitLabel="저장">
+                  <input type="hidden" name="account_id" value={a.id} />
+                  <Field label="현금/예수금">
+                    <input
+                      name="cash_balance"
+                      type="number"
+                      min={0}
+                      step={10000}
+                      defaultValue={Number(a.cash_balance || 0)}
+                      className={inputClass}
+                    />
+                  </Field>
+                  <Field label="소유">
+                    <select
+                      name="ownership"
+                      className={inputClass}
+                      defaultValue={a.ownership || "joint"}
+                    >
+                      {OWNERSHIP_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </ActionForm>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+
       <Panel title="기타자산 추가">
         <ActionForm action={createOtherAsset} submitLabel="추가">
           <Field label="이름">
@@ -120,51 +176,6 @@ export function WealthForms({
           </div>
         </Panel>
       ) : null}
-
-      <Panel title="계좌 현금 · 소유">
-        {!accounts.length ? (
-          <p className="text-sm text-muted">먼저 「계좌」탭에서 계좌를 만드세요.</p>
-        ) : (
-          <div className="space-y-4">
-            {accounts.map((a) => (
-              <div key={a.id} className="rounded-xl bg-canvas p-3">
-                <p className="mb-2 text-sm font-extrabold">
-                  {a.institution || "계좌"}{" "}
-                  <span className="text-xs font-semibold text-muted">
-                    {a.currency || "KRW"}
-                  </span>
-                </p>
-                <ActionForm action={updateAccountCash} submitLabel="저장">
-                  <input type="hidden" name="account_id" value={a.id} />
-                  <Field label="현금/예수금">
-                    <input
-                      name="cash_balance"
-                      type="number"
-                      min={0}
-                      step={10000}
-                      defaultValue={Number(a.cash_balance || 0)}
-                      className={inputClass}
-                    />
-                  </Field>
-                  <Field label="소유">
-                    <select
-                      name="ownership"
-                      className={inputClass}
-                      defaultValue={a.ownership || "joint"}
-                    >
-                      {OWNERSHIP_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                </ActionForm>
-              </div>
-            ))}
-          </div>
-        )}
-      </Panel>
 
       <Panel title="목표 배분 (%)">
         <ActionForm action={saveAllocationTargets} submitLabel="목표 저장">

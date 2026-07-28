@@ -43,18 +43,41 @@ export async function createAccount(formData: FormData): Promise<ActionResult> {
     const { supabase, user } = await requireUser();
     const institution = str(formData.get("institution"));
     const account_type = str(formData.get("account_type")) || "brokerage";
-    const currency = str(formData.get("currency")) || "KRW";
-    if (!institution) return fail("금융기관 이름을 입력하세요.");
+    const currency = str(formData.get("currency")).toUpperCase() || "KRW";
+    const ownership = str(formData.get("ownership")) || "joint";
+    const cashRaw = str(formData.get("cash_balance"));
+    const cash_balance = cashRaw === "" ? 0 : num(formData.get("cash_balance"));
 
-    const { error } = await supabase.from("accounts").insert({
+    if (!institution) return fail("금융기관 이름을 입력하세요.");
+    if (!/^[A-Z]{3}$/.test(currency)) {
+      return fail("통화는 KRW, USD처럼 3글자 코드로 입력하세요.");
+    }
+    if (!Number.isFinite(cash_balance) || cash_balance < 0) {
+      return fail("현금 잔고를 확인하세요.");
+    }
+
+    const payload: Record<string, unknown> = {
       user_id: user.id,
       institution,
       account_type,
       currency,
-    });
+      ownership,
+      cash_balance,
+    };
+
+    let { error } = await supabase.from("accounts").insert(payload);
+    // Older schemas may lack cash/ownership columns — retry lean insert.
+    if (error) {
+      ({ error } = await supabase.from("accounts").insert({
+        user_id: user.id,
+        institution,
+        account_type,
+        currency,
+      }));
+    }
     if (error) return fail(error.message);
     revalidateRecord();
-    return ok("계좌를 만들었습니다.");
+    return ok(`${institution} (${currency}) 계좌를 추가했습니다.`);
   } catch (e) {
     return fail(e instanceof Error ? e.message : "실패했습니다.");
   }
