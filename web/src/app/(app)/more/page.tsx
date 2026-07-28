@@ -7,6 +7,16 @@ const LINKS = [
     href: "/record",
   },
   {
+    title: "OCR · 승인",
+    body: "스크린샷 → Edge Gemini → 검토/승인",
+    href: "/ocr",
+  },
+  {
+    title: "자산 챗",
+    body: "Edge Gemini · 보유/시세 기반 질의",
+    href: "/chat",
+  },
+  {
     title: "순자산 구성",
     body: "투자 · 현금 · 기타 · 배분 괴리",
     href: "/more/net-worth",
@@ -32,18 +42,6 @@ const LINKS = [
     href: "/more/tax",
   },
   {
-    title: "OCR · 승인 (Streamlit)",
-    body: "스크린샷 AI 인식은 당분간 Streamlit (아래 설명 참고)",
-    href: process.env.NEXT_PUBLIC_STREAMLIT_URL || "https://richddoong.streamlit.app",
-    external: true,
-  },
-  {
-    title: "자산 챗 (Streamlit)",
-    body: "Gemini 상담은 당분간 Streamlit",
-    href: process.env.NEXT_PUBLIC_STREAMLIT_URL || "https://richddoong.streamlit.app",
-    external: true,
-  },
-  {
     title: "한투 API 동기화",
     body: "Phase 3에서 연동 예정",
   },
@@ -54,7 +52,7 @@ export default function MorePage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">더보기</h1>
-        <p className="mt-1 text-sm text-muted">기록 · 순자산 · 부채 · 관심 · 세금</p>
+        <p className="mt-1 text-sm text-muted">기록 · OCR · 챗 · 순자산 · 세금</p>
       </div>
       <div className="space-y-3">
         {LINKS.map((item) => {
@@ -67,19 +65,6 @@ export default function MorePage() {
             </>
           );
           if (item.href) {
-            if (item.external) {
-              return (
-                <a
-                  key={item.title}
-                  href={item.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={className}
-                >
-                  {inner}
-                </a>
-              );
-            }
             return (
               <Link key={item.title} href={item.href} className={className}>
                 {inner}

@@ -1,22 +1,24 @@
 # 부자뚱 Web (Next.js)
 
-Streamlit과 **병행**하는 Next.js UI. Supabase Auth/DB 공유.
-
 ## 하단 탭
+**홈 · 보유 · 손익 · 거래 · 더보기** (+ 플로팅 `+ 기록`)
 
-**홈 · 보유 · 손익 · 거래 · 더보기**  
-기록은 더보기 → 기록하기.
-
-## 화면
-
+## 주요 경로
 | 경로 | 내용 |
 |------|------|
-| `/` | 순자산, 오늘/주간 손익, 트리맵, 추이·벤치마크, 월요약 |
-| `/holdings` | 보유 목록 |
-| `/holdings/[ticker]` | 평가액 추이 · 매매/배당 이력 |
-| `/pnl` | 실현손익 · 배당 차트/원장 |
-| `/flows` | 자금 이동 · 거래 원장 |
-| `/record` | 수기 입력 (계좌·순자산·매매·부채) |
-| `/more/*` | 순자산·기타자산·부채·관심·세금 |
+| `/` `/holdings` `/pnl` `/flows` | 읽기 · 차트 |
+| `/record` | 수기 입력 |
+| `/ocr` `/ocr/review` | OCR 업로드 · 승인 (Edge `ocr-parse`) |
+| `/chat` | 자산 챗 (Edge `wealth-chat`) |
+| `/more/*` | 순자산 · 기타 · 부채 · 관심 · 세금 |
 
-OCR/승인/챗/한투는 이후 Phase (Streamlit 병행).
+## Edge Functions
+See [`supabase/functions/README.md`](../supabase/functions/README.md).
+
+```bash
+supabase secrets set GEMINI_API_KEY=...
+supabase functions deploy ocr-parse
+supabase functions deploy wealth-chat
+```
+
+Do **not** put `GEMINI_API_KEY` in Vercel.

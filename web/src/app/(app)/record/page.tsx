@@ -62,23 +62,15 @@ export default async function RecordPage({
   const { accounts, otherAssets } = await loadPortfolioSnapshot();
   const [targets, debts] = await Promise.all([loadTargets(), loadDebtsFull()]);
 
-  const streamlit =
-    process.env.NEXT_PUBLIC_STREAMLIT_URL || "https://richddoong.streamlit.app";
-
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">기록</h1>
         <p className="mt-1 text-sm text-muted">
-          Phase 2a 수기 입력 · OCR은{" "}
-          <a
-            href={streamlit}
-            target="_blank"
-            rel="noreferrer"
-            className="font-semibold text-brand"
-          >
-            Streamlit
-          </a>
+          Phase 2 수기 입력 · OCR은{" "}
+          <Link href="/ocr" className="font-semibold text-brand">
+            /ocr
+          </Link>
         </p>
       </div>
 

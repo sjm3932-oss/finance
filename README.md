@@ -160,7 +160,17 @@ pg_cron jobs (KST):
 
 In the app: **Notifications** page to subscribe to Web Push and run jobs manually.
 
-Function secrets (set via `supabase secrets set`): `GEMINI_API_KEY`, `VAPID_*`, `PUBLIC_APP_URL`.
+Function secrets (set via `supabase secrets set`): `GEMINI_API_KEY`, `GEMINI_MODEL`, `VAPID_*`, `PUBLIC_APP_URL`.
+
+OCR / wealth-chat Edge Functions:
+
+```bash
+supabase functions deploy ocr-parse
+supabase functions deploy wealth-chat
+```
+
+See [`supabase/functions/README.md`](./supabase/functions/README.md).
+
 
 ## Daily per-asset snapshots
 
