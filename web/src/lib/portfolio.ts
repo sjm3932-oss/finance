@@ -26,6 +26,15 @@ export type PriceRow = {
   updated_at?: string | null;
 };
 
+export type OtherAssetRow = {
+  id?: string;
+  name: string | null;
+  asset_kind: string | null;
+  value_krw: number | null;
+  ownership: string | null;
+  memo?: string | null;
+};
+
 export type LiveHolding = {
   ticker: string;
   name: string;
@@ -40,6 +49,7 @@ export type LiveHolding = {
   return_pct: number | null;
   ccy: string;
   region: string;
+  ownership: string;
 };
 
 export type NetWorth = {
@@ -51,6 +61,72 @@ export type NetWorth = {
   net: number;
   domestic: number;
   overseas: number;
+  cash_ratio: number;
+  other_rows: OtherAssetRow[];
+};
+
+export type AllocationRow = {
+  category: string;
+  label: string;
+  actual_pct: number;
+  target_pct: number;
+  drift_pct: number;
+};
+
+export type MonthlySummary = {
+  month_start: string;
+  nw_start: number | null;
+  nw_now: number | null;
+  nw_change: number | null;
+  nw_change_pct: number | null;
+  realized_month: number | null;
+};
+
+export type WealthAlert = {
+  id: string;
+  alert_kind: string;
+  title: string;
+  body: string | null;
+  created_at?: string | null;
+};
+
+export type DebtRow = {
+  id?: string;
+  lender: string | null;
+  principal: number | null;
+  due_date: string | null;
+  ownership?: string | null;
+};
+
+export type DailySnap = {
+  snapshot_date: string;
+  net_assets: number | null;
+  total_investment?: number | null;
+  total_debt?: number | null;
+  total_cash?: number | null;
+  total_other?: number | null;
+};
+
+export const OWNERSHIP_KO: Record<string, string> = {
+  joint: "공동",
+  mine: "나",
+  spouse: "배우자",
+};
+
+export const ASSET_KIND_KO: Record<string, string> = {
+  real_estate: "부동산",
+  pension: "연금",
+  insurance: "보험",
+  deposit: "예적금",
+  crypto: "암호화폐",
+  other: "기타",
+};
+
+export const ALLOC_CAT_KO: Record<string, string> = {
+  domestic: "국내주식",
+  overseas: "해외주식",
+  cash: "현금",
+  other: "기타자산",
 };
 
 function toKrw(amount: number, ccy: string, usdkrw: number | null): number {
@@ -100,6 +176,7 @@ export function buildLiveHoldings(
       return_pct,
       ccy,
       region: marketRegion(h.ticker, ccy),
+      ownership: acct?.ownership || "joint",
     };
   });
 }
@@ -146,14 +223,39 @@ export function aggregateByTicker(rows: LiveHolding[]) {
   });
 }
 
+export function accountIdsForInstitution(
+  accounts: AccountRow[],
+  institution: string | null | undefined
+): string[] | null {
+  if (!institution || institution === "전체") return null;
+  return accounts
+    .filter((a) => (a.institution || "계좌") === institution)
+    .map((a) => a.id);
+}
+
 export function computeNetWorth(args: {
   live: LiveHolding[];
   accounts: AccountRow[];
-  otherAssets: { value_krw?: number | null; ownership?: string | null }[];
+  otherAssets: OtherAssetRow[];
   totalDebt: number;
   usdkrw: number | null;
+  accountIds?: string[] | null;
+  ownership?: string | null;
 }): NetWorth {
-  const { live, accounts, otherAssets, totalDebt, usdkrw } = args;
+  const {
+    live,
+    accounts,
+    otherAssets,
+    totalDebt,
+    usdkrw,
+    accountIds = null,
+    ownership = null,
+  } = args;
+  const allow = accountIds ? new Set(accountIds.map(String)) : null;
+  const own =
+    ownership && ["joint", "mine", "spouse"].includes(ownership)
+      ? ownership
+      : null;
   const amap = new Map(accounts.map((a) => [a.id, a]));
 
   let invest = 0;
@@ -162,7 +264,9 @@ export function computeNetWorth(args: {
   let bankHoldings = 0;
 
   for (const r of live) {
+    if (allow && !allow.has(r.account_id)) continue;
     const acct = amap.get(r.account_id);
+    if (own && (acct?.ownership || "joint") !== own) continue;
     const v = r.value_krw || 0;
     const type = acct?.account_type || "brokerage";
     if (type === "bank") {
@@ -177,15 +281,27 @@ export function computeNetWorth(args: {
 
   let cash = bankHoldings;
   for (const a of accounts) {
+    if (allow && !allow.has(a.id)) continue;
+    if (own && (a.ownership || "joint") !== own) continue;
     const bal = Number(a.cash_balance || 0);
     cash += toKrw(bal, a.currency || "KRW", usdkrw);
   }
 
-  const other = otherAssets.reduce(
-    (s, o) => s + Number(o.value_krw || 0),
-    0
-  );
-  const debt = Number(totalDebt || 0);
+  let other = 0;
+  const other_rows: OtherAssetRow[] = [];
+  // Account filter = account lens → omit household other assets
+  if (!allow) {
+    for (const o of otherAssets) {
+      if (own && (o.ownership || "joint") !== own) continue;
+      const val = Number(o.value_krw || 0);
+      other += val;
+      other_rows.push(o);
+    }
+  }
+
+  let debt = Number(totalDebt || 0);
+  if (allow) debt = 0;
+
   const gross = invest + cash + other;
   return {
     invest,
@@ -196,5 +312,145 @@ export function computeNetWorth(args: {
     net: gross - debt,
     domestic,
     overseas,
+    cash_ratio: gross > 0 ? cash / gross : 0,
+    other_rows,
   };
+}
+
+export function filterLiveByAccountAndOwnership(
+  live: LiveHolding[],
+  accounts: AccountRow[],
+  accountIds: string[] | null,
+  ownership: string | null
+): LiveHolding[] {
+  const allow = accountIds ? new Set(accountIds.map(String)) : null;
+  const own =
+    ownership && ["joint", "mine", "spouse"].includes(ownership)
+      ? ownership
+      : null;
+  const amap = new Map(accounts.map((a) => [a.id, a]));
+  return live.filter((r) => {
+    if (allow && !allow.has(r.account_id)) return false;
+    if (own) {
+      const a = amap.get(r.account_id);
+      if ((a?.ownership || "joint") !== own) return false;
+    }
+    return true;
+  });
+}
+
+export function allocationActual(nw: NetWorth): Record<string, number> {
+  const gross = nw.gross || 0;
+  if (gross <= 0) {
+    return { domestic: 0, overseas: 0, cash: 0, other: 0 };
+  }
+  return {
+    domestic: (100 * nw.domestic) / gross,
+    overseas: (100 * nw.overseas) / gross,
+    cash: (100 * nw.cash) / gross,
+    other: (100 * nw.other) / gross,
+  };
+}
+
+export function allocationDrift(
+  actual: Record<string, number>,
+  targets: Record<string, number>
+): AllocationRow[] {
+  return (["domestic", "overseas", "cash", "other"] as const).map((cat) => {
+    const a = Number(actual[cat] || 0);
+    const t = Number(targets[cat] || 0);
+    return {
+      category: cat,
+      label: ALLOC_CAT_KO[cat] || cat,
+      actual_pct: a,
+      target_pct: t,
+      drift_pct: a - t,
+    };
+  });
+}
+
+export function monthlySummaryStats(args: {
+  liveNet: number | null;
+  snaps: DailySnap[];
+  realizedMonth: number | null;
+  now?: Date;
+}): MonthlySummary {
+  const now = args.now || new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthStartIso = monthStart.toISOString().slice(0, 10);
+
+  const out: MonthlySummary = {
+    month_start: monthStartIso,
+    nw_start: null,
+    nw_now: args.liveNet,
+    nw_change: null,
+    nw_change_pct: null,
+    realized_month: args.realizedMonth,
+  };
+
+  const prior = args.snaps
+    .filter((s) => String(s.snapshot_date || "") <= monthStartIso)
+    .sort((a, b) => String(a.snapshot_date).localeCompare(String(b.snapshot_date)));
+  if (prior.length) {
+    const last = prior[prior.length - 1];
+    const v = Number(last.net_assets);
+    out.nw_start = Number.isFinite(v) ? v : null;
+  }
+
+  if (out.nw_start != null && args.liveNet != null) {
+    out.nw_change = args.liveNet - out.nw_start;
+    if (Math.abs(out.nw_start) > 1) {
+      out.nw_change_pct = (100 * out.nw_change) / out.nw_start;
+    }
+  }
+
+  return out;
+}
+
+export function debtsDueSoon(
+  debts: DebtRow[],
+  withinDays = 45,
+  now = new Date()
+): Array<DebtRow & { days: number; due: string }> {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(today);
+  end.setDate(end.getDate() + withinDays);
+  const out: Array<DebtRow & { days: number; due: string }> = [];
+  for (const d of debts) {
+    if (!d.due_date) continue;
+    const due = new Date(String(d.due_date).slice(0, 10) + "T00:00:00");
+    if (Number.isNaN(due.getTime())) continue;
+    if (due >= today && due <= end) {
+      const days = Math.round(
+        (due.getTime() - today.getTime()) / (24 * 60 * 60 * 1000)
+      );
+      out.push({ ...d, days, due: String(d.due_date).slice(0, 10) });
+    }
+  }
+  return out.sort((a, b) => a.due.localeCompare(b.due));
+}
+
+export function groupOtherByKind(rows: OtherAssetRow[]) {
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    const k = r.asset_kind || "other";
+    map.set(k, (map.get(k) || 0) + Number(r.value_krw || 0));
+  }
+  const total = [...map.values()].reduce((s, v) => s + v, 0);
+  return [...map.entries()]
+    .map(([kind, value]) => ({
+      kind,
+      label: ASSET_KIND_KO[kind] || kind,
+      value,
+      pct: total > 0 ? (100 * value) / total : 0,
+    }))
+    .sort((a, b) => b.value - a.value);
+}
+
+export function institutionsFromAccounts(accounts: AccountRow[]): string[] {
+  const set = new Set<string>();
+  for (const a of accounts) {
+    set.add(a.institution || "계좌");
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "ko"));
 }

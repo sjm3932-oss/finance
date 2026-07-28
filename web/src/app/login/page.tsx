@@ -17,7 +17,7 @@ export default async function LoginPage() {
           부부 공동 자산
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          Next.js Phase 0 — 로그인 후 순자산·보유를 읽기 전용으로 확인합니다.
+          로그인 후 순자산·보유·배분을 읽기 전용으로 확인합니다.
           기록(OCR/수기)은 당분간 Streamlit을 사용하세요.
         </p>
         <div className="mt-8">

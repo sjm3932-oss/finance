@@ -2,8 +2,14 @@ import Link from "next/link";
 
 const LINKS = [
   {
-    title: "기타자산 · 순자산 구성",
-    body: "Phase 1에서 Next로 이식 예정",
+    title: "순자산 구성",
+    body: "투자 · 현금 · 기타 · 배분 괴리",
+    href: "/more/net-worth",
+  },
+  {
+    title: "기타자산",
+    body: "부동산 · 연금 · 보험 · 예적금",
+    href: "/more/other-assets",
   },
   {
     title: "기록하기 (OCR · 수기)",
@@ -22,7 +28,7 @@ export default function MorePage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">더보기</h1>
-        <p className="mt-1 text-sm text-muted">Phase 0 플레이스홀더</p>
+        <p className="mt-1 text-sm text-muted">순자산 · 기타자산 · 외부 도구</p>
       </div>
       <div className="space-y-3">
         {LINKS.map((item) => {
@@ -35,16 +41,23 @@ export default function MorePage() {
             </>
           );
           if (item.href) {
+            if (item.external) {
+              return (
+                <a
+                  key={item.title}
+                  href={item.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={className}
+                >
+                  {inner}
+                </a>
+              );
+            }
             return (
-              <a
-                key={item.title}
-                href={item.href}
-                target={item.external ? "_blank" : undefined}
-                rel={item.external ? "noreferrer" : undefined}
-                className={className}
-              >
+              <Link key={item.title} href={item.href} className={className}>
                 {inner}
-              </a>
+              </Link>
             );
           }
           return (
@@ -57,7 +70,7 @@ export default function MorePage() {
       <p className="text-xs text-muted">
         손익·배당·거래·승인·챗은 이후 Phase에서 옮깁니다.{" "}
         <Link href="/" className="font-semibold text-brand">
-          요약으로
+          홈으로
         </Link>
       </p>
     </div>

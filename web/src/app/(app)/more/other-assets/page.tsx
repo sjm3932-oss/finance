@@ -1,18 +1,18 @@
 import { Suspense } from "react";
-import { HoldingList } from "@/components/HoldingList";
+import Link from "next/link";
 import { PortfolioFilters } from "@/components/PortfolioFilters";
-import { fmtKrw, fmtPct } from "@/lib/money";
+import { OtherAssetsPanel } from "@/components/OtherAssetsPanel";
 import { loadPortfolioSnapshot } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
-export default async function HoldingsPage({
+export default async function OtherAssetsPage({
   searchParams,
 }: {
   searchParams: Promise<{ own?: string; inst?: string }>;
 }) {
   const sp = await searchParams;
-  const { byTicker, nw, returnPct, institutions } = await loadPortfolioSnapshot({
+  const { otherAssets, institutions } = await loadPortfolioSnapshot({
     ownership: sp.own,
     institution: sp.inst,
   });
@@ -20,15 +20,23 @@ export default async function HoldingsPage({
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-extrabold tracking-tight">보유</h1>
+        <p className="text-xs font-bold text-muted">
+          <Link href="/more" className="text-brand">
+            더보기
+          </Link>{" "}
+          / 기타자산
+        </p>
+        <h1 className="mt-1 text-xl font-extrabold tracking-tight">기타자산</h1>
         <p className="mt-1 text-sm text-muted">
-          투자자산 {fmtKrw(nw.invest)} · 수익률 {fmtPct(returnPct)}
+          부동산 · 연금 · 보험 · 예적금 등
         </p>
       </div>
+
       <Suspense fallback={null}>
         <PortfolioFilters institutions={institutions} />
       </Suspense>
-      <HoldingList items={byTicker} />
+
+      <OtherAssetsPanel rows={otherAssets} />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const ITEMS = [
-  { href: "/", label: "요약" },
+  { href: "/", label: "홈" },
   { href: "/holdings", label: "보유" },
   { href: "/more", label: "더보기" },
 ] as const;
@@ -22,7 +22,7 @@ export function BottomNav() {
           const active =
             item.href === "/"
               ? pathname === "/"
-              : pathname.startsWith(item.href);
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link
               key={item.href}
