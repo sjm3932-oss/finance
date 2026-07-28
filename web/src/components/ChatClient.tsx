@@ -43,9 +43,9 @@ export function ChatClient({
       <div className="flex-1 space-y-3 overflow-y-auto pb-4">
         {!turns.length ? (
           <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-8 text-center text-sm text-muted">
-            순자산·보유·손익을 기준으로 질문해 보세요.
+            종합 자산관리 전문가에게 물어보세요.
             <br />
-            예: 「이번 달 실현손익 얼마야?」
+            예: 「우리 순자산이 지난달보다 어떻게 변했어요?」
           </div>
         ) : null}
         {turns.map((t, i) => (
