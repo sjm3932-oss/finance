@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { fmtKrw, fmtPct, retTone } from "@/lib/money";
 
 type Item = {
@@ -18,11 +19,17 @@ function initials(name: string, ticker: string) {
   return Array.from(src)[0]?.toUpperCase() || "?";
 }
 
-export function HoldingList({ items }: { items: Item[] }) {
+export function HoldingList({
+  items,
+  linkable = false,
+}: {
+  items: Item[];
+  linkable?: boolean;
+}) {
   if (!items.length) {
     return (
       <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-10 text-center text-sm text-muted">
-        표시할 보유가 없습니다. Streamlit 「기록하기」에서 OCR·수기로 등록하세요.
+        표시할 보유가 없습니다. 「기록」에서 수기로 등록하세요.
       </div>
     );
   }
@@ -36,14 +43,13 @@ export function HoldingList({ items }: { items: Item[] }) {
             ? fmtKrw(it.value_krw)
             : it.value != null
               ? it.ccy === "USD"
-                ? `$${it.value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
+                ? `$${it.value.toLocaleString("en-US", {
+                    maximumFractionDigits: 2,
+                  })}`
                 : fmtKrw(it.value)
               : "—";
-        return (
-          <div
-            key={it.ticker}
-            className="flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-b-0"
-          >
+        const inner = (
+          <>
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-extrabold text-brand-dark">
               {initials(it.name, it.ticker)}
             </div>
@@ -72,6 +78,21 @@ export function HoldingList({ items }: { items: Item[] }) {
                 {fmtPct(it.return_pct)}
               </div>
             </div>
+          </>
+        );
+        const className =
+          "flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-b-0";
+        return linkable ? (
+          <Link
+            key={it.ticker}
+            href={`/holdings/${encodeURIComponent(it.ticker)}`}
+            className={className}
+          >
+            {inner}
+          </Link>
+        ) : (
+          <div key={it.ticker} className={className}>
+            {inner}
           </div>
         );
       })}

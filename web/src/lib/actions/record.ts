@@ -34,8 +34,11 @@ function revalidateRecord() {
   revalidatePath("/");
   revalidatePath("/holdings");
   revalidatePath("/record");
+  revalidatePath("/pnl");
+  revalidatePath("/flows");
   revalidatePath("/more/net-worth");
   revalidatePath("/more/other-assets");
+  revalidatePath("/more/debts");
 }
 
 export async function createAccount(formData: FormData): Promise<ActionResult> {

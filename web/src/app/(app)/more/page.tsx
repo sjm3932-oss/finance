@@ -2,6 +2,11 @@ import Link from "next/link";
 
 const LINKS = [
   {
+    title: "기록하기 (수기)",
+    body: "계좌 · 기타자산 · 매매 · 부채",
+    href: "/record",
+  },
+  {
     title: "순자산 구성",
     body: "투자 · 현금 · 기타 · 배분 괴리",
     href: "/more/net-worth",
@@ -12,9 +17,19 @@ const LINKS = [
     href: "/more/other-assets",
   },
   {
-    title: "기록하기 (수기)",
-    body: "기타자산 · 매매 · 부채 · 계좌",
-    href: "/record",
+    title: "부채",
+    body: "잔금 · 종류별 · 상세",
+    href: "/more/debts",
+  },
+  {
+    title: "관심종목",
+    body: "목표가 · 손절 알림",
+    href: "/more/watchlist",
+  },
+  {
+    title: "세금",
+    body: "양도차익 · 예상세",
+    href: "/more/tax",
   },
   {
     title: "OCR · 승인 (Streamlit)",
@@ -33,7 +48,7 @@ export default function MorePage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">더보기</h1>
-        <p className="mt-1 text-sm text-muted">순자산 · 기록 · 외부 도구</p>
+        <p className="mt-1 text-sm text-muted">기록 · 순자산 · 부채 · 관심 · 세금</p>
       </div>
       <div className="space-y-3">
         {LINKS.map((item) => {
@@ -72,12 +87,6 @@ export default function MorePage() {
           );
         })}
       </div>
-      <p className="text-xs text-muted">
-        손익·배당 차트·챗은 이후 Phase에서 옮깁니다.{" "}
-        <Link href="/" className="font-semibold text-brand">
-          홈으로
-        </Link>
-      </p>
     </div>
   );
 }

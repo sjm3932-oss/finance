@@ -1,6 +1,6 @@
-import { Suspense } from "react";
 import { HoldingList } from "@/components/HoldingList";
 import { PortfolioFilters } from "@/components/PortfolioFilters";
+import { Suspense } from "react";
 import { fmtKrw, fmtPct } from "@/lib/money";
 import { loadPortfolioSnapshot } from "@/lib/data";
 
@@ -22,13 +22,14 @@ export default async function HoldingsPage({
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">보유</h1>
         <p className="mt-1 text-sm text-muted">
-          투자자산 {fmtKrw(nw.invest)} · 수익률 {fmtPct(returnPct)}
+          투자자산 {fmtKrw(nw.invest)} · 수익률 {fmtPct(returnPct)} · 종목 탭으로
+          상세
         </p>
       </div>
       <Suspense fallback={null}>
         <PortfolioFilters institutions={institutions} />
       </Suspense>
-      <HoldingList items={byTicker} />
+      <HoldingList items={byTicker} linkable />
     </div>
   );
 }

@@ -7,7 +7,16 @@ import { MonthlySummaryCard } from "@/components/MonthlySummaryCard";
 import { AllocationDriftTable } from "@/components/AllocationDriftTable";
 import { AlertBanners } from "@/components/AlertBanners";
 import { NetWorthTrend } from "@/components/NetWorthTrend";
+import { AllocationTreemap } from "@/components/AllocationTreemap";
+import { PeriodChangeRow } from "@/components/PeriodChangeRow";
 import { loadPortfolioSnapshot } from "@/lib/data";
+import {
+  loadPeriodChange,
+  loadBenchmarkSeries,
+  loadRealizedRows,
+} from "@/lib/data-insights";
+import { fmtKrw } from "@/lib/money";
+import { accountIdsForInstitution } from "@/lib/portfolio";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +26,10 @@ export default async function HomePage({
   searchParams: Promise<{ own?: string; inst?: string }>;
 }) {
   const sp = await searchParams;
+  const snap = await loadPortfolioSnapshot({
+    ownership: sp.own,
+    institution: sp.inst,
+  });
   const {
     nw,
     returnPct,
@@ -27,18 +40,35 @@ export default async function HomePage({
     allocation,
     alerts,
     snaps,
-  } = await loadPortfolioSnapshot({
-    ownership: sp.own,
-    institution: sp.inst,
-  });
+    live,
+    accounts,
+  } = snap;
+
+  const accountIds = accountIdsForInstitution(
+    accounts,
+    sp.inst && sp.inst !== "전체" ? sp.inst : null
+  );
+
+  const [period, benchmark, realized] = await Promise.all([
+    loadPeriodChange(nw.invest, accountIds),
+    loadBenchmarkSeries(snaps, "sp500"),
+    loadRealizedRows(snap.usdkrw, accountIds),
+  ]);
+
+  const ytdRealized = realized
+    .filter((r) => r.event_date.startsWith(String(new Date().getFullYear())))
+    .reduce((s, r) => s + r.pnl_krw, 0);
+  const unrealized = live.reduce((s, r) => {
+    const v = r.value_krw || 0;
+    const c = r.cost_krw || 0;
+    return s + (v - c);
+  }, 0);
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">홈</h1>
-        <p className="mt-1 text-sm text-muted">
-          순자산 한눈에 · 입력은 Streamlit 기록하기
-        </p>
+        <p className="mt-1 text-sm text-muted">순자산 · 배분 · 추이 · 손익 요약</p>
       </div>
 
       <Suspense fallback={null}>
@@ -46,8 +76,23 @@ export default async function HomePage({
       </Suspense>
 
       <AlertBanners alerts={alerts} />
-
+      <PeriodChangeRow period={period} />
       <NetWorthHero nw={nw} returnPct={returnPct} />
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-2xl border border-line bg-surface px-3 py-3 shadow-soft">
+          <div className="text-[11px] font-semibold text-muted">미실현 손익</div>
+          <div className="mt-1 text-sm font-extrabold tracking-tight">
+            {fmtKrw(unrealized, { signed: true })}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-line bg-surface px-3 py-3 shadow-soft">
+          <div className="text-[11px] font-semibold text-muted">실현 손익 YTD</div>
+          <div className="mt-1 text-sm font-extrabold tracking-tight">
+            {fmtKrw(ytdRealized, { signed: true })}
+          </div>
+        </div>
+      </div>
 
       {latestSnap?.snapshot_date ? (
         <p className="text-xs text-muted">
@@ -58,7 +103,8 @@ export default async function HomePage({
 
       <MonthlySummaryCard monthly={monthly} />
       <AllocationDriftTable rows={allocation} />
-      <NetWorthTrend snaps={snaps} />
+      <AllocationTreemap live={live} />
+      <NetWorthTrend snaps={snaps} benchmark={benchmark} />
 
       <section className="space-y-3">
         <div className="flex items-end justify-between">
@@ -67,15 +113,18 @@ export default async function HomePage({
             전체
           </Link>
         </div>
-        <HoldingList items={byTicker.slice(0, 8)} />
+        <HoldingList items={byTicker.slice(0, 8)} linkable />
       </section>
 
-      <div className="flex gap-3 text-sm font-semibold">
+      <div className="flex flex-wrap gap-3 text-sm font-semibold">
+        <Link href="/pnl" className="text-brand">
+          손익
+        </Link>
+        <Link href="/flows" className="text-brand">
+          거래
+        </Link>
         <Link href="/more/net-worth" className="text-brand">
           순자산 구성
-        </Link>
-        <Link href="/more/other-assets" className="text-brand">
-          기타자산
         </Link>
       </div>
     </div>
