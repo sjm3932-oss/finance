@@ -1,0 +1,116 @@
+import Link from "next/link";
+import { AccountForms } from "@/components/record/AccountForms";
+import { WealthForms } from "@/components/record/WealthForms";
+import { FlowForms } from "@/components/record/FlowForms";
+import { DebtForms } from "@/components/record/DebtForms";
+import { loadPortfolioSnapshot } from "@/lib/data";
+import { createClient } from "@/lib/supabase/server";
+
+export const dynamic = "force-dynamic";
+
+const TABS = [
+  { id: "wealth", label: "순자산" },
+  { id: "flows", label: "매매·배당" },
+  { id: "debt", label: "부채" },
+  { id: "account", label: "계좌" },
+] as const;
+
+type TabId = (typeof TABS)[number]["id"];
+
+async function loadTargets(): Promise<Record<string, number>> {
+  const supabase = await createClient();
+  try {
+    const { data } = await supabase
+      .from("allocation_targets")
+      .select("category,target_pct");
+    const out: Record<string, number> = {
+      domestic: 40,
+      overseas: 40,
+      cash: 15,
+      other: 5,
+    };
+    for (const r of data || []) {
+      if (r.category in out) out[r.category] = Number(r.target_pct || 0);
+    }
+    return out;
+  } catch {
+    return { domestic: 40, overseas: 40, cash: 15, other: 5 };
+  }
+}
+
+async function loadDebtsFull() {
+  const supabase = await createClient();
+  try {
+    const { data } = await supabase
+      .from("debts")
+      .select("id,lender,principal,interest_rate,debt_kind,due_date,ownership")
+      .order("lender");
+    return data || [];
+  } catch {
+    return [];
+  }
+}
+
+export default async function RecordPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const sp = await searchParams;
+  const tab = (TABS.some((t) => t.id === sp.tab) ? sp.tab : "wealth") as TabId;
+
+  const { accounts, otherAssets } = await loadPortfolioSnapshot();
+  const [targets, debts] = await Promise.all([loadTargets(), loadDebtsFull()]);
+
+  const streamlit =
+    process.env.NEXT_PUBLIC_STREAMLIT_URL || "https://richddoong.streamlit.app";
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-xl font-extrabold tracking-tight">기록</h1>
+        <p className="mt-1 text-sm text-muted">
+          Phase 2a 수기 입력 · OCR은{" "}
+          <a
+            href={streamlit}
+            target="_blank"
+            rel="noreferrer"
+            className="font-semibold text-brand"
+          >
+            Streamlit
+          </a>
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {TABS.map((t) => {
+          const active = tab === t.id;
+          return (
+            <Link
+              key={t.id}
+              href={`/record?tab=${t.id}`}
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                active
+                  ? "bg-brand text-white"
+                  : "bg-surface text-muted ring-1 ring-line"
+              }`}
+            >
+              {t.label}
+            </Link>
+          );
+        })}
+      </div>
+
+      {tab === "wealth" ? (
+        <WealthForms
+          otherAssets={otherAssets}
+          accounts={accounts}
+          targets={targets}
+        />
+      ) : null}
+      {tab === "flows" ? <FlowForms accounts={accounts} /> : null}
+      {tab === "debt" ? <DebtForms debts={debts} accounts={accounts} /> : null}
+      {tab === "account" ? <AccountForms accounts={accounts} /> : null}
+    </div>
+  );
+}

@@ -96,6 +96,8 @@ export type DebtRow = {
   principal: number | null;
   due_date: string | null;
   ownership?: string | null;
+  interest_rate?: number | null;
+  debt_kind?: string | null;
 };
 
 export type DailySnap = {

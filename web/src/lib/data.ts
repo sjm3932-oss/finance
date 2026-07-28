@@ -70,7 +70,9 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
   );
 
   let debts = await safeSelect<DebtRow>(() =>
-    supabase.from("debts").select("id,lender,principal,due_date,ownership")
+    supabase
+      .from("debts")
+      .select("id,lender,principal,due_date,ownership,interest_rate,debt_kind")
   );
   if (!debts.length) {
     debts = (
