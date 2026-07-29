@@ -8,6 +8,7 @@ import {
   adjustDebt,
 } from "@/lib/actions/record";
 import { DEBT_KIND_OPTIONS, OWNERSHIP_OPTIONS } from "@/lib/record";
+import { todayKst } from "@/lib/dates";
 import { ActionForm, Field, Panel, inputClass } from "@/components/record/FormUI";
 import { fmtKrw } from "@/lib/money";
 
@@ -23,7 +24,7 @@ type Account = { id: string; institution: string | null };
 type ActionTab = "pay" | "rate" | "adjust";
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return todayKst();
 }
 
 export function DebtForms({

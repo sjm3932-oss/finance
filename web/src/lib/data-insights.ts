@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { daysAgoKst } from "@/lib/dates";
 import {
   PeriodChange,
   HoldingSnapRow,
@@ -15,27 +16,37 @@ import {
 import type { DailySnap, DebtRow } from "@/lib/portfolio";
 
 async function safeSelect<T>(
-  run: () => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+  run: () => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  opts?: { optional?: boolean; label?: string }
 ): Promise<T[]> {
+  const label = opts?.label || "query";
   try {
     const { data, error } = await run();
-    if (error) return [];
+    if (error) {
+      console.error(`[data-insights] ${label}:`, error.message);
+      if (opts?.optional !== false) return [];
+      throw new Error(`데이터 로드 실패 (${label}): ${error.message}`);
+    }
     return data || [];
-  } catch {
-    return [];
+  } catch (e) {
+    if (opts?.optional !== false) {
+      console.error(`[data-insights] ${label}:`, e);
+      return [];
+    }
+    throw e;
   }
 }
 
 export async function loadHoldingSnaps(days = 90): Promise<HoldingSnapRow[]> {
   const supabase = await createClient();
-  const since = new Date();
-  since.setDate(since.getDate() - days);
-  return safeSelect<HoldingSnapRow>(() =>
-    supabase
-      .from("holding_daily_snapshots")
-      .select("snapshot_date,account_id,ticker,market_value_krw")
-      .gte("snapshot_date", since.toISOString().slice(0, 10))
-      .order("snapshot_date")
+  return safeSelect<HoldingSnapRow>(
+    () =>
+      supabase
+        .from("holding_daily_snapshots")
+        .select("snapshot_date,account_id,ticker,market_value_krw")
+        .gte("snapshot_date", daysAgoKst(days))
+        .order("snapshot_date"),
+    { label: "holding_daily_snapshots" }
   );
 }
 
@@ -49,14 +60,14 @@ export async function loadPeriodChange(
 
 export async function loadIndexSnaps(days = 400): Promise<IndexSnap[]> {
   const supabase = await createClient();
-  const since = new Date();
-  since.setDate(since.getDate() - days);
-  return safeSelect<IndexSnap>(() =>
-    supabase
-      .from("market_index_snapshots")
-      .select("snapshot_date,nasdaq,sp500,kospi")
-      .gte("snapshot_date", since.toISOString().slice(0, 10))
-      .order("snapshot_date")
+  return safeSelect<IndexSnap>(
+    () =>
+      supabase
+        .from("market_index_snapshots")
+        .select("snapshot_date,nasdaq,sp500,kospi")
+        .gte("snapshot_date", daysAgoKst(days))
+        .order("snapshot_date"),
+    { label: "market_index_snapshots" }
   );
 }
 

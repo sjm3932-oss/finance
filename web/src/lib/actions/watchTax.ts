@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { requireAllowedUser } from "@/lib/actions/auth";
 import type { ActionResult } from "@/lib/record";
 
 function fail(message: string): ActionResult {
@@ -16,15 +16,6 @@ function humanize(message: string): string {
   return "저장에 실패했습니다. 입력값을 확인하세요.";
 }
 
-async function requireUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("로그인이 필요합니다.");
-  return { supabase, user };
-}
-
 function num(v: FormDataEntryValue | null) {
   const n = Number(v);
   return Number.isFinite(n) ? n : NaN;
@@ -32,7 +23,7 @@ function num(v: FormDataEntryValue | null) {
 
 export async function upsertTaxRecord(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requireAllowedUser();
     const tax_year = Math.trunc(num(formData.get("tax_year")));
     const cum_capital_gain = num(formData.get("cum_capital_gain"));
     const tax_threshold = num(formData.get("tax_threshold"));

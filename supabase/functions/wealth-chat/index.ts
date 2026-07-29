@@ -3,7 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   corsHeaders,
   json,
-  requireUser,
+  requireCoupleUser,
   serviceClient,
 } from "../_shared/gemini.ts";
 
@@ -619,8 +619,16 @@ async function buildContext(
     const qty = Number(h.quantity || 0);
     const avg = Number(h.avg_price || 0);
     const px = mp?.price != null ? Number(mp.price) : null;
-    const ccy = String(h.currency || mp?.currency || "KRW");
+    const ccy = String(h.currency || mp?.currency || "KRW").toUpperCase();
     const mv = px != null ? px * qty : null;
+    const mvKrw =
+      mv == null
+        ? null
+        : ccy === "USD"
+          ? usdkrw != null
+            ? mv * Number(usdkrw)
+            : null
+          : mv;
     return {
       ticker: h.ticker,
       name: h.name,
@@ -629,6 +637,7 @@ async function buildContext(
       currency: ccy,
       current_price: px,
       market_value: mv,
+      market_value_krw: mvKrw,
       return_pct: px != null && avg ? ((px - avg) / avg) * 100 : null,
     };
   });
@@ -643,9 +652,16 @@ async function buildContext(
   const tax_plain = buildTaxPlain(taxRows);
   const other_assets_plain = buildOtherAssetsPlain(otherRows);
 
-  const invest = enriched.reduce((s, h) => s + (h.market_value || 0), 0);
+  const invest = enriched.reduce((s, h) => s + (h.market_value_krw || 0), 0);
   const cash = (accountRows as Array<Record<string, unknown>>).reduce(
-    (s, a) => s + Number(a.cash_balance || 0),
+    (s, a) => {
+      const bal = Number(a.cash_balance || 0);
+      const ccy = String(a.currency || "KRW").toUpperCase();
+      if (ccy === "USD") {
+        return s + (usdkrw != null ? bal * Number(usdkrw) : 0);
+      }
+      return s + bal;
+    },
     0
   );
   const otherSum = otherRows.reduce((s, r) => s + Number(r.value_krw || 0), 0);
@@ -773,7 +789,7 @@ Deno.serve(async (req) => {
   try {
     if (req.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
 
-    const { supabase, user } = await requireUser(req);
+    const { supabase, user } = await requireCoupleUser(req);
     const body = await req.json();
     const message = String(body.message || "").trim();
     if (!message) return json({ ok: false, error: "message required" }, 400);

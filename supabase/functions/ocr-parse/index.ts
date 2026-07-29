@@ -3,7 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   corsHeaders,
   json,
-  requireUser,
+  requireCoupleUser,
   geminiGenerate,
   extractJsonObject,
   bytesToBase64,
@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
   try {
     if (req.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
 
-    const { supabase, user } = await requireUser(req);
+    const { supabase, user } = await requireCoupleUser(req);
     const body = await req.json();
     const imagePath = String(body.image_path || "").trim();
     const accountId = body.account_id ? String(body.account_id) : null;

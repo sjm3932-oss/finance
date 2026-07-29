@@ -64,3 +64,6 @@ Response: `{ ok, reply, meta }`
 - **Never** put `GEMINI_API_KEY` in Vercel env for these features.
 - OCR paths must start with `{auth.uid()}/`.
 - Approve still uses RLS user client; `commit_ocr_staging` trigger does the writes.
+- Edge handlers use `requireCoupleUser` (JWT + `email_is_allowed` / `allowed_emails`).
+  Empty `allowed_emails` denies everyone (migration `0018_tighten_email_allowlist.sql`).
+- Chat context still uses the service role after the allow-list gate.

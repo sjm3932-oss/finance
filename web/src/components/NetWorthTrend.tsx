@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { daysAgoKst } from "@/lib/dates";
 import { fmtKrw } from "@/lib/money";
 import type { DailySnap } from "@/lib/portfolio";
 import { DualLineChart } from "@/components/Charts";
@@ -28,9 +29,7 @@ export function NetWorthTrend({
         value: Number(s.net_assets),
       }));
     if (months) {
-      const since = new Date();
-      since.setMonth(since.getMonth() - months);
-      const iso = since.toISOString().slice(0, 10);
+      const iso = daysAgoKst(Math.round(months * 30.4));
       list = list.filter((p) => p.date >= iso);
     }
     return list;

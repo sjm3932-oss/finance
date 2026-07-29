@@ -1,4 +1,5 @@
 import type { LiveHolding } from "@/lib/portfolio";
+import { daysAgoKst, formatKstDate } from "@/lib/dates";
 
 export type PeriodChange = {
   today_pnl: number | null;
@@ -123,17 +124,13 @@ export function periodChangeStats(
   };
   if (liveValueKrw == null) return out;
 
-  const today = now.toISOString().slice(0, 10);
+  const today = formatKstDate(now);
   const dates = [
     ...new Set(snaps.map((s) => String(s.snapshot_date).slice(0, 10))),
   ].sort();
 
-  const y = new Date(now);
-  y.setDate(y.getDate() - 1);
-  const yIso = y.toISOString().slice(0, 10);
-  const w = new Date(now);
-  w.setDate(w.getDate() - 7);
-  const wIso = w.toISOString().slice(0, 10);
+  const yIso = daysAgoKst(1, now);
+  const wIso = daysAgoKst(7, now);
 
   const ref1 =
     sumOnDate(snaps, yIso, accountIds) ??

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { ActionResult } from "@/lib/record";
 
@@ -30,16 +31,23 @@ export function ActionForm({
   children: React.ReactNode;
   submitLabel: string;
 }) {
+  const router = useRouter();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, start] = useTransition();
+  const [formKey, setFormKey] = useState(0);
 
   return (
     <form
+      key={formKey}
       className="space-y-3"
       action={(fd) => {
         start(async () => {
           const res = await action(fd);
           setMsg({ ok: res.ok, text: res.message });
+          if (res.ok) {
+            setFormKey((k) => k + 1);
+            router.refresh();
+          }
         });
       }}
     >

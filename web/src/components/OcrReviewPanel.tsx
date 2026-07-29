@@ -47,7 +47,7 @@ function OcrReviewCard({ item }: { item: Staging }) {
   const [jsonText, setJsonText] = useState(
     JSON.stringify(item.parsed_json ?? {}, null, 2)
   );
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, start] = useTransition();
 
   function run(
@@ -60,7 +60,7 @@ function OcrReviewCard({ item }: { item: Staging }) {
       fd.set("parsed_json", jsonText);
       if (status) fd.set("status", status);
       const res = await action(fd);
-      setMsg(res.message);
+      setMsg({ ok: res.ok, text: res.message });
     });
   }
 
@@ -114,8 +114,14 @@ function OcrReviewCard({ item }: { item: Staging }) {
         </button>
       </div>
       {msg ? (
-        <p className="mt-2 rounded-xl bg-brand-soft px-3 py-2 text-sm font-semibold text-brand-dark">
-          {msg}
+        <p
+          className={`mt-2 rounded-xl px-3 py-2 text-sm font-semibold ${
+            msg.ok
+              ? "bg-brand-soft text-brand-dark"
+              : "bg-rose-50 text-up"
+          }`}
+        >
+          {msg.text}
         </p>
       ) : null}
       <p className="mt-2 text-[11px] text-muted">

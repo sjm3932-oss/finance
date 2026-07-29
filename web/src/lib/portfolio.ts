@@ -1,3 +1,4 @@
+import { monthStartKst } from "@/lib/dates";
 import { marketRegion } from "@/lib/money";
 
 export type AccountRow = {
@@ -192,7 +193,7 @@ export function aggregateByTicker(rows: LiveHolding[]) {
       : null;
     const avg = qty > 0 ? cost / qty : 0;
     const price = list.find((r) => r.price !== null)?.price ?? null;
-    const ccy = list[0]?.ccy || "USD";
+    const ccy = list[0]?.ccy || "KRW";
     const return_pct =
       price !== null && avg > 0 ? ((price - avg) / avg) * 100 : null;
     const name =
@@ -340,8 +341,7 @@ export function monthlySummaryStats(args: {
   now?: Date;
 }): MonthlySummary {
   const now = args.now || new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthStartIso = monthStart.toISOString().slice(0, 10);
+  const monthStartIso = monthStartKst(now);
 
   const out: MonthlySummary = {
     month_start: monthStartIso,

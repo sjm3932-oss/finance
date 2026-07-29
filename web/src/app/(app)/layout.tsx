@@ -11,20 +11,18 @@ async function ensureProfile(
   user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> | null }
 ) {
   const displayName = displayNameFromUser(user);
-  // Prefer RPC used by Streamlit if present; fall back to upsert.
+
+  const { data: existing } = await supabase
+    .from("users")
+    .select("id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (existing?.id) return;
+
   const { error: rpcError } = await supabase.rpc("register_couple_user", {
     p_display_name: displayName,
   });
-  if (!rpcError) return;
-
-  await supabase.from("users").upsert(
-    {
-      id: user.id,
-      email: (user.email || "").toLowerCase(),
-      display_name: displayName,
-    },
-    { onConflict: "id" }
-  );
+  if (rpcError) redirect("/denied");
 }
 
 export default async function AppLayout({

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { fmtKrw } from "@/lib/money";
 import {
   ASSET_KIND_KO,
@@ -19,7 +20,11 @@ export function OtherAssetsPanel({
   if (!rows.length) {
     return (
       <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-8 text-center text-sm text-muted">
-        등록된 기타자산이 없습니다. Streamlit 「기록하기」에서 추가하세요.
+        등록된 기타자산이 없습니다.{" "}
+        <Link href="/record" className="font-semibold text-brand">
+          더보기 → 기록하기
+        </Link>
+        에서 추가하세요.
       </div>
     );
   }

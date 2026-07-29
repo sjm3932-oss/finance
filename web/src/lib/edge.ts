@@ -8,6 +8,14 @@ export async function invokeEdge<T = Record<string, unknown>>(
 ): Promise<T> {
   const supabase = createClient();
   const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError || !user) {
+    throw new Error("로그인이 필요합니다.");
+  }
+
+  const {
     data: { session },
   } = await supabase.auth.getSession();
   if (!session?.access_token) {

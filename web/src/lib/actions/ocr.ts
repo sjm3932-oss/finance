@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { requireAllowedUser } from "@/lib/actions/auth";
 import type { ActionResult } from "@/lib/record";
 
 function fail(m: string): ActionResult {
@@ -11,18 +11,9 @@ function ok(m: string): ActionResult {
   return { ok: true, message: m };
 }
 
-async function requireUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("로그인이 필요합니다.");
-  return { supabase, user };
-}
-
 export async function saveOcrStaging(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase } = await requireUser();
+    const { supabase } = await requireAllowedUser();
     const id = String(formData.get("id") || "");
     const raw = String(formData.get("parsed_json") || "");
     if (!id) return fail("항목 id가 없습니다.");
@@ -47,7 +38,7 @@ export async function saveOcrStaging(formData: FormData): Promise<ActionResult> 
 
 export async function setOcrStatus(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requireAllowedUser();
     const id = String(formData.get("id") || "");
     const status = String(formData.get("status") || "");
     const raw = String(formData.get("parsed_json") || "");

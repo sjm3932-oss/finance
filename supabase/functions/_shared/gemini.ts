@@ -1,5 +1,5 @@
 // Shared helpers for Edge Functions
-import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient, type User } from "jsr:@supabase/supabase-js@2";
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,16 +14,18 @@ export function json(data: unknown, status = 200) {
   });
 }
 
+function anonKey(): string {
+  const key = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!key) throw new Error("SUPABASE_ANON_KEY missing");
+  return key;
+}
+
 export function userClient(req: Request): SupabaseClient {
   const auth = req.headers.get("Authorization") ?? "";
-  return createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    {
-      global: { headers: { Authorization: auth } },
-      auth: { persistSession: false },
-    }
-  );
+  return createClient(Deno.env.get("SUPABASE_URL")!, anonKey(), {
+    global: { headers: { Authorization: auth } },
+    auth: { persistSession: false },
+  });
 }
 
 export function serviceClient(): SupabaseClient {
@@ -40,11 +42,40 @@ export async function requireUser(req: Request) {
     error,
   } = await supabase.auth.getUser();
   if (error || !user) {
-    throw new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    throw json({ ok: false, error: "unauthorized" }, 401);
   }
+  return { supabase, user };
+}
+
+/** JWT + DB allow-list (allowed_emails). Blocks non-couple callers before service-role reads. */
+export async function requireCoupleUser(req: Request): Promise<{
+  supabase: SupabaseClient;
+  user: User;
+}> {
+  const { supabase, user } = await requireUser(req);
+  const email = (user.email || "").trim().toLowerCase();
+  if (!email) {
+    throw json({ ok: false, error: "forbidden: no email" }, 403);
+  }
+
+  const { data: allowed, error } = await supabase.rpc("email_is_allowed", {
+    p_email: email,
+  });
+  if (error) {
+    // Fallback: direct table read via service role (RPC missing / older DB)
+    const admin = serviceClient();
+    const { data: row } = await admin
+      .from("allowed_emails")
+      .select("email")
+      .eq("email", email)
+      .maybeSingle();
+    if (!row) {
+      throw json({ ok: false, error: "forbidden" }, 403);
+    }
+  } else if (!allowed) {
+    throw json({ ok: false, error: "forbidden" }, 403);
+  }
+
   return { supabase, user };
 }
 

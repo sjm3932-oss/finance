@@ -1,8 +1,5 @@
 export function allowedEmails(): Set<string> {
-  const raw =
-    process.env.ALLOWED_EMAILS ||
-    process.env.NEXT_PUBLIC_ALLOWED_EMAILS ||
-    "";
+  const raw = process.env.ALLOWED_EMAILS || "";
   return new Set(
     raw
       .split(",")

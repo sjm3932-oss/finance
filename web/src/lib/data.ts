@@ -16,21 +16,40 @@ import {
   institutionsFromAccounts,
 } from "@/lib/portfolio";
 import { createClient } from "@/lib/supabase/server";
+import { monthStartKst } from "@/lib/dates";
 
 export type PortfolioFilters = {
   ownership?: string | null;
   institution?: string | null;
 };
 
+export class DataLoadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DataLoadError";
+  }
+}
+
 async function safeSelect<T>(
-  run: () => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+  run: () => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  opts?: { optional?: boolean; label?: string }
 ): Promise<T[]> {
+  const label = opts?.label || "query";
   try {
     const { data, error } = await run();
-    if (error) return [];
+    if (error) {
+      console.error(`[data] ${label}:`, error.message);
+      if (opts?.optional) return [];
+      throw new DataLoadError(`데이터 로드 실패 (${label}): ${error.message}`);
+    }
     return data || [];
-  } catch {
-    return [];
+  } catch (e) {
+    if (e instanceof DataLoadError) throw e;
+    console.error(`[data] ${label}:`, e);
+    if (opts?.optional) return [];
+    throw new DataLoadError(
+      `데이터 로드 실패 (${label}): ${e instanceof Error ? e.message : "unknown"}`
+    );
   }
 }
 
@@ -45,24 +64,26 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
       ? filters.institution
       : null;
 
-  let accountRows = await safeSelect<AccountRow>(() =>
-    supabase
-      .from("accounts")
-      .select("id,institution,account_type,currency,ownership,cash_balance")
+  let accountRows = await safeSelect<AccountRow>(
+    () =>
+      supabase
+        .from("accounts")
+        .select("id,institution,account_type,currency,ownership,cash_balance"),
+    { optional: true, label: "accounts" }
   );
   if (!accountRows.length) {
     accountRows = (
-      await safeSelect<AccountRow>(() =>
-        supabase
-          .from("accounts")
-          .select("id,institution,account_type,currency")
+      await safeSelect<AccountRow>(
+        () =>
+          supabase
+            .from("accounts")
+            .select("id,institution,account_type,currency"),
+        { label: "accounts-lean" }
       )
     ).map((a) => ({ ...a, ownership: "joint", cash_balance: 0 }));
   }
 
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  const monthIso = monthStart.toISOString().slice(0, 10);
+  const monthIso = monthStartKst();
 
   const [
     holdings,
@@ -73,50 +94,65 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
     alerts,
     realizedRows,
   ] = await Promise.all([
-    safeSelect<HoldingRow>(() => supabase.from("holdings").select("*")),
-    safeSelect<PriceRow>(() =>
-      supabase.from("market_prices").select("ticker,price,currency,updated_at")
+    safeSelect<HoldingRow>(() => supabase.from("holdings").select("*"), {
+      label: "holdings",
+    }),
+    safeSelect<PriceRow>(
+      () =>
+        supabase.from("market_prices").select("ticker,price,currency,updated_at"),
+      { optional: true, label: "market_prices" }
     ),
-    safeSelect<DebtRow>(() =>
-      supabase
-        .from("debts")
-        .select("id,lender,principal,due_date,ownership,interest_rate,debt_kind")
+    safeSelect<DebtRow>(
+      () =>
+        supabase
+          .from("debts")
+          .select("id,lender,principal,due_date,ownership,interest_rate,debt_kind"),
+      { optional: true, label: "debts" }
     ),
-    safeSelect<OtherAssetRow>(() =>
-      supabase
-        .from("other_assets")
-        .select("id,name,asset_kind,value_krw,ownership,memo")
+    safeSelect<OtherAssetRow>(
+      () =>
+        supabase
+          .from("other_assets")
+          .select("id,name,asset_kind,value_krw,ownership,memo"),
+      { optional: true, label: "other_assets" }
     ),
-    safeSelect<DailySnap>(() =>
-      supabase
-        .from("daily_snapshots")
-        .select(
-          "snapshot_date,net_assets,total_investment,total_debt,total_cash,total_other"
-        )
-        .order("snapshot_date", { ascending: false })
-        .limit(400)
+    safeSelect<DailySnap>(
+      () =>
+        supabase
+          .from("daily_snapshots")
+          .select(
+            "snapshot_date,net_assets,total_investment,total_debt,total_cash,total_other"
+          )
+          .order("snapshot_date", { ascending: false })
+          .limit(400),
+      { optional: true, label: "daily_snapshots" }
     ),
-    safeSelect<WealthAlert>(() =>
-      supabase
-        .from("wealth_alert_events")
-        .select("id,alert_kind,title,body,created_at")
-        .eq("acknowledged", false)
-        .order("created_at", { ascending: false })
-        .limit(10)
+    safeSelect<WealthAlert>(
+      () =>
+        supabase
+          .from("wealth_alert_events")
+          .select("id,alert_kind,title,body,created_at")
+          .eq("acknowledged", false)
+          .order("created_at", { ascending: false })
+          .limit(10),
+      { optional: true, label: "wealth_alerts" }
     ),
-    safeSelect<{ pnl_krw?: number | null; pnl?: number | null }>(() =>
-      supabase
-        .from("v_total_realized_pnl")
-        .select("event_date,pnl_krw,pnl,currency")
-        .gte("event_date", monthIso)
+    safeSelect<{ pnl_krw?: number | null; pnl?: number | null }>(
+      () =>
+        supabase
+          .from("v_total_realized_pnl")
+          .select("event_date,pnl_krw,pnl,currency")
+          .gte("event_date", monthIso),
+      { optional: true, label: "v_total_realized_pnl" }
     ),
   ]);
 
   let debts = debtsRaw;
   if (!debts.length) {
     debts = (
-      await safeSelect<{ principal: number | null }>(() =>
-        supabase.from("debts").select("principal")
+      await safeSelect<{ principal: number | null }>(
+        () => supabase.from("debts").select("principal"),
+        { optional: true, label: "debts-lean" }
       )
     ).map((d) => ({
       lender: null,
@@ -127,8 +163,9 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
 
   let otherAssets = otherRaw;
   if (!otherAssets.length) {
-    otherAssets = await safeSelect<OtherAssetRow>(() =>
-      supabase.from("other_assets").select("value_krw,ownership")
+    otherAssets = await safeSelect<OtherAssetRow>(
+      () => supabase.from("other_assets").select("value_krw,ownership"),
+      { optional: true, label: "other_assets-lean" }
     );
   }
 

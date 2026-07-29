@@ -6,13 +6,14 @@ import {
   EXPENSE_CATEGORIES,
   INCOME_CATEGORIES,
 } from "@/lib/record";
+import { todayKst } from "@/lib/dates";
 import { ActionForm, Field, Panel, inputClass } from "@/components/record/FormUI";
 
 type Account = { id: string; institution: string | null; currency?: string | null };
 type FlowTab = "trade" | "dividend" | "cash";
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return todayKst();
 }
 
 const TABS: { id: FlowTab; label: string }[] = [

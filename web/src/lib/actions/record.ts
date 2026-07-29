@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { requireAllowedUser } from "@/lib/actions/auth";
+import { todayKst } from "@/lib/dates";
 import { splitMonthlyPayment, type ActionResult } from "@/lib/record";
 
 function humanizeDbError(message: string): string {
@@ -38,15 +39,6 @@ function dbFail(error: { message: string } | null): ActionResult {
   return fail(humanizeDbError(error?.message || "저장 실패"));
 }
 
-async function requireUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("로그인이 필요합니다.");
-  return { supabase, user };
-}
-
 function str(v: FormDataEntryValue | null): string {
   return String(v ?? "").trim();
 }
@@ -69,7 +61,7 @@ function revalidateRecord() {
 
 export async function createAccount(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requireAllowedUser();
     const institution = str(formData.get("institution"));
     const account_type = str(formData.get("account_type")) || "brokerage";
     const currency = str(formData.get("currency")).toUpperCase() || "KRW";
@@ -114,7 +106,7 @@ export async function createAccount(formData: FormData): Promise<ActionResult> {
 
 export async function updateAccountCash(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase } = await requireUser();
+    const { supabase } = await requireAllowedUser();
     const id = str(formData.get("account_id"));
     const cash_balance = num(formData.get("cash_balance"));
     const ownership = str(formData.get("ownership")) || "joint";
@@ -137,7 +129,7 @@ export async function updateAccountCash(formData: FormData): Promise<ActionResul
 
 export async function createOtherAsset(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requireAllowedUser();
     const name = str(formData.get("name"));
     const asset_kind = str(formData.get("asset_kind")) || "other";
     const value_krw = num(formData.get("value_krw"));
@@ -167,7 +159,7 @@ export async function createOtherAsset(formData: FormData): Promise<ActionResult
 
 export async function updateOtherAssetValue(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase } = await requireUser();
+    const { supabase } = await requireAllowedUser();
     const id = str(formData.get("id"));
     const value_krw = num(formData.get("value_krw"));
     if (!id) return fail("항목을 선택하세요.");
@@ -189,7 +181,7 @@ export async function updateOtherAssetValue(formData: FormData): Promise<ActionR
 
 export async function deleteOtherAsset(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase } = await requireUser();
+    const { supabase } = await requireAllowedUser();
     const id = str(formData.get("id"));
     if (!id) return fail("항목을 선택하세요.");
     const { error } = await supabase.from("other_assets").delete().eq("id", id);
@@ -203,7 +195,7 @@ export async function deleteOtherAsset(formData: FormData): Promise<ActionResult
 
 export async function createTrade(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requireAllowedUser();
     const account_id = str(formData.get("account_id"));
     const trade_type = str(formData.get("trade_type")) || "buy";
     const ticker = str(formData.get("ticker")).toUpperCase();
@@ -243,7 +235,7 @@ export async function createTrade(formData: FormData): Promise<ActionResult> {
 
 export async function createDividend(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requireAllowedUser();
     const account_id = str(formData.get("account_id")) || null;
     const ticker = str(formData.get("ticker")).toUpperCase();
     const name = str(formData.get("name")) || ticker;
@@ -278,7 +270,7 @@ export async function createDividend(formData: FormData): Promise<ActionResult> 
 
 export async function createCashFlow(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requireAllowedUser();
     const flow_type = str(formData.get("flow_type")) || "expense";
     const category = str(formData.get("category"));
     const amount = num(formData.get("amount"));
@@ -313,7 +305,7 @@ export async function createCashFlow(formData: FormData): Promise<ActionResult> 
 
 export async function createDebt(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requireAllowedUser();
     const lender = str(formData.get("lender"));
     const debt_kind = str(formData.get("debt_kind")) || "other";
     const principal = num(formData.get("principal"));
@@ -365,7 +357,7 @@ export async function createDebt(formData: FormData): Promise<ActionResult> {
       await supabase.from("debt_rate_history").insert({
         debt_id: data.id,
         user_id: user.id,
-        effective_date: new Date().toISOString().slice(0, 10),
+        effective_date: todayKst(),
         interest_rate,
         memo: "등록 시 이자율",
       });
@@ -380,12 +372,12 @@ export async function createDebt(formData: FormData): Promise<ActionResult> {
 
 export async function changeDebtRate(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requireAllowedUser();
     const debt_id = str(formData.get("debt_id"));
     const interest_rate = num(formData.get("interest_rate"));
     const effective_date =
       str(formData.get("effective_date")) ||
-      new Date().toISOString().slice(0, 10);
+      todayKst();
     const memo = str(formData.get("memo")) || null;
 
     if (!debt_id) return fail("부채를 선택하세요.");
@@ -416,11 +408,11 @@ export async function changeDebtRate(formData: FormData): Promise<ActionResult> 
 
 export async function recordDebtPayment(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requireAllowedUser();
     const debt_id = str(formData.get("debt_id"));
     const amount = num(formData.get("amount"));
     const tx_date =
-      str(formData.get("tx_date")) || new Date().toISOString().slice(0, 10);
+      str(formData.get("tx_date")) || todayKst();
     const memo = str(formData.get("memo")) || "월 원리금 납부";
 
     if (!debt_id) return fail("부채를 선택하세요.");
@@ -461,12 +453,12 @@ export async function recordDebtPayment(formData: FormData): Promise<ActionResul
 
 export async function adjustDebt(formData: FormData): Promise<ActionResult> {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requireAllowedUser();
     const debt_id = str(formData.get("debt_id"));
     const tx_type = str(formData.get("tx_type")) || "repayment";
     const amount = num(formData.get("amount"));
     const tx_date =
-      str(formData.get("tx_date")) || new Date().toISOString().slice(0, 10);
+      str(formData.get("tx_date")) || todayKst();
     const memo = str(formData.get("memo")) || null;
 
     if (!debt_id) return fail("부채를 선택하세요.");
