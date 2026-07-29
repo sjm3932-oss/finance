@@ -9,7 +9,7 @@ import pandas as pd
 
 from lib.portfolio_insights import market_region
 
-OWNERSHIP_KO = {"joint": "공동", "mine": "나", "spouse": "배우자"}
+OWNERSHIP_KO = {"joint": "공동", "mine": "정명", "spouse": "지수"}
 ASSET_KIND_KO = {
     "real_estate": "부동산",
     "pension": "연금",

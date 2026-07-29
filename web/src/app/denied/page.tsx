@@ -7,7 +7,7 @@ export default function DeniedPage() {
       <div className="rounded-3xl border border-line bg-surface p-7 shadow-soft">
         <h1 className="text-2xl font-extrabold tracking-tight">접근 거부</h1>
         <p className="mt-3 text-sm text-muted">
-          이 Google 계정은 allow-list에 없습니다. 부부 계정만 사용할 수 있습니다.
+          이 Google 계정은 allow-list에 없습니다. 정명·지수 계정만 사용할 수 있습니다.
         </p>
         <div className="mt-6 flex items-center gap-3">
           <LogoutButton />

@@ -14,7 +14,7 @@ export default async function LoginPage() {
       <div className="rounded-3xl border border-line bg-surface p-7 shadow-soft">
         <p className="text-sm font-bold tracking-wide text-brand">부자뚱</p>
         <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-          부부 공동 자산
+          정명지수 공동 자산
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted">
           로그인 후 순자산·보유를 보고, 기록 탭에서 수기로 입력합니다.

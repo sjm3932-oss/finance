@@ -9,8 +9,8 @@ export const ASSET_KIND_OPTIONS = [
 
 export const OWNERSHIP_OPTIONS = [
   { value: "joint", label: "공동" },
-  { value: "mine", label: "나" },
-  { value: "spouse", label: "배우자" },
+  { value: "mine", label: "정명" },
+  { value: "spouse", label: "지수" },
 ] as const;
 
 export const DEBT_KIND_OPTIONS = [

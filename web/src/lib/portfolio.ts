@@ -103,8 +103,8 @@ export type DailySnap = {
 
 export const OWNERSHIP_KO: Record<string, string> = {
   joint: "공동",
-  mine: "나",
-  spouse: "배우자",
+  mine: "정명",
+  spouse: "지수",
 };
 
 export const ASSET_KIND_KO: Record<string, string> = {

@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "부자뚱",
-  description: "부부 공동 자산 관리",
+  description: "정명지수 공동 자산 관리",
   appleWebApp: {
     capable: true,
     title: "부자뚱",

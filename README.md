@@ -1,6 +1,6 @@
 # 부자뚱 (Couples Wealth Master)
 
-부부 공동 자산 관리 시스템 (Sovereign) — MVP 코어 루프.
+정명지수 공동 자산 관리 시스템 (Sovereign) — MVP 코어 루프.
 
 **Supabase:** https://lsqkixysysfhywipmrky.supabase.co
 

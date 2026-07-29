@@ -190,7 +190,7 @@ def _render_menu_buttons(*, pages: dict | None, can_navigate: bool, pending_appr
 
 
 def _show_logged_out_home() -> None:
-    page_hero("홈", "부부 공동 자산 관리 — 로그인 후 이용하세요.")
+    page_hero("홈", "정명지수 공동 자산 관리 — 로그인 후 이용하세요.")
     base = app_base_url()
     if is_ephemeral_app_url(base):
         st.warning("PUBLIC_APP_URL을 Streamlit Cloud 주소로 설정하세요.")

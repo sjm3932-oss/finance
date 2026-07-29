@@ -969,7 +969,7 @@ def main() -> None:
             own_opts,
             format_func=lambda k: "전체" if k == "전체" else OWNERSHIP_KO.get(k, k),
             key="dash_ownership_filter",
-            help="공동/나/배우자로 순자산·보유를 좁혀 봅니다.",
+            help="공동/정명/지수로 순자산·보유를 좁혀 봅니다.",
         )
         ownership_filter = None if own_pick == "전체" else own_pick
 
