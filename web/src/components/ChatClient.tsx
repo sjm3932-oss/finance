@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { invokeEdge } from "@/lib/edge";
 
 type Turn = { role: "user" | "model"; content: string };
@@ -14,6 +14,11 @@ export function ChatClient({
   const [input, setInput] = useState("");
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns, pending]);
 
   function send() {
     const message = input.trim();
@@ -39,13 +44,15 @@ export function ChatClient({
   }
 
   return (
-    <div className="flex min-h-[70dvh] flex-col">
-      <div className="flex-1 space-y-3 overflow-y-auto pb-4">
+    <div className="flex min-h-[calc(100dvh-8rem)] flex-col">
+      <div className="flex-1 space-y-3 overflow-y-auto pb-3">
         {!turns.length ? (
           <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-8 text-center text-sm text-muted">
             종합 자산관리 전문가에게 물어보세요.
             <br />
-            예: 「우리 순자산이 지난달보다 어떻게 변했어요?」
+            예: 「코스피랑 원달러 지금 어때요?」
+            <br />
+            「우리 순자산이 지난달보다 어떻게 변했어요?」
           </div>
         ) : null}
         {turns.map((t, i) => (
@@ -58,7 +65,7 @@ export function ChatClient({
             }`}
           >
             <div className="mb-1 text-[11px] font-bold opacity-70">
-              {t.role === "user" ? "나" : "부자뚱"}
+              {t.role === "user" ? "정명" : "부자뚱"}
             </div>
             <div className="whitespace-pre-wrap">{t.content}</div>
           </div>
@@ -71,10 +78,17 @@ export function ChatClient({
             {error}
           </p>
         ) : null}
+        <div ref={endRef} />
       </div>
 
-      <div className="sticky bottom-0 border-t border-line bg-canvas/95 pb-2 pt-3 backdrop-blur">
-        <div className="flex gap-2">
+      <div
+        className="sticky z-30 border-t border-line bg-canvas/95 pt-3 backdrop-blur"
+        style={{
+          bottom: 0,
+          paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+        }}
+      >
+        <div className="flex items-stretch gap-2">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -84,15 +98,18 @@ export function ChatClient({
                 send();
               }
             }}
-            placeholder="자산에 대해 물어보세요"
+            placeholder="자산·시세에 대해 물어보세요"
             disabled={pending}
-            className="min-h-11 flex-1 rounded-xl border border-line bg-surface px-3 text-sm font-semibold outline-none focus:border-brand disabled:opacity-60"
+            enterKeyHint="send"
+            autoComplete="off"
+            autoCorrect="off"
+            className="min-h-12 min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 text-base font-semibold outline-none focus:border-brand disabled:opacity-60"
           />
           <button
             type="button"
             onClick={send}
             disabled={pending || !input.trim()}
-            className="rounded-xl bg-brand px-4 text-sm font-extrabold text-white disabled:opacity-60"
+            className="shrink-0 rounded-xl bg-brand px-4 text-base font-extrabold text-white disabled:opacity-60"
           >
             전송
           </button>

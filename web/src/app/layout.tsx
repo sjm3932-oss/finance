@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -9,6 +9,16 @@ export const metadata: Metadata = {
     title: "부자뚱",
     statusBarStyle: "default",
   },
+};
+
+/** Prevent iOS Safari auto-zoom on input focus (font < 16px). */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({

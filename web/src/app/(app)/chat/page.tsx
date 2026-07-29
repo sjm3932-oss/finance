@@ -22,11 +22,11 @@ export default async function ChatPage() {
     });
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-[calc(100dvh-3.5rem)] flex-col space-y-3">
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">자산 챗</h1>
         <p className="mt-1 text-sm text-muted">
-          종합 자산관리 전문가 · 보유·시세·손익 기준으로 답합니다
+          종합 자산관리 전문가 · 보유·시세·주요 지표 기준
         </p>
       </div>
       <ChatClient initialTurns={initialTurns} />

@@ -146,6 +146,36 @@ async function fetchIndices(): Promise<{ values: Record<string, number>; errors:
   return { values, errors };
 }
 
+async function fetchMacroPriceRows(): Promise<{
+  rows: { ticker: string; price: number; currency: string; updated_at: string }[];
+  errors: string[];
+}> {
+  const now = new Date().toISOString();
+  const specs: { ticker: string; currency: string; run: () => Promise<number> }[] = [
+    { ticker: "KOSPI", currency: "KRW", run: () => yahooIndex("^KS11") },
+    { ticker: "SP500", currency: "USD", run: () => yahooIndex("^GSPC") },
+    { ticker: "NASDAQ", currency: "USD", run: () => yahooIndex("^IXIC") },
+    { ticker: "WTI", currency: "USD", run: () => yahooIndex("CL=F") },
+    { ticker: "US_IRX", currency: "PCT", run: () => yahooIndex("^IRX") },
+    { ticker: "US10Y", currency: "PCT", run: () => yahooIndex("^TNX") },
+  ];
+  const rows: { ticker: string; price: number; currency: string; updated_at: string }[] = [];
+  const errors: string[] = [];
+  for (const s of specs) {
+    try {
+      rows.push({
+        ticker: s.ticker,
+        price: await s.run(),
+        currency: s.currency,
+        updated_at: now,
+      });
+    } catch (e) {
+      errors.push(`${s.ticker}: ${e}`);
+    }
+  }
+  return { rows, errors };
+}
+
 Deno.serve(async (_req) => {
   try {
     const supabase = createClient(
@@ -201,6 +231,12 @@ Deno.serve(async (_req) => {
     });
     const { values: indices, errors: idxErrors } = await fetchIndices();
     errors.push(...idxErrors);
+    const { rows: macroRows, errors: macroErrors } = await fetchMacroPriceRows();
+    errors.push(...macroErrors);
+    if (macroRows.length) {
+      const { error: macroErr } = await supabase.from("market_prices").upsert(macroRows);
+      if (macroErr) errors.push(`macro upsert: ${macroErr.message}`);
+    }
     const today = new Date().toISOString().slice(0, 10);
     await supabase.from("market_index_snapshots").upsert({
       snapshot_date: today,

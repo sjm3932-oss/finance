@@ -76,6 +76,29 @@ def build_wealth_context(client) -> dict[str, Any]:
     price_map = {p["ticker"]: p for p in prices}
     usdkrw = price_map.get("USDKRW", {}).get("price")
 
+    macro_keys = (
+        ("KOSPI", "코스피"),
+        ("SP500", "S&P 500"),
+        ("NASDAQ", "나스닥"),
+        ("USDKRW", "원달러환율"),
+        ("WTI", "WTI 국제유가"),
+        ("US_IRX", "미국 단기금리"),
+        ("US10Y", "미국 10년물 금리"),
+    )
+    macro_indicators = []
+    for key, label in macro_keys:
+        row = price_map.get(key) or {}
+        if row.get("price") is None and key != "USDKRW":
+            continue
+        macro_indicators.append(
+            {
+                "key": key,
+                "label": label,
+                "value": row.get("price") if key != "USDKRW" else usdkrw,
+                "updated_at": row.get("updated_at"),
+            }
+        )
+
     enriched = []
     total_usd = 0.0
     for h in holdings:
@@ -105,6 +128,7 @@ def build_wealth_context(client) -> dict[str, Any]:
     return {
         "as_of_note": "Values come only from the couple's Supabase DB.",
         "usdkrw": usdkrw,
+        "macro_indicators": macro_indicators,
         "accounts": accounts,
         "holdings": enriched,
         "portfolio_view": portfolio,

@@ -159,6 +159,10 @@ export function BottomNav() {
     if (!isMoreSection(pathname)) setForceMain(false);
   }, [pathname]);
 
+  if (pathname.startsWith("/chat") || pathname.startsWith("/login")) {
+    return null;
+  }
+
   const showMoreMenu = isMoreSection(pathname) && !forceMain;
 
   if (showMoreMenu) {
