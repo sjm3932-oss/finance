@@ -1,10 +1,16 @@
 import { createClient } from "@/lib/supabase/server";
 import { ChatClient } from "@/components/ChatClient";
+import { displayNameFromUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function ChatPage() {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const speakerName = displayNameFromUser(user || {});
+
   const { data: logs } = await supabase
     .from("ai_chat_logs")
     .select("user_query,ai_response,created_at")
@@ -26,10 +32,10 @@ export default async function ChatPage() {
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">자산 챗</h1>
         <p className="mt-1 text-sm text-muted">
-          투자·연금·세금·대출을 쉽게 · 숫자는 기록 기준 · 추측 최소화
+          {speakerName} 님 · 투자·연금·세금·대출을 쉽게
         </p>
       </div>
-      <ChatClient initialTurns={initialTurns} />
+      <ChatClient initialTurns={initialTurns} speakerName={speakerName} />
     </div>
   );
 }

@@ -7,9 +7,26 @@ import {
   serviceClient,
 } from "../_shared/gemini.ts";
 
-const WEALTH_CHAT_SYSTEM = `당신은 부자뚱의 생활밀착형 자산 선생님입니다.
+const SPEAKER_BY_EMAIL: Record<string, string> = {
+  "sjm3932@gmail.com": "정명",
+  "teruterujisoo@gmail.com": "지수",
+};
+
+function speakerFromEmail(email: string | null | undefined): string {
+  const key = (email || "").trim().toLowerCase();
+  return SPEAKER_BY_EMAIL[key] || "회원";
+}
+
+function buildSystemPrompt(speaker: string): string {
+  return `당신은 부자뚱의 생활밀착형 자산 선생님입니다.
 정명·지수가 일상에서 묻는 돈 고민(투자·연금·세금·대출·현금·환율·시세)을
 일반인도 바로 이해하게, 쉽고 짧게 설명해 주세요.
+
+호칭 (중요):
+- 지금 질문하는 사람은 "${speaker}"입니다. 부를 때는 반드시 "${speaker} 님"이라고만 하세요.
+- "고객님", "회원님", "사장님", "선생님" 같은 호칭은 절대 쓰지 마세요.
+- 부부 중 다른 사람을 언급할 때는 정명 님 / 지수 님으로 구분하세요.
+- 매 문장마다 이름을 반복하지 말고, 필요할 때만 부르세요.
 
 대상 수준:
 - 전문 용어는 필요할 때만 쓰고, 바로 쉬운 말로 풀어 주세요.
@@ -40,6 +57,7 @@ const WEALTH_CHAT_SYSTEM = `당신은 부자뚱의 생활밀착형 자산 선생
 계산 안내:
 - loan_helpers / tax / debts / other_assets 가 있으면 그 숫자로 먼저 계산·설명하세요.
 - 사용자가 가정(예: 매달 100만 원 상환)을 주면, 그 가정임을 밝히고 대략 계산해 주세요.`;
+}
 
 const UA = { "User-Agent": "Bujattung/1.0 (wealth-chat)" };
 
@@ -502,7 +520,10 @@ function buildOtherAssetsPlain(rows: Array<Record<string, unknown>>) {
   }));
 }
 
-async function buildContext(admin: ReturnType<typeof serviceClient>) {
+async function buildContext(
+  admin: ReturnType<typeof serviceClient>,
+  speaker: { name: string; email: string | null }
+) {
   const [
     holdings,
     prices,
@@ -652,6 +673,15 @@ async function buildContext(admin: ReturnType<typeof serviceClient>) {
   const market_news = await fetchMarketNews(holding_moves);
 
   const ctx = {
+    speaker: {
+      name: speaker.name,
+      email: speaker.email,
+      address_as: `${speaker.name} 님`,
+    },
+    couple: {
+      정명: "sjm3932@gmail.com",
+      지수: "teruterujisoo@gmail.com",
+    },
     household_summary,
     holdings: enriched,
     holding_moves,
@@ -710,13 +740,14 @@ async function buildContext(admin: ReturnType<typeof serviceClient>) {
 async function callGemini(opts: {
   apiKey: string;
   model: string;
+  systemPrompt: string;
   turns: { role: string; parts: { text: string }[] }[];
   useSearch: boolean;
 }) {
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/${opts.model}:generateContent?key=${opts.apiKey}`;
   const body: Record<string, unknown> = {
-    systemInstruction: { parts: [{ text: WEALTH_CHAT_SYSTEM }] },
+    systemInstruction: { parts: [{ text: opts.systemPrompt }] },
     contents: opts.turns,
     generationConfig: { temperature: 0.25 },
   };
@@ -747,9 +778,13 @@ Deno.serve(async (req) => {
     const message = String(body.message || "").trim();
     if (!message) return json({ ok: false, error: "message required" }, 400);
 
+    const speakerName = speakerFromEmail(user.email);
+    const speaker = { name: speakerName, email: user.email ?? null };
+    const systemPrompt = buildSystemPrompt(speakerName);
+
     const history = Array.isArray(body.history) ? body.history.slice(-40) : [];
     const admin = serviceClient();
-    const { ctx, text: contextText } = await buildContext(admin);
+    const { ctx, text: contextText } = await buildContext(admin, speaker);
 
     const turns: { role: string; parts: { text: string }[] }[] = [];
     turns.push({
@@ -758,6 +793,7 @@ Deno.serve(async (req) => {
         {
           text:
             `WEALTH_CONTEXT:\n${contextText}\n\n` +
+            `지금 대화 상대는 ${speakerName} 님입니다. 호칭은 "${speakerName} 님"만 쓰고 고객님은 금지입니다. ` +
             `포트폴리오·부채·세금·연금 숫자는 WEALTH_CONTEXT만 사용하세요. ` +
             `개념 설명·시장 원인은 Google 검색으로 확인하고, 일반인도 이해하게 쉽게 가르치세요. ` +
             `확인 안 된 숫자/원인은 만들지 마세요. 준비되면 "준비됨"이라고만 답하세요.`,
@@ -778,7 +814,7 @@ Deno.serve(async (req) => {
         {
           text:
             `${message}\n\n` +
-            `(쉬운 설명으로. 우리 집 숫자는 컨텍스트, 개념·시세 원인은 검색/뉴스 근거가 있을 때만.)`,
+            `(쉬운 설명으로. ${speakerName} 님께 답하세요. 우리 집 숫자는 컨텍스트, 개념·시세 원인은 검색/뉴스 근거가 있을 때만.)`,
         },
       ],
     });
@@ -790,11 +826,22 @@ Deno.serve(async (req) => {
     let data: Record<string, unknown>;
     let usedSearch = true;
     try {
-      data = await callGemini({ apiKey, model, turns, useSearch: true });
+      data = await callGemini({
+        apiKey,
+        model,
+        systemPrompt,
+        turns,
+        useSearch: true,
+      });
     } catch (e) {
-      // Fallback if search tool unsupported on this model/key
       usedSearch = false;
-      data = await callGemini({ apiKey, model, turns, useSearch: false });
+      data = await callGemini({
+        apiKey,
+        model,
+        systemPrompt,
+        turns,
+        useSearch: false,
+      });
       if (!data) throw e;
     }
 
@@ -830,7 +877,13 @@ Deno.serve(async (req) => {
       ok: true,
       reply: finalReply,
       sources,
-      meta: { ...ctx.meta, grounded_search: usedSearch, sources: sources.length },
+      speaker: speakerName,
+      meta: {
+        ...ctx.meta,
+        grounded_search: usedSearch,
+        sources: sources.length,
+        speaker: speakerName,
+      },
     });
   } catch (e) {
     if (e instanceof Response) return e;

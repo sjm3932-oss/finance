@@ -12,8 +12,10 @@ type Turn = {
 
 export function ChatClient({
   initialTurns = [],
+  speakerName = "회원",
 }: {
   initialTurns?: Turn[];
+  speakerName?: string;
 }) {
   const [turns, setTurns] = useState<Turn[]>(initialTurns);
   const [input, setInput] = useState("");
@@ -80,7 +82,7 @@ export function ChatClient({
             }`}
           >
             <div className="mb-1 text-[11px] font-bold opacity-70">
-              {t.role === "user" ? "정명" : "부자뚱"}
+              {t.role === "user" ? speakerName : "부자뚱"}
             </div>
             <div className="whitespace-pre-wrap">{t.content}</div>
             {t.sources?.length ? (
