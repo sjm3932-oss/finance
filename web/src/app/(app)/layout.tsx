@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { BottomNav } from "@/components/BottomNav";
 import { AiFab } from "@/components/AiFab";
+import { AppHeader } from "@/components/AppHeader";
 import { AppMain } from "@/components/AppMain";
-import { LogoutButton } from "@/components/AuthButtons";
 import { displayNameFromUser, isEmailAllowed } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
@@ -45,13 +45,7 @@ export default async function AppLayout({
 
   return (
     <div className="mx-auto min-h-dvh max-w-lg">
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-canvas/95 px-4 py-3 backdrop-blur">
-        <div>
-          <p className="text-[11px] font-bold tracking-wide text-brand">부자뚱</p>
-          <p className="text-sm font-semibold text-ink">{name}</p>
-        </div>
-        <LogoutButton />
-      </header>
+      <AppHeader name={name} />
       <AppMain>{children}</AppMain>
       <AiFab />
       <BottomNav />
