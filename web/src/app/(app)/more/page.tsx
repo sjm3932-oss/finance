@@ -58,7 +58,12 @@ export default function MorePage() {
           );
           if (item.href) {
             return (
-              <Link key={item.title} href={item.href} className={className}>
+              <Link
+                key={item.title}
+                href={item.href}
+                prefetch
+                className={`${className} touch-manipulation transition-transform active:scale-[0.98] active:bg-canvas`}
+              >
                 {inner}
               </Link>
             );

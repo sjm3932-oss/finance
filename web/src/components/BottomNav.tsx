@@ -2,7 +2,26 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
+import { markNavStart } from "@/components/navBusy";
+
+const PREFETCH_HREFS = [
+  "/",
+  "/holdings",
+  "/pnl",
+  "/flows",
+  "/more",
+  "/record",
+  "/ocr",
+  "/more/net-worth",
+  "/more/tax",
+  "/chat",
+] as const;
 
 type IconProps = { active?: boolean };
 
@@ -126,24 +145,31 @@ function NavItem({
   href,
   label,
   active,
+  pressed,
   icon: Icon,
   onClick,
 }: {
   href: string;
   label: string;
   active: boolean;
+  pressed?: boolean;
   icon: ComponentType<IconProps>;
   onClick?: () => void;
 }) {
+  const lit = active || !!pressed;
   return (
     <Link
       href={href}
-      onClick={onClick}
-      className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1 transition ${
-        active ? "text-brand" : "text-muted"
-      }`}
+      prefetch
+      onClick={() => {
+        markNavStart();
+        onClick?.();
+      }}
+      className={`flex min-w-0 flex-1 touch-manipulation flex-col items-center justify-center gap-0.5 rounded-2xl py-1 transition-transform active:scale-90 ${
+        lit ? "text-brand" : "text-muted"
+      } ${pressed && !active ? "opacity-90" : ""}`}
     >
-      <Icon active={active} />
+      <Icon active={lit} />
       <span className="truncate text-[10px] font-bold tracking-tight">{label}</span>
     </Link>
   );
@@ -154,10 +180,18 @@ export function BottomNav() {
   const router = useRouter();
   /** After ←, show main tabs even if still on a more-section URL briefly. */
   const [forceMain, setForceMain] = useState(false);
+  const [pressedHref, setPressedHref] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isMoreSection(pathname)) setForceMain(false);
+    setPressedHref(null);
   }, [pathname]);
+
+  useEffect(() => {
+    for (const href of PREFETCH_HREFS) {
+      router.prefetch(href);
+    }
+  }, [router]);
 
   if (pathname.startsWith("/chat") || pathname.startsWith("/login")) {
     return null;
@@ -173,10 +207,11 @@ export function BottomNav() {
           <button
             type="button"
             onClick={() => {
+              markNavStart();
               setForceMain(true);
               router.push("/");
             }}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-canvas text-ink active:scale-95"
+            className="flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full bg-canvas text-ink transition-transform active:scale-90"
             aria-label="주메뉴로 돌아가기"
           >
             <IconBack />
@@ -189,8 +224,12 @@ export function BottomNav() {
             href={item.href}
             label={item.label}
             active={item.match(pathname)}
+            pressed={pressedHref === item.href}
             icon={item.icon}
-            onClick={() => setForceMain(false)}
+            onClick={() => {
+              setPressedHref(item.href);
+              setForceMain(false);
+            }}
           />
         ))}
       </PillShell>
@@ -205,8 +244,10 @@ export function BottomNav() {
           href={item.href}
           label={item.label}
           active={item.match(pathname)}
+          pressed={pressedHref === item.href}
           icon={item.icon}
           onClick={() => {
+            setPressedHref(item.href);
             if (item.opensMore) setForceMain(false);
           }}
         />

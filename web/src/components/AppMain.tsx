@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
+import { markNavStart } from "@/components/navBusy";
 
 const EDGE_PX = 28;
 const SWIPE_MIN_X = 72;
@@ -36,6 +37,7 @@ export function AppMain({ children }: { children: React.ReactNode }) {
       const dx = t.clientX - start.x;
       const dy = Math.abs(t.clientY - start.y);
       if (dx >= SWIPE_MIN_X && dy <= SWIPE_MAX_Y) {
+        markNavStart();
         if (typeof window !== "undefined" && window.history.length > 1) {
           router.back();
         } else {

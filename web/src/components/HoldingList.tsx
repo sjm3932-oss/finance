@@ -90,11 +90,12 @@ export function HoldingList({
           </>
         );
         const className =
-          "flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-b-0 active:bg-canvas";
+          "flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-b-0 touch-manipulation transition-transform active:scale-[0.99] active:bg-canvas";
         return linkable ? (
           <Link
             key={it.ticker}
             href={`/holdings/${encodeURIComponent(it.ticker)}${q}`}
+            prefetch
             className={className}
           >
             {inner}

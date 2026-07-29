@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { LogoutButton } from "@/components/AuthButtons";
+import { NavBusyBar, markNavStart } from "@/components/navBusy";
 
 export function AppHeader({ name }: { name: string }) {
   const pathname = usePathname();
@@ -9,6 +10,7 @@ export function AppHeader({ name }: { name: string }) {
   const showBack = pathname !== "/";
 
   function goBack() {
+    markNavStart();
     if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
       return;
@@ -24,7 +26,7 @@ export function AppHeader({ name }: { name: string }) {
             type="button"
             onClick={goBack}
             aria-label="이전 화면"
-            className="-ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-ink transition active:bg-line/60"
+            className="-ml-1 flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full text-ink transition-transform active:scale-90 active:bg-line/60"
           >
             <svg
               width="22"
@@ -49,6 +51,7 @@ export function AppHeader({ name }: { name: string }) {
         </div>
       </div>
       <LogoutButton />
+      <NavBusyBar />
     </header>
   );
 }
