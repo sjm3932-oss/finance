@@ -17,7 +17,7 @@ export function AiFab() {
   return (
     <Link
       href="/chat"
-      className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 z-40 flex h-12 items-center rounded-full bg-brand px-4 text-sm font-extrabold text-white shadow-lg shadow-brand/30 active:scale-95"
+      className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-40 flex h-12 items-center rounded-full bg-brand px-4 text-sm font-extrabold text-white shadow-lg shadow-brand/30 active:scale-95"
       aria-label="AI 채팅"
     >
       AI
