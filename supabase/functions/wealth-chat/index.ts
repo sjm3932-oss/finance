@@ -570,6 +570,19 @@ async function buildContext(admin: ReturnType<typeof serviceClient>) {
     /* ignore */
   }
 
+  // Older DBs may lack cash/ownership columns on accounts
+  let accountRows = accounts.data || [];
+  if (accounts.error) {
+    const lean = await admin
+      .from("accounts")
+      .select("id,institution,account_type,currency");
+    accountRows = (lean.data || []).map((a) => ({
+      ...a,
+      ownership: "joint",
+      cash_balance: 0,
+    }));
+  }
+
   const priceMap = new Map(
     (prices.data || []).map((p: { ticker: string }) => [p.ticker, p])
   );
@@ -610,7 +623,7 @@ async function buildContext(admin: ReturnType<typeof serviceClient>) {
   const other_assets_plain = buildOtherAssetsPlain(otherRows);
 
   const invest = enriched.reduce((s, h) => s + (h.market_value || 0), 0);
-  const cash = ((accounts.data || []) as Array<Record<string, unknown>>).reduce(
+  const cash = (accountRows as Array<Record<string, unknown>>).reduce(
     (s, a) => s + Number(a.cash_balance || 0),
     0
   );
@@ -642,7 +655,7 @@ async function buildContext(admin: ReturnType<typeof serviceClient>) {
     household_summary,
     holdings: enriched,
     holding_moves,
-    accounts: accounts.data || [],
+    accounts: accountRows,
     debts: debtRows,
     loan_helpers,
     other_assets: otherRows,
