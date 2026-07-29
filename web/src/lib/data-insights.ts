@@ -384,62 +384,6 @@ export async function loadDebtDashboard(accountIds: string[] | null) {
   };
 }
 
-export async function loadWatchlist() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { items: [], alerts: [] };
-
-  const items = await safeSelect<{
-    id: string;
-    ticker: string;
-    name: string | null;
-    target_price: number | null;
-    stop_price: number | null;
-    note: string | null;
-  }>(() =>
-    supabase
-      .from("watchlist")
-      .select("id,ticker,name,target_price,stop_price,note")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-  );
-
-  const prices = await safeSelect<{
-    ticker: string;
-    price: number;
-    currency: string | null;
-  }>(() =>
-    supabase.from("market_prices").select("ticker,price,currency")
-  );
-  const pmap = new Map(prices.map((p) => [p.ticker, p]));
-
-  const alerts = await safeSelect<{
-    id: string;
-    ticker: string;
-    alert_kind: string;
-    trigger_price: number | null;
-    market_price: number | null;
-  }>(() =>
-    supabase
-      .from("price_alert_events")
-      .select("id,ticker,alert_kind,trigger_price,market_price")
-      .eq("acknowledged", false)
-      .order("created_at", { ascending: false })
-      .limit(20)
-  );
-
-  return {
-    items: items.map((it) => ({
-      ...it,
-      price: pmap.get(it.ticker)?.price ?? null,
-      currency: pmap.get(it.ticker)?.currency ?? null,
-    })),
-    alerts,
-  };
-}
-
 export async function loadTaxYear(year?: number) {
   const supabase = await createClient();
   const y = year || new Date().getFullYear();

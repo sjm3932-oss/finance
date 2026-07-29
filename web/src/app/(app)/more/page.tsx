@@ -27,11 +27,6 @@ const LINKS = [
     href: "/more/debts",
   },
   {
-    title: "관심종목",
-    body: "등록 · 목표가/손절 · 알림",
-    href: "/more/watchlist",
-  },
-  {
     title: "세금",
     body: "양도차익 입력 · 예상세",
     href: "/more/tax",

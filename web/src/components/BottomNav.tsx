@@ -81,12 +81,6 @@ const MORE_ITEMS: {
     icon: IconPie,
   },
   {
-    href: "/more/watchlist",
-    label: "관심",
-    match: (p) => p.startsWith("/more/watchlist"),
-    icon: IconHeart,
-  },
-  {
     href: "/more/tax",
     label: "세금",
     match: (p) => p.startsWith("/more/tax"),
@@ -383,19 +377,6 @@ function IconPie({ active }: IconProps) {
       />
       <path
         d="M14 4.3A8 8 0 0 1 19.7 10H14V4.3z"
-        stroke="currentColor"
-        strokeWidth={stroke(active)}
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function IconHeart({ active }: IconProps) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M12 20s-7-4.4-7-9.2A3.8 3.8 0 0 1 12 7.5a3.8 3.8 0 0 1 7 3.3C19 15.6 12 20 12 20z"
         stroke="currentColor"
         strokeWidth={stroke(active)}
         strokeLinejoin="round"

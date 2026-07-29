@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import {
   createDebt,
   changeDebtRate,
@@ -19,6 +20,8 @@ type Debt = {
 
 type Account = { id: string; institution: string | null };
 
+type ActionTab = "pay" | "rate" | "adjust";
+
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -30,7 +33,14 @@ export function DebtForms({
   debts: Debt[];
   accounts: Account[];
 }) {
-  const withId = debts.filter((d) => d.id);
+  const withId = debts.filter((d) => d.id) as (Debt & { id: string })[];
+  const [debtId, setDebtId] = useState(withId[0]?.id ?? "");
+  const [action, setAction] = useState<ActionTab>("pay");
+
+  const selected = useMemo(
+    () => withId.find((d) => d.id === debtId) ?? withId[0] ?? null,
+    [withId, debtId]
+  );
 
   return (
     <div className="space-y-4">
@@ -49,7 +59,14 @@ export function DebtForms({
             </select>
           </Field>
           <Field label="현재 잔금(원)">
-            <input name="principal" type="number" min={0} step={100000} required className={inputClass} />
+            <input
+              name="principal"
+              type="number"
+              min={0}
+              step={100000}
+              required
+              className={inputClass}
+            />
           </Field>
           <Field label="최초 원금(원)">
             <input
@@ -61,19 +78,21 @@ export function DebtForms({
               className={inputClass}
             />
           </Field>
-          <Field label="연 이자율(%)">
-            <input
-              name="interest_rate"
-              type="number"
-              min={0}
-              step={0.1}
-              defaultValue={3.5}
-              className={inputClass}
-            />
-          </Field>
-          <Field label="만기일">
-            <input name="due_date" type="date" className={inputClass} />
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="연 이자율(%)">
+              <input
+                name="interest_rate"
+                type="number"
+                min={0}
+                step={0.1}
+                defaultValue={3.5}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="만기일">
+              <input name="due_date" type="date" className={inputClass} />
+            </Field>
+          </div>
           <Field label="소유">
             <select name="ownership" className={inputClass} defaultValue="joint">
               {OWNERSHIP_OPTIONS.map((o) => (
@@ -99,83 +118,156 @@ export function DebtForms({
         </ActionForm>
       </Panel>
 
-      {withId.length ? (
-        <>
-          <Panel title="월 납부">
-            <ActionForm action={recordDebtPayment} submitLabel="납부 기록">
-              <Field label="부채">
-                <select name="debt_id" required className={inputClass}>
-                  {withId.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.lender} ({fmtKrw(d.principal)})
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="납부 금액">
-                <input name="amount" type="number" min={0} step={10000} required className={inputClass} />
-              </Field>
-              <Field label="납부일">
-                <input name="tx_date" type="date" defaultValue={today()} className={inputClass} />
-              </Field>
-              <Field label="메모">
-                <input name="memo" className={inputClass} defaultValue="월 원리금 납부" />
-              </Field>
-            </ActionForm>
-          </Panel>
+      {selected ? (
+        <Panel title="부채 관리">
+          <Field label="부채">
+            <select
+              className={inputClass}
+              value={selected.id}
+              onChange={(e) => setDebtId(e.target.value)}
+            >
+              {withId.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.lender} · {fmtKrw(d.principal)}
+                  {d.interest_rate != null ? ` · ${d.interest_rate}%` : ""}
+                </option>
+              ))}
+            </select>
+          </Field>
 
-          <Panel title="이자율 변경">
-            <ActionForm action={changeDebtRate} submitLabel="이자율 저장">
-              <Field label="부채">
-                <select name="debt_id" required className={inputClass}>
-                  {withId.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.lender} ({d.interest_rate ?? "—"}%)
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="새 연 이자율(%)">
-                <input name="interest_rate" type="number" min={0} step={0.1} required className={inputClass} />
-              </Field>
-              <Field label="적용일">
-                <input name="effective_date" type="date" defaultValue={today()} className={inputClass} />
-              </Field>
-              <Field label="사유">
-                <input name="memo" className={inputClass} />
-              </Field>
-            </ActionForm>
-          </Panel>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {(
+              [
+                ["pay", "월 납부"],
+                ["rate", "이자율"],
+                ["adjust", "차입·상환"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setAction(id)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                  action === id
+                    ? "bg-brand text-white"
+                    : "bg-canvas text-muted ring-1 ring-line"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
 
-          <Panel title="추가차입 · 원금상환">
-            <ActionForm action={adjustDebt} submitLabel="기록">
-              <Field label="부채">
-                <select name="debt_id" required className={inputClass}>
-                  {withId.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.lender}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="유형">
-                <select name="tx_type" className={inputClass} defaultValue="repayment">
-                  <option value="repayment">원금 상환</option>
-                  <option value="increase">추가 차입</option>
-                </select>
-              </Field>
-              <Field label="금액">
-                <input name="amount" type="number" min={0} step={10000} required className={inputClass} />
-              </Field>
-              <Field label="일자">
-                <input name="tx_date" type="date" defaultValue={today()} className={inputClass} />
-              </Field>
-              <Field label="메모">
-                <input name="memo" className={inputClass} />
-              </Field>
-            </ActionForm>
-          </Panel>
-        </>
+          <div className="mt-4">
+            {action === "pay" ? (
+              <ActionForm
+                key={`pay-${selected.id}`}
+                action={recordDebtPayment}
+                submitLabel="납부 기록"
+              >
+                <input type="hidden" name="debt_id" value={selected.id} />
+                <Field label="납부 금액">
+                  <input
+                    name="amount"
+                    type="number"
+                    min={0}
+                    step={10000}
+                    required
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="납부일">
+                  <input
+                    name="tx_date"
+                    type="date"
+                    defaultValue={today()}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="메모">
+                  <input
+                    name="memo"
+                    className={inputClass}
+                    defaultValue="월 원리금 납부"
+                  />
+                </Field>
+              </ActionForm>
+            ) : null}
+
+            {action === "rate" ? (
+              <ActionForm
+                key={`rate-${selected.id}`}
+                action={changeDebtRate}
+                submitLabel="이자율 저장"
+              >
+                <input type="hidden" name="debt_id" value={selected.id} />
+                <Field label="새 연 이자율(%)">
+                  <input
+                    name="interest_rate"
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    required
+                    defaultValue={Number(selected.interest_rate || 0)}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="적용일">
+                  <input
+                    name="effective_date"
+                    type="date"
+                    defaultValue={today()}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="사유">
+                  <input name="memo" className={inputClass} />
+                </Field>
+              </ActionForm>
+            ) : null}
+
+            {action === "adjust" ? (
+              <ActionForm
+                key={`adj-${selected.id}`}
+                action={adjustDebt}
+                submitLabel="기록"
+              >
+                <input type="hidden" name="debt_id" value={selected.id} />
+                <Field label="유형">
+                  <select
+                    name="tx_type"
+                    className={inputClass}
+                    defaultValue="repayment"
+                  >
+                    <option value="repayment">원금 상환</option>
+                    <option value="increase">추가 차입</option>
+                  </select>
+                </Field>
+                <Field label="금액">
+                  <input
+                    name="amount"
+                    type="number"
+                    min={0}
+                    step={10000}
+                    required
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="일자">
+                  <input
+                    name="tx_date"
+                    type="date"
+                    defaultValue={today()}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="메모">
+                  <input name="memo" className={inputClass} />
+                </Field>
+              </ActionForm>
+            ) : null}
+          </div>
+        </Panel>
       ) : null}
     </div>
   );
