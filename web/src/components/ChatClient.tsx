@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { invokeEdge } from "@/lib/edge";
 
-type Turn = { role: "user" | "model"; content: string };
+type Source = { title: string; uri: string };
+type Turn = {
+  role: "user" | "model";
+  content: string;
+  sources?: Source[];
+};
 
 export function ChatClient({
   initialTurns = [],
@@ -25,16 +30,26 @@ export function ChatClient({
     if (!message || pending) return;
     setInput("");
     setError(null);
-    const history = turns;
+    const history = turns.map(({ role, content }) => ({ role, content }));
     setTurns((t) => [...t, { role: "user", content: message }]);
 
     start(async () => {
       try {
-        const res = await invokeEdge<{ reply: string }>("wealth-chat", {
+        const res = await invokeEdge<{
+          reply: string;
+          sources?: Source[];
+        }>("wealth-chat", {
           message,
           history,
         });
-        setTurns((t) => [...t, { role: "model", content: res.reply }]);
+        setTurns((t) => [
+          ...t,
+          {
+            role: "model",
+            content: res.reply,
+            sources: res.sources || [],
+          },
+        ]);
       } catch (e) {
         setError(e instanceof Error ? e.message : "챗 실패");
         setTurns((t) => t.slice(0, -1));
@@ -48,11 +63,11 @@ export function ChatClient({
       <div className="flex-1 space-y-3 overflow-y-auto pb-3">
         {!turns.length ? (
           <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-8 text-center text-sm text-muted">
-            종합 자산관리 전문가에게 물어보세요.
+            보유·시세·뉴스 근거로 객관적으로 답합니다.
             <br />
-            예: 「코스피랑 원달러 지금 어때요?」
+            예: 「내 QLD가 왜 떨어졌어?」
             <br />
-            「우리 순자산이 지난달보다 어떻게 변했어요?」
+            「코스피 하락 원인이 뭐야?」
           </div>
         ) : null}
         {turns.map((t, i) => (
@@ -68,10 +83,28 @@ export function ChatClient({
               {t.role === "user" ? "정명" : "부자뚱"}
             </div>
             <div className="whitespace-pre-wrap">{t.content}</div>
+            {t.sources?.length ? (
+              <ul className="mt-3 space-y-1 border-t border-line/80 pt-2 text-[11px] text-muted">
+                {t.sources.slice(0, 5).map((s) => (
+                  <li key={s.uri} className="truncate">
+                    <a
+                      href={s.uri}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-brand underline-offset-2 hover:underline"
+                    >
+                      {s.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         ))}
         {pending ? (
-          <p className="text-center text-xs font-semibold text-brand">답변 생성 중…</p>
+          <p className="text-center text-xs font-semibold text-brand">
+            시세·뉴스 확인 후 답변 생성 중…
+          </p>
         ) : null}
         {error ? (
           <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-up">
@@ -98,7 +131,7 @@ export function ChatClient({
                 send();
               }
             }}
-            placeholder="자산·시세에 대해 물어보세요"
+            placeholder="종목·시장 변동 이유를 물어보세요"
             disabled={pending}
             enterKeyHint="send"
             autoComplete="off"

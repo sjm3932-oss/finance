@@ -26,7 +26,7 @@ export default async function ChatPage() {
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">자산 챗</h1>
         <p className="mt-1 text-sm text-muted">
-          종합 자산관리 전문가 · 보유·시세·주요 지표 기준
+          보유·시세·뉴스·검색 근거로 객관 분석 (근거 없는 추측 최소화)
         </p>
       </div>
       <ChatClient initialTurns={initialTurns} />
