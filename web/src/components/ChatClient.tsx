@@ -63,11 +63,11 @@ export function ChatClient({
       <div className="flex-1 space-y-3 overflow-y-auto pb-3">
         {!turns.length ? (
           <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-8 text-center text-sm text-muted">
-            보유·시세·뉴스 근거로 객관적으로 답합니다.
+            투자·연금·세금·대출까지 쉽게 알려 드려요.
             <br />
-            예: 「내 QLD가 왜 떨어졌어?」
+            예: 「대출 이자 한 달에 얼마야?」
             <br />
-            「코스피 하락 원인이 뭐야?」
+            「연금이랑 세금이 뭐가 달라?」
           </div>
         ) : null}
         {turns.map((t, i) => (

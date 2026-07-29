@@ -7,28 +7,39 @@ import {
   serviceClient,
 } from "../_shared/gemini.ts";
 
-const WEALTH_CHAT_SYSTEM = `당신은 부자뚱의 종합 자산관리 전문가입니다.
-정명·지수의 공동자산과 외부 시장을 연결해, 객관적으로 설명해 주는 파트너입니다.
+const WEALTH_CHAT_SYSTEM = `당신은 부자뚱의 생활밀착형 자산 선생님입니다.
+정명·지수가 일상에서 묻는 돈 고민(투자·연금·세금·대출·현금·환율·시세)을
+일반인도 바로 이해하게, 쉽고 짧게 설명해 주세요.
+
+대상 수준:
+- 전문 용어는 필요할 때만 쓰고, 바로 쉬운 말로 풀어 주세요.
+- 한 번에 세 가지 핵심만. 장문 강의·법령 조문 나열은 피하세요.
+- "왜 중요한지 → 우리 숫자로는 어떤지 → 다음에 보면 좋은 점" 순서를 기본으로 하세요.
+- 어려운 질문도 초등~중학생에게 설명하듯 친절하게, 그러나 존댓말로.
+
+다룰 수 있는 주제 (가정 재무 전반):
+- 보유 주식/ETF, 순자산, 손익, 배당, 환율
+- 연금·보험·예적금 등 기타자산
+- 세금(해외주식 양도·배당세 추정 등) — DB 수치 + 일반 개념 설명
+- 대출/이자/원리금 계산, 상환 여력에 대한 쉬운 설명
+- 시장 지표(코스피, S&P, 나스닥, 원달러, 유가, 금리)와 보유와의 연결
+- "이게 뭐예요?" 식의 개념 질문(ISA, IRP, 중도상환수수료 등) — 검색으로 최신·일반 정보를 확인한 뒤 쉽게 설명
 
 말투:
-- 존댓말로 따뜻하고 차분하게. 과장·단정·공포 조장은 금지.
-- 먼저 확인된 사실(숫자) → 그다음 근거 있는 해석 → 마지막에 불확실성.
-- 이모지 금지.
+- 존댓말, 따뜻하고 차분. 이모지 금지. 공포·단정 금지.
+- 계산을 보여줄 때는 식보다 "한 달에 이자가 대략 ○○원"처럼 결과 중심으로.
 
-할루시네이션 금지 (최우선):
-1. WEALTH_CONTEXT의 holdings / macro_indicators / holding_moves / market_news / snapshots 숫자만 "사실"로 말하세요.
-2. 상승·하락 "원인"은 반드시 (a) market_news 헤드라인, 또는 (b) Google 검색으로 확인된 정보에만 근거하세요.
-3. 뉴스/검색에 없는 원인을 지어내지 마세요. 모르면 "확인된 원인은 아직 없어요. 지금은 가격 변동만 말씀드릴 수 있어요"라고 하세요.
-4. 추측할 때는 반드시 "가설/가능성"이라고 명시하고, 사실과 분리하세요.
-5. 개별 종목 매수·매도 권유, 세금 확정 자문은 하지 마세요.
-6. 답변 끝에 사용한 근거를 짧게 적어 주세요. 예: "근거: 보유 시세 · 코스피 헤드라인 · 검색".
+할루시네이션 금지:
+1. 정명·지수의 금액·잔금·보유·세금 숫자는 WEALTH_CONTEXT만 사실로 쓰세요.
+2. 시장/종목 "왜 올랐/내렸"은 market_news 또는 Google 검색 근거가 있을 때만.
+3. 일반 제도·개념(연금저축, 과세, 대출 용어)은 검색으로 확인한 범위에서만, 쉽게 설명하세요.
+4. 모르는 개인 숫자나 없는 계좌를 만들어내지 마세요. 없으면 "기록에 없어요. 기록 탭에 넣으면 계산해 드릴게요"라고 하세요.
+5. 특정 종목 매수·매도 권유, "이 세금이 확정" 같은 단정은 금지. 추정은 "참고용 추정"이라고 밝히세요.
+6. 답 끝에 근거를 한 줄로: 예) "근거: 부채 잔금 · 세금 기록 · 검색".
 
-분석 방식:
-- 보유 종목 질문 → holding_moves의 기간 수익률을 먼저 제시하고, 관련 뉴스/검색이 있으면 사유를 연결.
-- 시장 전반 질문 → macro_indicators(+chg)와 market_news, 필요 시 검색으로 원인 정리.
-- 포트폴리오와 시장을 비교할 때는 숫자로 대조하고, 인과는 근거가 있을 때만.
-
-한국어로 답하고 숫자에는 단위(원/달러/%/포인트)를 붙이세요.`;
+계산 안내:
+- loan_helpers / tax / debts / other_assets 가 있으면 그 숫자로 먼저 계산·설명하세요.
+- 사용자가 가정(예: 매달 100만 원 상환)을 주면, 그 가정임을 밝히고 대략 계산해 주세요.`;
 
 const UA = { "User-Agent": "Bujattung/1.0 (wealth-chat)" };
 
@@ -407,6 +418,90 @@ function extractGroundingSources(data: Record<string, unknown>): {
   return out;
 }
 
+function splitMonthlyPayment(
+  balance: number,
+  annualRatePct: number,
+  payment: number
+) {
+  const bal = Math.max(0, Number(balance) || 0);
+  const pay = Math.max(0, Number(payment) || 0);
+  const interest = Math.round((bal * (Number(annualRatePct) || 0)) / 100 / 12);
+  if (pay <= interest) return { interest: pay, principal: 0, leftover_interest: interest - pay };
+  const principal = Math.min(bal, pay - interest);
+  return { interest, principal, leftover_interest: 0 };
+}
+
+function buildLoanHelpers(debts: Array<Record<string, unknown>>) {
+  return debts.map((d) => {
+    const principal = Number(d.principal || 0);
+    const rate = Number(d.interest_rate || 0);
+    const monthlyInterest = Math.round((principal * rate) / 100 / 12);
+    const samplePay = Math.max(monthlyInterest + 100000, Math.round(principal * 0.01));
+    const split = splitMonthlyPayment(principal, rate, samplePay);
+    const original = Number(d.original_principal || 0);
+    return {
+      id: d.id,
+      lender: d.lender,
+      debt_kind: d.debt_kind,
+      principal,
+      interest_rate_pct: rate,
+      due_date: d.due_date ?? null,
+      ownership: d.ownership ?? null,
+      approx_monthly_interest_krw: monthlyInterest,
+      example_payment_krw: samplePay,
+      example_split: split,
+      repaid_if_original_known:
+        original > 0 ? Math.max(0, original - principal) : null,
+      plain:
+        `${d.lender || "대출"} 잔금 ${principal.toLocaleString("ko-KR")}원, ` +
+        `연 ${rate}%면 한 달 이자만 대략 ${monthlyInterest.toLocaleString("ko-KR")}원 수준입니다.`,
+    };
+  });
+}
+
+function buildTaxPlain(taxRows: Array<Record<string, unknown>>) {
+  return taxRows.map((t) => {
+    const year = t.tax_year;
+    const cum = Number(t.cum_capital_gain ?? t.taxable_gain ?? 0);
+    const threshold = Number(t.tax_threshold ?? 2_500_000);
+    const div = Number(t.dividend_tax ?? 0);
+    const taxable = Math.max(0, cum - threshold);
+    const estimated = t.estimated_tax != null ? Number(t.estimated_tax) : taxable * 0.22;
+    return {
+      tax_year: year,
+      cum_capital_gain: cum,
+      tax_threshold: threshold,
+      dividend_tax: div,
+      estimated_capital_gains_tax: estimated,
+      plain:
+        `${year}년 기준, 누적 양도차익 약 ${cum.toLocaleString("ko-KR")}원에서 ` +
+        `기본공제 ${threshold.toLocaleString("ko-KR")}원을 빼면 과세표준 느낌의 금액이 ` +
+        `${taxable.toLocaleString("ko-KR")}원이고, 단순 22%로 보면 양도세 추정이 ` +
+        `약 ${Math.round(estimated).toLocaleString("ko-KR")}원입니다. (참고용)`,
+    };
+  });
+}
+
+function buildOtherAssetsPlain(rows: Array<Record<string, unknown>>) {
+  const kindKo: Record<string, string> = {
+    real_estate: "부동산",
+    pension: "연금",
+    insurance: "보험",
+    deposit: "예적금",
+    crypto: "암호화폐",
+    other: "기타",
+  };
+  return rows.map((r) => ({
+    name: r.name,
+    kind: r.asset_kind,
+    kind_ko: kindKo[String(r.asset_kind || "")] || String(r.asset_kind || "기타"),
+    value_krw: Number(r.value_krw || 0),
+    ownership: r.ownership,
+    memo: r.memo ?? null,
+    plain: `${r.name || "항목"}(${kindKo[String(r.asset_kind || "")] || "기타"}) 평가액 ${Number(r.value_krw || 0).toLocaleString("ko-KR")}원`,
+  }));
+}
+
 async function buildContext(admin: ReturnType<typeof serviceClient>) {
   const [
     holdings,
@@ -416,15 +511,20 @@ async function buildContext(admin: ReturnType<typeof serviceClient>) {
     trades,
     snaps,
     taxView,
+    taxRecords,
     portfolio,
     dividends,
+    otherAssets,
+    debtTxs,
     chatLogs,
     indexSnaps,
     macros,
   ] = await Promise.all([
     admin.from("holdings").select("*"),
     admin.from("market_prices").select("*"),
-    admin.from("accounts").select("id,institution,account_type,currency"),
+    admin
+      .from("accounts")
+      .select("id,institution,account_type,currency,ownership,cash_balance"),
     admin.from("debts").select("*"),
     admin
       .from("trades")
@@ -437,12 +537,19 @@ async function buildContext(admin: ReturnType<typeof serviceClient>) {
       .order("snapshot_date", { ascending: false })
       .limit(14),
     admin.from("v_tax_calculation").select("*"),
+    admin.from("tax_records").select("*"),
     admin.from("v_portfolio").select("*"),
     admin
       .from("dividends")
       .select("pay_date,ticker,amount,currency,memo")
       .order("pay_date", { ascending: false })
       .limit(30),
+    admin.from("other_assets").select("*"),
+    admin
+      .from("debt_transactions")
+      .select("tx_date,tx_type,amount,memo,debt_id")
+      .order("tx_date", { ascending: false })
+      .limit(20),
     admin
       .from("ai_chat_logs")
       .select("user_query,ai_response,created_at")
@@ -492,19 +599,59 @@ async function buildContext(admin: ReturnType<typeof serviceClient>) {
     };
   });
 
+  const debtRows = (debts.data || []) as Array<Record<string, unknown>>;
+  const otherRows = (otherAssets.data || []) as Array<Record<string, unknown>>;
+  const taxRows = (
+    (taxView.data || []).length ? taxView.data : taxRecords.data || []
+  ) as Array<Record<string, unknown>>;
+
+  const loan_helpers = buildLoanHelpers(debtRows);
+  const tax_plain = buildTaxPlain(taxRows);
+  const other_assets_plain = buildOtherAssetsPlain(otherRows);
+
+  const invest = enriched.reduce((s, h) => s + (h.market_value || 0), 0);
+  const cash = ((accounts.data || []) as Array<Record<string, unknown>>).reduce(
+    (s, a) => s + Number(a.cash_balance || 0),
+    0
+  );
+  const otherSum = otherRows.reduce((s, r) => s + Number(r.value_krw || 0), 0);
+  const debtSum = debtRows.reduce((s, d) => s + Number(d.principal || 0), 0);
+  const pensionSum = otherRows
+    .filter((r) => String(r.asset_kind) === "pension")
+    .reduce((s, r) => s + Number(r.value_krw || 0), 0);
+
+  const household_summary = {
+    invest_krw_approx: invest,
+    cash_krw_approx: cash,
+    other_assets_krw: otherSum,
+    pension_krw: pensionSum,
+    debt_krw: debtSum,
+    net_worth_approx: invest + cash + otherSum - debtSum,
+    plain:
+      `대략 투자 ${Math.round(invest).toLocaleString("ko-KR")}원 + 현금 ${Math.round(cash).toLocaleString("ko-KR")}원 ` +
+      `+ 기타(연금 등) ${Math.round(otherSum).toLocaleString("ko-KR")}원 − 부채 ${Math.round(debtSum).toLocaleString("ko-KR")}원 ` +
+      `→ 순자산 약 ${Math.round(invest + cash + otherSum - debtSum).toLocaleString("ko-KR")}원 수준입니다.`,
+  };
+
   const holding_moves = await fetchHoldingMoves(
     enriched as Array<Record<string, unknown>>
   );
   const market_news = await fetchMarketNews(holding_moves);
 
   const ctx = {
+    household_summary,
     holdings: enriched,
     holding_moves,
     accounts: accounts.data || [],
-    debts: debts.data || [],
+    debts: debtRows,
+    loan_helpers,
+    other_assets: otherRows,
+    other_assets_plain,
+    recent_debt_transactions: debtTxs.data || [],
     recent_trades: trades.data || [],
     recent_snapshots: snaps.data || [],
-    tax: taxView.data || [],
+    tax: taxRows,
+    tax_plain,
     portfolio: (portfolio.data || []).slice(0, 40),
     dividends: dividends.data || [],
     usdkrw,
@@ -512,15 +659,29 @@ async function buildContext(admin: ReturnType<typeof serviceClient>) {
     recent_index_snapshots: indexSnaps.data || [],
     market_news,
     analysis_rules: {
-      facts: ["holdings", "holding_moves", "macro_indicators", "snapshots", "market_news"],
+      facts: [
+        "household_summary",
+        "holdings",
+        "holding_moves",
+        "loan_helpers",
+        "tax_plain",
+        "other_assets_plain",
+        "macro_indicators",
+        "snapshots",
+        "market_news",
+      ],
+      teaching: ["연금", "세금", "대출", "환율", "시세", "순자산"],
       causes_require: ["market_news", "google_search"],
       no_invention: true,
+      audience: "일반인 · 쉬운 설명",
     },
     note:
-      "holding_moves/macro_indicators는 실시간 시세, market_news는 Yahoo 헤드라인입니다. 원인 해석은 뉴스·검색 근거가 있을 때만 하세요.",
+      "숫자는 DB·실시간 시세 기준. 제도/개념은 검색으로 확인 후 쉽게 설명. 원인 해석은 뉴스·검색 근거가 있을 때만.",
     recent_chat_logs: (chatLogs.data || []).reverse(),
     meta: {
       holdings: enriched.length,
+      debts: debtRows.length,
+      other_assets: otherRows.length,
       usdkrw,
       macros_ok: macros.filter((m) => m.value != null).length,
       moves_ok: holding_moves.filter((m) => m.change_1d_pct != null).length,
@@ -529,7 +690,7 @@ async function buildContext(admin: ReturnType<typeof serviceClient>) {
   };
 
   let text = JSON.stringify(ctx);
-  if (text.length > 18000) text = text.slice(0, 18000) + "…(truncated)";
+  if (text.length > 20000) text = text.slice(0, 20000) + "…(truncated)";
   return { ctx, text };
 }
 
@@ -584,9 +745,9 @@ Deno.serve(async (req) => {
         {
           text:
             `WEALTH_CONTEXT:\n${contextText}\n\n` +
-            `포트폴리오 숫자는 WEALTH_CONTEXT만 사용하세요. ` +
-            `시장/종목 원인 분석이 필요하면 Google 검색 도구를 쓰고, 검색·뉴스로 확인되지 않은 원인은 말하지 마세요. ` +
-            `준비되면 "준비됨"이라고만 답하세요.`,
+            `포트폴리오·부채·세금·연금 숫자는 WEALTH_CONTEXT만 사용하세요. ` +
+            `개념 설명·시장 원인은 Google 검색으로 확인하고, 일반인도 이해하게 쉽게 가르치세요. ` +
+            `확인 안 된 숫자/원인은 만들지 마세요. 준비되면 "준비됨"이라고만 답하세요.`,
         },
       ],
     });
@@ -604,7 +765,7 @@ Deno.serve(async (req) => {
         {
           text:
             `${message}\n\n` +
-            `(원인·이슈를 말할 때는 검색/뉴스가 있을 때만. 없으면 가격 사실만.)`,
+            `(쉬운 설명으로. 우리 집 숫자는 컨텍스트, 개념·시세 원인은 검색/뉴스 근거가 있을 때만.)`,
         },
       ],
     });
