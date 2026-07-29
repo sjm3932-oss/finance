@@ -65,14 +65,6 @@ export type NetWorth = {
   other_rows: OtherAssetRow[];
 };
 
-export type AllocationRow = {
-  category: string;
-  label: string;
-  actual_pct: number;
-  target_pct: number;
-  drift_pct: number;
-};
-
 export type MonthlySummary = {
   month_start: string;
   nw_start: number | null;
@@ -122,13 +114,6 @@ export const ASSET_KIND_KO: Record<string, string> = {
   deposit: "예적금",
   crypto: "암호화폐",
   other: "기타",
-};
-
-export const ALLOC_CAT_KO: Record<string, string> = {
-  domestic: "국내주식",
-  overseas: "해외주식",
-  cash: "현금",
-  other: "기타자산",
 };
 
 function toKrw(amount: number, ccy: string, usdkrw: number | null): number {
@@ -345,36 +330,6 @@ export function filterLiveByAccountAndOwnership(
       if ((a?.ownership || "joint") !== own) return false;
     }
     return true;
-  });
-}
-
-export function allocationActual(nw: NetWorth): Record<string, number> {
-  const gross = nw.gross || 0;
-  if (gross <= 0) {
-    return { domestic: 0, overseas: 0, cash: 0, other: 0 };
-  }
-  return {
-    domestic: (100 * nw.domestic) / gross,
-    overseas: (100 * nw.overseas) / gross,
-    cash: (100 * nw.cash) / gross,
-    other: (100 * nw.other) / gross,
-  };
-}
-
-export function allocationDrift(
-  actual: Record<string, number>,
-  targets: Record<string, number>
-): AllocationRow[] {
-  return (["domestic", "overseas", "cash", "other"] as const).map((cat) => {
-    const a = Number(actual[cat] || 0);
-    const t = Number(targets[cat] || 0);
-    return {
-      category: cat,
-      label: ALLOC_CAT_KO[cat] || cat,
-      actual_pct: a,
-      target_pct: t,
-      drift_pct: a - t,
-    };
   });
 }
 

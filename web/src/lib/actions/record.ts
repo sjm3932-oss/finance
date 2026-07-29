@@ -201,30 +201,6 @@ export async function deleteOtherAsset(formData: FormData): Promise<ActionResult
   }
 }
 
-export async function saveAllocationTargets(formData: FormData): Promise<ActionResult> {
-  try {
-    const { supabase } = await requireUser();
-    const cats = ["domestic", "overseas", "cash", "other"] as const;
-    const now = new Date().toISOString();
-    for (const cat of cats) {
-      const pct = num(formData.get(cat));
-      if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
-        return fail(`${cat} 목표%를 0–100으로 입력하세요.`);
-      }
-      const { error } = await supabase.from("allocation_targets").upsert({
-        category: cat,
-        target_pct: pct,
-        updated_at: now,
-      });
-      if (error) return dbFail(error);
-    }
-    revalidateRecord();
-    return ok("목표 배분을 저장했습니다.");
-  } catch (e) {
-    return fail(e instanceof Error ? e.message : "실패했습니다.");
-  }
-}
-
 export async function createTrade(formData: FormData): Promise<ActionResult> {
   try {
     const { supabase, user } = await requireUser();

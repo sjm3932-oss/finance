@@ -13,7 +13,7 @@ const LINKS = [
   },
   {
     title: "순자산 구성",
-    body: "투자 · 현금 · 기타 · 배분 괴리",
+    body: "투자 · 현금 · 기타 · 부채",
     href: "/more/net-worth",
   },
   {

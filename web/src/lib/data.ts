@@ -11,8 +11,6 @@ import {
   aggregateByTicker,
   accountIdsForInstitution,
   filterLiveByAccountAndOwnership,
-  allocationActual,
-  allocationDrift,
   monthlySummaryStats,
   debtsDueSoon,
   institutionsFromAccounts,
@@ -71,7 +69,6 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
     priceRows,
     debtsRaw,
     otherRaw,
-    targetRows,
     snaps,
     alerts,
     realizedRows,
@@ -89,9 +86,6 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
       supabase
         .from("other_assets")
         .select("id,name,asset_kind,value_krw,ownership,memo")
-    ),
-    safeSelect<{ category: string; target_pct: number | null }>(() =>
-      supabase.from("allocation_targets").select("category,target_pct")
     ),
     safeSelect<DailySnap>(() =>
       supabase
@@ -182,27 +176,6 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
   const returnPct =
     investCost > 0 ? ((nw.invest - investCost) / investCost) * 100 : null;
 
-  const targets: Record<string, number> = {
-    domestic: 0,
-    overseas: 0,
-    cash: 0,
-    other: 0,
-  };
-  for (const t of targetRows) {
-    if (t.category in targets) {
-      targets[t.category] = Number(t.target_pct || 0);
-    }
-  }
-  // Sensible defaults if table empty / missing
-  if (targetRows.length === 0) {
-    targets.domestic = 40;
-    targets.overseas = 40;
-    targets.cash = 15;
-    targets.other = 5;
-  }
-
-  const actual = allocationActual(nw);
-  const drift = allocationDrift(actual, targets);
   const monthly = monthlySummaryStats({
     liveNet: nw.net,
     snaps: [...snaps].reverse(),
@@ -249,7 +222,6 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
     returnPct,
     latestSnap: snaps[0] || null,
     snaps: [...snaps].reverse(),
-    allocation: drift,
     monthly,
     alerts: displayAlerts,
     filters: {

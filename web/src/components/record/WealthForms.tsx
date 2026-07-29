@@ -5,7 +5,6 @@ import {
   updateOtherAssetValue,
   deleteOtherAsset,
   updateAccountCash,
-  saveAllocationTargets,
 } from "@/lib/actions/record";
 import {
   ASSET_KIND_OPTIONS,
@@ -34,11 +33,9 @@ type Account = {
 export function WealthForms({
   otherAssets,
   accounts,
-  targets,
 }: {
   otherAssets: OtherAsset[];
   accounts: Account[];
-  targets: Record<string, number>;
 }) {
   const withId = otherAssets.filter((o) => o.id);
 
@@ -176,31 +173,6 @@ export function WealthForms({
           </div>
         </Panel>
       ) : null}
-
-      <Panel title="목표 배분 (%)">
-        <ActionForm action={saveAllocationTargets} submitLabel="목표 저장">
-          {(
-            [
-              ["domestic", "국내주식"],
-              ["overseas", "해외주식"],
-              ["cash", "현금"],
-              ["other", "기타자산"],
-            ] as const
-          ).map(([key, label]) => (
-            <Field key={key} label={label}>
-              <input
-                name={key}
-                type="number"
-                min={0}
-                max={100}
-                step={0.5}
-                defaultValue={Number(targets[key] ?? 0)}
-                className={inputClass}
-              />
-            </Field>
-          ))}
-        </ActionForm>
-      </Panel>
     </div>
   );
 }

@@ -2,7 +2,6 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { NetWorthHero } from "@/components/NetWorthHero";
 import { PortfolioFilters } from "@/components/PortfolioFilters";
-import { AllocationDriftTable } from "@/components/AllocationDriftTable";
 import { CashAccountsPanel } from "@/components/CashAccountsPanel";
 import { OtherAssetsPanel } from "@/components/OtherAssetsPanel";
 import { loadPortfolioSnapshot } from "@/lib/data";
@@ -19,7 +18,6 @@ export default async function NetWorthPage({
     nw,
     returnPct,
     institutions,
-    allocation,
     cashAccounts,
     otherAssets,
   } = await loadPortfolioSnapshot({
@@ -47,7 +45,6 @@ export default async function NetWorthPage({
       </Suspense>
 
       <NetWorthHero nw={nw} returnPct={returnPct} />
-      <AllocationDriftTable rows={allocation} />
 
       <section className="space-y-3">
         <h2 className="text-base font-extrabold tracking-tight">현금 · 계좌</h2>

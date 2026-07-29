@@ -4,7 +4,6 @@ import { NetWorthHero } from "@/components/NetWorthHero";
 import { HoldingList } from "@/components/HoldingList";
 import { PortfolioFilters } from "@/components/PortfolioFilters";
 import { MonthlySummaryCard } from "@/components/MonthlySummaryCard";
-import { AllocationDriftTable } from "@/components/AllocationDriftTable";
 import { AlertBanners } from "@/components/AlertBanners";
 import { NetWorthTrend } from "@/components/NetWorthTrend";
 import { AllocationTreemap } from "@/components/AllocationTreemap";
@@ -37,7 +36,6 @@ export default async function HomePage({
     latestSnap,
     institutions,
     monthly,
-    allocation,
     alerts,
     snaps,
     live,
@@ -68,7 +66,7 @@ export default async function HomePage({
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">홈</h1>
-        <p className="mt-1 text-sm text-muted">순자산 · 배분 · 추이 · 손익 요약</p>
+        <p className="mt-1 text-sm text-muted">순자산 · 추이 · 손익 요약</p>
       </div>
 
       <Suspense fallback={null}>
@@ -102,7 +100,6 @@ export default async function HomePage({
       ) : null}
 
       <MonthlySummaryCard monthly={monthly} />
-      <AllocationDriftTable rows={allocation} />
       <AllocationTreemap live={live} />
       <NetWorthTrend snaps={snaps} benchmark={benchmark} />
 

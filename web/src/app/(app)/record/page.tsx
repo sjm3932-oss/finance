@@ -17,27 +17,6 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
-async function loadTargets(): Promise<Record<string, number>> {
-  const supabase = await createClient();
-  try {
-    const { data } = await supabase
-      .from("allocation_targets")
-      .select("category,target_pct");
-    const out: Record<string, number> = {
-      domestic: 40,
-      overseas: 40,
-      cash: 15,
-      other: 5,
-    };
-    for (const r of data || []) {
-      if (r.category in out) out[r.category] = Number(r.target_pct || 0);
-    }
-    return out;
-  } catch {
-    return { domestic: 40, overseas: 40, cash: 15, other: 5 };
-  }
-}
-
 async function loadDebtsFull() {
   const supabase = await createClient();
   try {
@@ -60,7 +39,7 @@ export default async function RecordPage({
   const tab = (TABS.some((t) => t.id === sp.tab) ? sp.tab : "account") as TabId;
 
   const { accounts, otherAssets } = await loadPortfolioSnapshot();
-  const [targets, debts] = await Promise.all([loadTargets(), loadDebtsFull()]);
+  const debts = await loadDebtsFull();
 
   return (
     <div className="space-y-5">
@@ -94,11 +73,7 @@ export default async function RecordPage({
       </div>
 
       {tab === "wealth" ? (
-        <WealthForms
-          otherAssets={otherAssets}
-          accounts={accounts}
-          targets={targets}
-        />
+        <WealthForms otherAssets={otherAssets} accounts={accounts} />
       ) : null}
       {tab === "flows" ? <FlowForms accounts={accounts} /> : null}
       {tab === "debt" ? <DebtForms debts={debts} accounts={accounts} /> : null}
