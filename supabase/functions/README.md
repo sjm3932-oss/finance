@@ -45,11 +45,15 @@ Auth: user Bearer JWT
 ```json
 {
   "message": "우리 순자산이 얼마야?",
-  "history": [{ "role": "user|model", "content": "..." }]
+  "history": [{ "role": "user|model", "content": "..." }],
+  "light": false
 }
 ```
 
-Response: `{ ok, reply, meta }`
+- `light: true` or non-empty `history` → skip live Yahoo/news/search; DB cache only (faster follow-ups).
+- Model returns short reply + `FOLLOWUPS:` block; API exposes `followups[]`.
+
+Response: `{ ok, reply, followups, sources, meta }`
 
 ## Next.js routes
 

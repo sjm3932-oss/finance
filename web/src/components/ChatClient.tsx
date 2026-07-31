@@ -8,6 +8,7 @@ type Turn = {
   role: "user" | "model";
   content: string;
   sources?: Source[];
+  followups?: string[];
 };
 
 export function ChatClient({
@@ -21,18 +22,21 @@ export function ChatClient({
   const [input, setInput] = useState("");
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [lightPending, setLightPending] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turns, pending]);
 
-  function send() {
-    const message = input.trim();
+  function sendMessage(raw: string, opts?: { light?: boolean }) {
+    const message = raw.trim();
     if (!message || pending) return;
     setInput("");
     setError(null);
     const history = turns.map(({ role, content }) => ({ role, content }));
+    const light = opts?.light === true || history.length > 0;
+    setLightPending(light);
     setTurns((t) => [...t, { role: "user", content: message }]);
 
     start(async () => {
@@ -40,9 +44,11 @@ export function ChatClient({
         const res = await invokeEdge<{
           reply: string;
           sources?: Source[];
+          followups?: string[];
         }>("wealth-chat", {
           message,
           history,
+          light,
         });
         setTurns((t) => [
           ...t,
@@ -50,26 +56,42 @@ export function ChatClient({
             role: "model",
             content: res.reply,
             sources: res.sources || [],
+            followups: res.followups || [],
           },
         ]);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "챗 실패");
+        const msg = e instanceof Error ? e.message : "챗 실패";
+        setError(
+          /load failed/i.test(msg)
+            ? "연결이 끊겼어요. 잠시 후 다시 보내거나, 아래 추천 질문으로 짧게 이어서 물어보세요."
+            : msg
+        );
         setTurns((t) => t.slice(0, -1));
         setInput(message);
+      } finally {
+        setLightPending(false);
       }
     });
   }
+
+  function send() {
+    sendMessage(input);
+  }
+
+  const last = turns[turns.length - 1];
+  const followups =
+    !pending && last?.role === "model" ? last.followups || [] : [];
 
   return (
     <div className="flex min-h-[calc(100dvh-8rem)] flex-col">
       <div className="flex-1 space-y-3 overflow-y-auto pb-3">
         {!turns.length ? (
           <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-8 text-center text-sm text-muted">
-            투자·연금·세금·대출까지 쉽게 알려 드려요.
+            짧게 답하고, 이어서 볼 질문을 버튼으로 드려요.
             <br />
-            예: 「대출 이자 한 달에 얼마야?」
+            예: 「지금 순자산이 어때?」
             <br />
-            「연금이랑 세금이 뭐가 달라?」
+            「대출 이자 한 달에 얼마야?」
           </div>
         ) : null}
         {turns.map((t, i) => (
@@ -87,7 +109,7 @@ export function ChatClient({
             <div className="whitespace-pre-wrap">{t.content}</div>
             {t.sources?.length ? (
               <ul className="mt-3 space-y-1 border-t border-line/80 pt-2 text-[11px] text-muted">
-                {t.sources.slice(0, 5).map((s) => (
+                {t.sources.slice(0, 3).map((s) => (
                   <li key={s.uri} className="truncate">
                     <a
                       href={s.uri}
@@ -103,9 +125,29 @@ export function ChatClient({
             ) : null}
           </div>
         ))}
+        {followups.length ? (
+          <div className="mr-8 space-y-2">
+            <p className="px-1 text-[11px] font-bold text-muted">이어서 물어보기</p>
+            <div className="flex flex-col gap-2">
+              {followups.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  disabled={pending}
+                  onClick={() => sendMessage(q, { light: true })}
+                  className="rounded-2xl border border-brand/30 bg-brand-soft px-4 py-3 text-left text-sm font-semibold text-brand-dark transition-transform active:scale-[0.98] disabled:opacity-60"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {pending ? (
           <p className="text-center text-xs font-semibold text-brand">
-            시세·뉴스 확인 후 답변 생성 중…
+            {lightPending
+              ? "짧게 이어서 답변 중…"
+              : "시세 확인 후 짧은 답변 생성 중…"}
           </p>
         ) : null}
         {error ? (
@@ -133,11 +175,12 @@ export function ChatClient({
                 send();
               }
             }}
-            placeholder="종목·시장 변동 이유를 물어보세요"
+            placeholder="짧게 물어보세요"
             disabled={pending}
             enterKeyHint="send"
             autoComplete="off"
             autoCorrect="off"
+            aria-label="채팅 메시지"
             className="min-h-12 min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 text-base font-semibold outline-none focus:border-brand disabled:opacity-60"
           />
           <button

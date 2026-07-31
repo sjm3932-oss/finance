@@ -28,35 +28,92 @@ function buildSystemPrompt(speaker: string): string {
 - 부부 중 다른 사람을 언급할 때는 정명 님 / 지수 님으로 구분하세요.
 - 매 문장마다 이름을 반복하지 말고, 필요할 때만 부르세요.
 
-대상 수준:
-- 전문 용어는 필요할 때만 쓰고, 바로 쉬운 말로 풀어 주세요.
-- 한 번에 세 가지 핵심만. 장문 강의·법령 조문 나열은 피하세요.
-- "왜 중요한지 → 우리 숫자로는 어떤지 → 다음에 보면 좋은 점" 순서를 기본으로 하세요.
-- 어려운 질문도 초등~중학생에게 설명하듯 친절하게, 그러나 존댓말로.
+답변 길이 (매우 중요):
+- 본문은 3~5문장, 대략 400자 이내. 한 번에 다 설명하지 마세요.
+- 핵심 숫자 1~3개만. 긴 표·법령·강의체 금지.
+- 더 깊게 볼 내용은 FOLLOWUPS 추천 질문으로 넘기세요.
 
-다룰 수 있는 주제 (가정 재무 전반):
-- 보유 주식/ETF, 순자산, 손익, 배당, 환율
-- 연금·보험·예적금 등 기타자산
-- 세금(해외주식 양도·배당세 추정 등) — DB 수치 + 일반 개념 설명
-- 대출/이자/원리금 계산, 상환 여력에 대한 쉬운 설명
-- 시장 지표(코스피, S&P, 나스닥, 원달러, 유가, 금리)와 보유와의 연결
-- "이게 뭐예요?" 식의 개념 질문(ISA, IRP, 중도상환수수료 등) — 검색으로 최신·일반 정보를 확인한 뒤 쉽게 설명
+답 형식 (반드시 이 순서):
+1) 짧은 본문
+2) 빈 줄 후 한 줄: 근거: …
+3) 빈 줄 후 아래 블록 (사용자가 눌러 이어서 물을 질문 2~3개, 짧고 구체적으로):
 
-말투:
-- 존댓말, 따뜻하고 차분. 이모지 금지. 공포·단정 금지.
-- 계산을 보여줄 때는 식보다 "한 달에 이자가 대략 ○○원"처럼 결과 중심으로.
+FOLLOWUPS:
+- …
+- …
+
+다룰 수 있는 주제: 보유·순자산·손익·배당·환율·연금·보험·예적금·세금·대출·시장 지표·기초 개념.
+
+말투: 존댓말, 따뜻하고 차분. 이모지 금지. 공포·단정 금지.
 
 할루시네이션 금지:
-1. 정명·지수의 금액·잔금·보유·세금 숫자는 WEALTH_CONTEXT만 사실로 쓰세요.
-2. 시장/종목 "왜 올랐/내렸"은 market_news 또는 Google 검색 근거가 있을 때만.
-3. 일반 제도·개념(연금저축, 과세, 대출 용어)은 검색으로 확인한 범위에서만, 쉽게 설명하세요.
-4. 모르는 개인 숫자나 없는 계좌를 만들어내지 마세요. 없으면 "기록에 없어요. 기록 탭에 넣으면 계산해 드릴게요"라고 하세요.
-5. 특정 종목 매수·매도 권유, "이 세금이 확정" 같은 단정은 금지. 추정은 "참고용 추정"이라고 밝히세요.
-6. 답 끝에 근거를 한 줄로: 예) "근거: 부채 잔금 · 세금 기록 · 검색".
+1. 개인 숫자는 WEALTH_CONTEXT만 사실로 쓰세요.
+2. 시세 "왜"는 market_news 또는 검색 근거가 있을 때만.
+3. 없는 계좌·숫자를 만들지 마세요. 없으면 "기록에 없어요"라고 하세요.
+4. 매수·매도 권유·확정 세금 단정 금지. 추정은 "참고용 추정".
+5. FOLLOWUPS 줄에는 질문 문장만 쓰고, 번호/설명/이모지는 넣지 마세요.`;
+}
 
-계산 안내:
-- loan_helpers / tax / debts / other_assets 가 있으면 그 숫자로 먼저 계산·설명하세요.
-- 사용자가 가정(예: 매달 100만 원 상환)을 주면, 그 가정임을 밝히고 대략 계산해 주세요.`;
+function macrosFromDb(
+  prices: Array<Record<string, unknown>> | null | undefined,
+  indexSnaps: Array<Record<string, unknown>> | null | undefined
+): MacroRow[] {
+  const priceMap = new Map(
+    (prices || []).map((p) => [String(p.ticker), p])
+  );
+  const snap = (indexSnaps || [])[0] || {};
+  const pick = (
+    key: string,
+    label: string,
+    unit: string,
+    snapKey?: string
+  ): MacroRow => {
+    const fromPrice = priceMap.get(key);
+    const snapVal = snapKey != null ? snap[snapKey] : undefined;
+    const value =
+      fromPrice?.price != null
+        ? Number(fromPrice.price)
+        : snapVal != null
+          ? Number(snapVal)
+          : null;
+    return {
+      key,
+      label,
+      value: value != null && Number.isFinite(value) ? value : null,
+      unit,
+      source: "DB cache",
+      updated_at: fromPrice?.updated_at
+        ? String(fromPrice.updated_at)
+        : snap.snapshot_date
+          ? String(snap.snapshot_date)
+          : null,
+    };
+  };
+  return [
+    pick("KOSPI", "코스피", "pt", "kospi"),
+    pick("SP500", "S&P 500", "pt", "sp500"),
+    pick("NASDAQ", "나스닥", "pt", "nasdaq"),
+    pick("USDKRW", "원달러환율", "KRW", "usdkrw"),
+  ];
+}
+
+function splitReplyAndFollowups(text: string): {
+  reply: string;
+  followups: string[];
+} {
+  const match = text.match(
+    /\n\s*(?:FOLLOWUPS?|추천\s*질문|이어서\s*물어볼\s*것)\s*:\s*\n([\s\S]*)$/i
+  );
+  if (!match) {
+    return { reply: text.trim(), followups: [] };
+  }
+  const head = text.slice(0, match.index).trim();
+  const followups = match[1]
+    .split("\n")
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
+    .filter((line) => line.length >= 4 && line.length <= 80)
+    .slice(0, 3);
+  return { reply: head, followups };
 }
 
 const UA = { "User-Agent": "Bujattung/1.0 (wealth-chat)" };
@@ -522,8 +579,13 @@ function buildOtherAssetsPlain(rows: Array<Record<string, unknown>>) {
 
 async function buildContext(
   admin: ReturnType<typeof serviceClient>,
-  speaker: { name: string; email: string | null }
+  speaker: { name: string; email: string | null },
+  opts: { light: boolean }
 ) {
+  const light = opts.light;
+  const tradeLimit = light ? 12 : 24;
+  const chatLimit = light ? 4 : 8;
+
   const [
     holdings,
     prices,
@@ -539,7 +601,7 @@ async function buildContext(
     debtTxs,
     chatLogs,
     indexSnaps,
-    macros,
+    macrosLive,
   ] = await Promise.all([
     admin.from("holdings").select("*"),
     admin.from("market_prices").select("*"),
@@ -551,12 +613,12 @@ async function buildContext(
       .from("trades")
       .select("trade_date,ticker,trade_type,price,quantity,reason,account_id")
       .order("trade_date", { ascending: false })
-      .limit(30),
+      .limit(tradeLimit),
     admin
       .from("daily_snapshots")
       .select("*")
       .order("snapshot_date", { ascending: false })
-      .limit(14),
+      .limit(light ? 7 : 14),
     admin.from("v_tax_calculation").select("*"),
     admin.from("tax_records").select("*"),
     admin.from("v_portfolio").select("*"),
@@ -564,31 +626,39 @@ async function buildContext(
       .from("dividends")
       .select("pay_date,ticker,amount,currency,memo")
       .order("pay_date", { ascending: false })
-      .limit(30),
+      .limit(light ? 12 : 24),
     admin.from("other_assets").select("*"),
     admin
       .from("debt_transactions")
       .select("tx_date,tx_type,amount,memo,debt_id")
       .order("tx_date", { ascending: false })
-      .limit(20),
+      .limit(light ? 8 : 16),
     admin
       .from("ai_chat_logs")
       .select("user_query,ai_response,created_at")
       .neq("user_query", "morning_briefing")
       .order("created_at", { ascending: false })
-      .limit(12),
+      .limit(chatLimit),
     admin
       .from("market_index_snapshots")
       .select("snapshot_date,kospi,sp500,nasdaq,usdkrw")
       .order("snapshot_date", { ascending: false })
       .limit(7),
-    fetchMacroIndicators(),
+    light ? Promise.resolve([] as MacroRow[]) : fetchMacroIndicators(),
   ]);
 
-  try {
-    await persistMacros(admin, macros);
-  } catch {
-    /* ignore */
+  let macros: MacroRow[] = macrosLive;
+  if (light) {
+    macros = macrosFromDb(
+      (prices.data || []) as Array<Record<string, unknown>>,
+      (indexSnaps.data || []) as Array<Record<string, unknown>>
+    );
+  } else {
+    try {
+      await persistMacros(admin, macros);
+    } catch {
+      /* ignore */
+    }
   }
 
   // Older DBs may lack cash/ownership columns on accounts
@@ -683,10 +753,14 @@ async function buildContext(
       `→ 순자산 약 ${Math.round(invest + cash + otherSum - debtSum).toLocaleString("ko-KR")}원 수준입니다.`,
   };
 
-  const holding_moves = await fetchHoldingMoves(
-    enriched as Array<Record<string, unknown>>
-  );
-  const market_news = await fetchMarketNews(holding_moves);
+  let holding_moves: MoveRow[] = [];
+  let market_news: NewsRow[] = [];
+  if (!light) {
+    holding_moves = await fetchHoldingMoves(
+      enriched as Array<Record<string, unknown>>
+    );
+    market_news = await fetchMarketNews(holding_moves);
+  }
 
   const ctx = {
     speaker: {
@@ -698,6 +772,7 @@ async function buildContext(
       정명: "sjm3932@gmail.com",
       지수: "teruterujisoo@gmail.com",
     },
+    mode: light ? "light" : "full",
     household_summary,
     holdings: enriched,
     holding_moves,
@@ -711,7 +786,7 @@ async function buildContext(
     recent_snapshots: snaps.data || [],
     tax: taxRows,
     tax_plain,
-    portfolio: (portfolio.data || []).slice(0, 40),
+    portfolio: (portfolio.data || []).slice(0, light ? 20 : 40),
     dividends: dividends.data || [],
     usdkrw,
     macro_indicators: macros,
@@ -721,35 +796,37 @@ async function buildContext(
       facts: [
         "household_summary",
         "holdings",
-        "holding_moves",
         "loan_helpers",
         "tax_plain",
         "other_assets_plain",
         "macro_indicators",
         "snapshots",
-        "market_news",
+        ...(light ? [] : ["holding_moves", "market_news"]),
       ],
       teaching: ["연금", "세금", "대출", "환율", "시세", "순자산"],
-      causes_require: ["market_news", "google_search"],
+      causes_require: light ? [] : ["market_news", "google_search"],
       no_invention: true,
-      audience: "일반인 · 쉬운 설명",
+      audience: "일반인 · 쉬운 설명 · 짧은 답",
     },
-    note:
-      "숫자는 DB·실시간 시세 기준. 제도/개념은 검색으로 확인 후 쉽게 설명. 원인 해석은 뉴스·검색 근거가 있을 때만.",
+    note: light
+      ? "후속 질문 모드: DB·캐시 시세 위주. 짧은 답 + FOLLOWUPS. 검색/실시간 뉴스 생략."
+      : "숫자는 DB·실시간 시세 기준. 짧은 답 + FOLLOWUPS. 원인 해석은 뉴스·검색 근거가 있을 때만.",
     recent_chat_logs: (chatLogs.data || []).reverse(),
     meta: {
       holdings: enriched.length,
       debts: debtRows.length,
       other_assets: otherRows.length,
       usdkrw,
+      light,
       macros_ok: macros.filter((m) => m.value != null).length,
       moves_ok: holding_moves.filter((m) => m.change_1d_pct != null).length,
       news: market_news.length,
     },
   };
 
+  const cap = light ? 12000 : 16000;
   let text = JSON.stringify(ctx);
-  if (text.length > 20000) text = text.slice(0, 20000) + "…(truncated)";
+  if (text.length > cap) text = text.slice(0, cap) + "…(truncated)";
   return { ctx, text };
 }
 
@@ -794,13 +871,20 @@ Deno.serve(async (req) => {
     const message = String(body.message || "").trim();
     if (!message) return json({ ok: false, error: "message required" }, 400);
 
+    const history = Array.isArray(body.history) ? body.history.slice(-12) : [];
+    const light =
+      body.light === true ||
+      body.light === "true" ||
+      history.length > 0;
+
     const speakerName = speakerFromEmail(user.email);
     const speaker = { name: speakerName, email: user.email ?? null };
     const systemPrompt = buildSystemPrompt(speakerName);
 
-    const history = Array.isArray(body.history) ? body.history.slice(-40) : [];
     const admin = serviceClient();
-    const { ctx, text: contextText } = await buildContext(admin, speaker);
+    const { ctx, text: contextText } = await buildContext(admin, speaker, {
+      light,
+    });
 
     const turns: { role: string; parts: { text: string }[] }[] = [];
     turns.push({
@@ -810,8 +894,10 @@ Deno.serve(async (req) => {
           text:
             `WEALTH_CONTEXT:\n${contextText}\n\n` +
             `지금 대화 상대는 ${speakerName} 님입니다. 호칭은 "${speakerName} 님"만 쓰고 고객님은 금지입니다. ` +
-            `포트폴리오·부채·세금·연금 숫자는 WEALTH_CONTEXT만 사용하세요. ` +
-            `개념 설명·시장 원인은 Google 검색으로 확인하고, 일반인도 이해하게 쉽게 가르치세요. ` +
+            `숫자는 WEALTH_CONTEXT만 사용하세요. 답은 짧게, 끝에 FOLLOWUPS 2~3개를 넣으세요. ` +
+            (light
+              ? `후속(light) 모드입니다. 실시간 뉴스/검색 없이 DB·캐시로만 짧게 답하세요. `
+              : `필요하면 검색으로 개념·시세 원인을 확인하세요. `) +
             `확인 안 된 숫자/원인은 만들지 마세요. 준비되면 "준비됨"이라고만 답하세요.`,
         },
       ],
@@ -830,7 +916,7 @@ Deno.serve(async (req) => {
         {
           text:
             `${message}\n\n` +
-            `(쉬운 설명으로. ${speakerName} 님께 답하세요. 우리 집 숫자는 컨텍스트, 개념·시세 원인은 검색/뉴스 근거가 있을 때만.)`,
+            `(짧게 3~5문장. ${speakerName} 님께. 끝에 FOLLOWUPS: 블록 필수.)`,
         },
       ],
     });
@@ -840,17 +926,8 @@ Deno.serve(async (req) => {
     const model = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.5-flash";
 
     let data: Record<string, unknown>;
-    let usedSearch = true;
-    try {
-      data = await callGemini({
-        apiKey,
-        model,
-        systemPrompt,
-        turns,
-        useSearch: true,
-      });
-    } catch (e) {
-      usedSearch = false;
+    let usedSearch = false;
+    if (light) {
       data = await callGemini({
         apiKey,
         model,
@@ -858,23 +935,44 @@ Deno.serve(async (req) => {
         turns,
         useSearch: false,
       });
-      if (!data) throw e;
+    } else {
+      usedSearch = true;
+      try {
+        data = await callGemini({
+          apiKey,
+          model,
+          systemPrompt,
+          turns,
+          useSearch: true,
+        });
+      } catch (e) {
+        usedSearch = false;
+        data = await callGemini({
+          apiKey,
+          model,
+          systemPrompt,
+          turns,
+          useSearch: false,
+        });
+        if (!data) throw e;
+      }
     }
 
-    const reply =
+    const rawReply =
       data?.candidates?.[0] &&
       ((data.candidates as Array<{ content?: { parts?: Array<{ text?: string }> } }>)[0]
         .content?.parts?.map((p) => p.text ?? "")
         .join("")
         ?.trim() ||
         "");
-    if (!reply) throw new Error("Empty Gemini reply");
+    if (!rawReply) throw new Error("Empty Gemini reply");
 
-    const sources = extractGroundingSources(data);
+    const { reply, followups } = splitReplyAndFollowups(rawReply);
+    const sources = light ? [] : extractGroundingSources(data);
     let finalReply = reply;
-    if (sources.length) {
+    if (!light && sources.length) {
       const lines = sources
-        .slice(0, 5)
+        .slice(0, 3)
         .map((s, i) => `${i + 1}. ${s.title}`)
         .join("\n");
       if (!/근거|출처|검색/i.test(finalReply)) {
@@ -892,12 +990,15 @@ Deno.serve(async (req) => {
     return json({
       ok: true,
       reply: finalReply,
+      followups,
       sources,
       speaker: speakerName,
       meta: {
         ...ctx.meta,
+        light,
         grounded_search: usedSearch,
         sources: sources.length,
+        followups: followups.length,
         speaker: speakerName,
       },
     });
