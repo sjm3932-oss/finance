@@ -1,44 +1,52 @@
 -- Wipe demo/dummy transactional data for the couple DB.
 -- Run in Supabase Dashboard → SQL Editor → New query → Run.
--- Keeps Auth users + public.users profile rows.
--- After this, add real accounts in Next 「기록 → 계좌」.
+-- Keeps Auth users + public.users + allowed_emails.
+-- After this, add real accounts in Next 「더보기 → 기록하기 → 계좌」.
 
 begin;
 
--- OCR staging + related
-delete from ocr_staging;
+-- OCR staging
+delete from public.ocr_staging;
 
 -- Debt children then debts
-delete from debt_transactions;
-delete from debt_rate_history;
-delete from debts;
+delete from public.debt_transactions;
+delete from public.debt_rate_history;
+delete from public.debts;
 
 -- Ledger
-delete from dividends;
-delete from cash_flows;
-delete from tax_records;
-delete from trades;
+delete from public.dividends;
+delete from public.cash_flows;
+delete from public.tax_records;
+delete from public.trades;
 
 -- Holdings + history
-delete from holding_daily_snapshots;
-delete from holdings;
+delete from public.holding_daily_snapshots;
+delete from public.holdings;
 
--- Wealth extras (may not exist on older DBs — ignore errors by running separately if needed)
-delete from other_assets;
-delete from wealth_alert_events;
+-- Wealth extras
+delete from public.other_assets;
+delete from public.wealth_alert_events;
+
+-- Optional watchlist / price alerts (if present)
+delete from public.price_alert_events;
+delete from public.watchlist;
+
+-- Chat demo history (optional clean slate for real use)
+delete from public.ai_chat_logs;
 
 -- Snapshots / indexes
-delete from daily_snapshots;
-delete from market_index_snapshots;
+delete from public.daily_snapshots;
+delete from public.market_index_snapshots;
 
 -- Accounts last (dummy 토스/키움/카카오 등)
-delete from accounts;
+delete from public.accounts;
 
--- Optional: clear demo market prices (USDKRW 등). Keep if you still want FX/prices.
--- delete from market_prices;
+-- Keep market_prices (USDKRW etc.) for FX/display.
+-- Uncomment to wipe prices too:
+-- delete from public.market_prices;
 
--- Reset allocation targets to defaults (optional)
-insert into allocation_targets (category, target_pct, updated_at)
+-- Reset allocation targets to defaults
+insert into public.allocation_targets (category, target_pct, updated_at)
 values
   ('domestic', 40, now()),
   ('overseas', 40, now()),
