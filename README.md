@@ -83,11 +83,11 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
 ### Supabase Auth
 
 1. Enable Google provider in Authentication → Providers
-2. Set Site URL / Redirect URLs to the **fixed Streamlit Cloud URL**:
-   `https://richddoong.streamlit.app`
-   (see [`DEPLOY.md`](./DEPLOY.md); do **not** use Pinggy/Cloudflare tunnels)
-3. Put couple emails in `ALLOWED_EMAILS` and Streamlit Secrets
-4. Bookmark only `https://richddoong.streamlit.app`
+2. Site URL / Redirect URLs must be the **Next.js Vercel host**, not Streamlit:
+   `https://richddoong.vercel.app`
+   (`/auth/callback` + Vercel preview `https://richddoong-*-920723.vercel.app/**`)
+3. Put couple emails in `ALLOWED_EMAILS`
+4. Bookmark only `https://richddoong.vercel.app`
 
 ### Toss Securities sync (holdings only)
 

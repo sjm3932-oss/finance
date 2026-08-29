@@ -6,12 +6,15 @@ export function GoogleLoginButton() {
   async function onLogin() {
     const supabase = createClient();
     const origin = window.location.origin;
-    await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: `${origin}/auth/callback`,
       },
     });
+    if (error) {
+      window.alert(`로그인 실패: ${error.message}`);
+    }
   }
 
   return (
