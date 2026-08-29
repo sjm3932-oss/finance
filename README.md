@@ -78,7 +78,8 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
 .venv/bin/python scripts/clear_dummy_data.py
 ```
 
-삭제 후 Next 「기록 → 계좌」에서 실계좌를 다시 만드세요. `seed_dummy_data.py`는 다시 돌리지 마세요.
+토스증권 / 키움증권 / 카카오뱅크와 그 거래·배당·현금흐름·더미 주담대만 지웁니다. **한국투자증권 계좌는 유지**합니다.  
+삭제 후 Next 「기록 → 계좌」에서 실계좌를 이어서 쓰세요. `seed_dummy_data.py`는 다시 돌리지 마세요.
 
 ### Supabase Auth
 
