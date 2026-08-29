@@ -91,28 +91,16 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
 
 ### Toss Securities sync (holdings only)
 
-한투 휴대폰 인증 대신 **토스증권 Open API**로 잔고를 가져옵니다. 주문은 하지 않습니다.
+한투 휴대폰 인증 대신 **토스증권 Open API**로 잔고를 가져옵니다. 주문은 하지 않습니다. 노트북 클론은 필요 없습니다.
 
-1. [토스증권 WTS](https://www.tossinvest.com) 로그인 → **설정 → Open API**
-2. `client_id` / `client_secret` 발급
-3. **허용 IP**에 이 머신의 공인 IP 등록 (`curl ifconfig.me`). 미등록 IP는 403
-4. `.env` 또는 Streamlit Secrets / `supabase secrets set`:
+1. [토스증권 WTS](https://www.tossinvest.com) → **설정 → Open API**에서 키 발급 + 허용 IP
+2. Supabase Edge Secrets에 `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET` (이미 넣었으면 생략)
+3. **함수 배포 (클라우드만)**
+   - [Supabase Access Tokens](https://supabase.com/dashboard/account/tokens)에서 토큰 생성
+   - Cursor 환경 Secrets에 `SUPABASE_ACCESS_TOKEN`으로 넣으면 Cloud Agent가 `toss-sync`를 배포합니다
+   - 또는 GitHub → Settings → Secrets → Actions에 같은 이름을 넣고 [Actions → Deploy Edge Functions](https://github.com/sjm3932-oss/finance/actions)에서 Run workflow
 
-```bash
-TOSS_CLIENT_ID=...
-TOSS_CLIENT_SECRET=...
-```
-
-```bash
-python3 scripts/sync_toss.py
-# or, after deploy:
-supabase functions deploy toss-sync
-```
-
-앱 **더보기 → 토스증권 동기화**가 Edge Function `toss-sync`를 호출합니다.  
-Edge는 IP가 자주 바뀌므로, 허용 IP를 넣기 어려우면 노트북에서 스크립트를 실행하세요.
-
-동기화 결과는 `accounts.institution = 토스증권` (통화별 KRW/USD) + `holdings` / `cash_balance` / `market_prices` 입니다.
+앱 **더보기 → 토스증권 동기화**가 Edge Function `toss-sync`를 호출합니다.
 
 ### Run
 

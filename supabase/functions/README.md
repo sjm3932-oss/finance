@@ -12,17 +12,14 @@ Next.js only uploads files / shows UI and invokes Functions with the user JWT.
 | `toss-sync` | `supabase/functions/toss-sync` | Toss Open API holdings → `accounts` / `holdings` |
 | Shared | `supabase/functions/_shared/gemini.ts` | CORS, auth, Gemini REST helpers |
 
-## Deploy (one-time / when code changes)
+## Deploy (cloud only — no laptop)
 
-```bash
-# From repo root, with supabase CLI logged in
-supabase secrets set GEMINI_API_KEY=... GEMINI_MODEL=gemini-2.5-flash
-supabase secrets set TOSS_CLIENT_ID=... TOSS_CLIENT_SECRET=...
+1. Create a token at https://supabase.com/dashboard/account/tokens
+2. Put it in Cursor environment secrets as `SUPABASE_ACCESS_TOKEN`, **or** GitHub repo Actions secret with the same name
+3. Cloud Agent can then run `supabase functions deploy toss-sync --project-ref lsqkixysysfhywipmrky`
+4. Or GitHub Actions: workflow `Deploy Edge Functions` (`.github/workflows/deploy-functions.yml`)
 
-supabase functions deploy ocr-parse
-supabase functions deploy wealth-chat
-supabase functions deploy toss-sync
-```
+`TOSS_CLIENT_ID` / `TOSS_CLIENT_SECRET` are Edge Function secrets (already in the project). They are not a substitute for deploying the function code.
 
 Platform already injects `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
 
