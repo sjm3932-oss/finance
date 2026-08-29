@@ -1,0 +1,13 @@
+{
+  "name": "부자뚱 (Couples Wealth Master)",
+  "install": "pip install --user -r requirements.txt pytest",
+  "terminals": [
+    {
+      "name": "streamlit",
+      "command": "python3 -m streamlit run streamlit_app/Home.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true"
+    }
+  ],
+  "ports": [
+    8501
+  ]
+}
