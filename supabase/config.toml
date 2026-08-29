@@ -20,8 +20,12 @@ port = 54323
 
 [auth]
 enabled = true
-site_url = "http://localhost:8501"
-additional_redirect_urls = ["http://localhost:8501"]
+site_url = "http://localhost:3000"
+additional_redirect_urls = [
+  "http://localhost:3000",
+  "http://localhost:3000/auth/callback",
+  "http://localhost:8501",
+]
 
 [storage]
 enabled = true

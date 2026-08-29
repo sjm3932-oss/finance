@@ -1,5 +1,8 @@
 # 정석 배포 (터널 금지)
 
+실사용 앱은 **Next.js** (`https://richddoong.vercel.app`)입니다.
+Google 로그인 Site URL도 이 주소여야 합니다. Streamlit Cloud는 구 UI입니다.
+
 클라우드 에이전트/노트북에서 `cloudflared`·`pinggy` 같은 **임시 터널**로
 모바일 접속을 여는 것은 데모용입니다. 주소가 바뀌고, DNS가 사라지고,
 경고 페이지가 뜨며, Google 로그인이 깨집니다.
