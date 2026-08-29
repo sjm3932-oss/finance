@@ -89,6 +89,31 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
 3. Put couple emails in `ALLOWED_EMAILS` and Streamlit Secrets
 4. Bookmark only `https://richddoong.streamlit.app`
 
+### Toss Securities sync (holdings only)
+
+한투 휴대폰 인증 대신 **토스증권 Open API**로 잔고를 가져옵니다. 주문은 하지 않습니다.
+
+1. [토스증권 WTS](https://www.tossinvest.com) 로그인 → **설정 → Open API**
+2. `client_id` / `client_secret` 발급
+3. **허용 IP**에 이 머신의 공인 IP 등록 (`curl ifconfig.me`). 미등록 IP는 403
+4. `.env` 또는 Streamlit Secrets / `supabase secrets set`:
+
+```bash
+TOSS_CLIENT_ID=...
+TOSS_CLIENT_SECRET=...
+```
+
+```bash
+python3 scripts/sync_toss.py
+# or, after deploy:
+supabase functions deploy toss-sync
+```
+
+앱 **더보기 → 토스증권 동기화**가 Edge Function `toss-sync`를 호출합니다.  
+Edge는 IP가 자주 바뀌므로, 허용 IP를 넣기 어려우면 노트북에서 스크립트를 실행하세요.
+
+동기화 결과는 `accounts.institution = 토스증권` (통화별 KRW/USD) + `holdings` / `cash_balance` / `market_prices` 입니다.
+
 ### Run
 
 ```bash
@@ -160,7 +185,7 @@ pg_cron jobs (KST):
 
 In the app: **Notifications** page to subscribe to Web Push and run jobs manually.
 
-Function secrets (set via `supabase secrets set`): `GEMINI_API_KEY`, `GEMINI_MODEL`, `VAPID_*`, `PUBLIC_APP_URL`.
+Function secrets (set via `supabase secrets set`): `GEMINI_API_KEY`, `GEMINI_MODEL`, `VAPID_*`, `PUBLIC_APP_URL`, `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`.
 
 OCR / wealth-chat Edge Functions:
 

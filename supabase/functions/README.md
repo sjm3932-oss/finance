@@ -9,6 +9,7 @@ Next.js only uploads files / shows UI and invokes Functions with the user JWT.
 |------|------|------|
 | `ocr-parse` | `supabase/functions/ocr-parse` | Storage image → Gemini Vision → `ocr_staging` |
 | `wealth-chat` | `supabase/functions/wealth-chat` | Rebuild wealth context → Gemini → `ai_chat_logs` |
+| `toss-sync` | `supabase/functions/toss-sync` | Toss Open API holdings → `accounts` / `holdings` |
 | Shared | `supabase/functions/_shared/gemini.ts` | CORS, auth, Gemini REST helpers |
 
 ## Deploy (one-time / when code changes)
@@ -16,9 +17,11 @@ Next.js only uploads files / shows UI and invokes Functions with the user JWT.
 ```bash
 # From repo root, with supabase CLI logged in
 supabase secrets set GEMINI_API_KEY=... GEMINI_MODEL=gemini-2.5-flash
+supabase secrets set TOSS_CLIENT_ID=... TOSS_CLIENT_SECRET=...
 
 supabase functions deploy ocr-parse
 supabase functions deploy wealth-chat
+supabase functions deploy toss-sync
 ```
 
 Platform already injects `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
@@ -54,6 +57,18 @@ Auth: user Bearer JWT
 - Model returns short reply + `FOLLOWUPS:` block; API exposes `followups[]`.
 
 Response: `{ ok, reply, followups, sources, meta }`
+
+### `POST /functions/v1/toss-sync`
+Auth: user Bearer JWT  
+Secrets: `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`
+
+```json
+{}
+```
+
+Response: `{ ok, institution: "토스증권", accounts: [{ currency, holdings, cash }] }`
+
+Toss WTS must allow-list the caller IP. Edge egress IPs rotate; prefer `scripts/sync_toss.py` from a stable IP if 403.
 
 ## Next.js routes
 
