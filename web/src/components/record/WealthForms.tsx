@@ -109,7 +109,11 @@ export function WealthForms({
         )}
       </Panel>
 
-      <Panel title="기타자산 추가">
+      <Panel title="부동산 · 기타자산 추가">
+        <p className="mb-3 text-xs text-muted">
+          아파트·주택은 종류를 부동산으로 두고 시세를 평가액에 넣으면 순자산에
+          합산됩니다. 증권 계좌와는 별도입니다.
+        </p>
         <ActionForm action={createOtherAsset} submitLabel="추가">
           <Field label="이름">
             <input name="name" required className={inputClass} placeholder="예: 아파트" />

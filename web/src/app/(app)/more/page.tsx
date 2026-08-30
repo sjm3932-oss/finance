@@ -3,7 +3,7 @@ import Link from "next/link";
 const LINKS = [
   {
     title: "기록하기",
-    body: "토스 · 한투 동기화 · 계좌 · 매매 · 배당 · 부채",
+    body: "토스 · 한투 동기화 · 계좌 · 부동산·기타 · 매매 · 배당 · 부채",
     href: "/record",
   },
   {

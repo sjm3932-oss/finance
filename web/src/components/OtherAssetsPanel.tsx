@@ -21,10 +21,10 @@ export function OtherAssetsPanel({
     return (
       <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-8 text-center text-sm text-muted">
         등록된 기타자산이 없습니다.{" "}
-        <Link href="/record" className="font-semibold text-brand">
-          더보기 → 기록하기
+        <Link href="/record?tab=wealth" className="font-semibold text-brand">
+          기록하기 → 부동산·기타
         </Link>
-        에서 추가하세요.
+        에서 부동산·연금 등을 추가하세요.
       </div>
     );
   }

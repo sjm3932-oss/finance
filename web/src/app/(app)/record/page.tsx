@@ -14,7 +14,7 @@ const TABS = [
   { id: "toss", label: "토스 동기화" },
   { id: "hankook", label: "한투 동기화" },
   { id: "account", label: "계좌" },
-  { id: "wealth", label: "순자산" },
+  { id: "wealth", label: "부동산·기타" },
   { id: "flows", label: "매매·배당" },
   { id: "debt", label: "부채" },
 ] as const;
