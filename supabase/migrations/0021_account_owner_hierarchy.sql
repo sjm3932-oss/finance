@@ -24,4 +24,8 @@ where ownership is distinct from 'mine';
 alter table public.accounts
   alter column ownership set default 'mine';
 
+alter table public.accounts
+  add column if not exists cash_balance numeric not null default 0;
+
 comment on column public.accounts.ownership is 'joint | mine | spouse';
+comment on column public.accounts.cash_balance is 'Cash/예수금 in account.currency';

@@ -77,10 +77,21 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
         () =>
           supabase
             .from("accounts")
+            .select("id,institution,account_type,currency,ownership"),
+        { optional: true, label: "accounts-ownership" }
+      )
+    ).map((a) => ({ ...a, cash_balance: 0 }));
+  }
+  if (!accountRows.length) {
+    accountRows = (
+      await safeSelect<AccountRow>(
+        () =>
+          supabase
+            .from("accounts")
             .select("id,institution,account_type,currency"),
         { label: "accounts-lean" }
       )
-    ).map((a) => ({ ...a, ownership: "joint", cash_balance: 0 }));
+    ).map((a) => ({ ...a, ownership: "mine", cash_balance: 0 }));
   }
 
   const monthIso = monthStartKst();
