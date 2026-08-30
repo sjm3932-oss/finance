@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TossSyncPanel } from "@/components/TossSyncPanel";
 
 const LINKS = [
   {
@@ -31,10 +32,6 @@ const LINKS = [
     body: "양도차익 입력 · 예상세",
     href: "/more/tax",
   },
-  {
-    title: "한투 API 동기화",
-    body: "Phase 3에서 연동 예정",
-  },
 ];
 
 export default function MorePage() {
@@ -43,37 +40,32 @@ export default function MorePage() {
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">더보기</h1>
         <p className="mt-1 text-sm text-muted">
-          하단 메뉴로 기록·OCR·순자산 등에 바로 이동할 수 있어요
+          하단 「토스」에서 증권 잔고를 가져올 수 있어요
         </p>
       </div>
+      <TossSyncPanel />
       <div className="space-y-3">
         {LINKS.map((item) => {
           const className =
             "block rounded-2xl border border-line bg-surface px-4 py-4 shadow-soft";
-          const inner = (
-            <>
+          return (
+            <Link
+              key={item.title}
+              href={item.href}
+              prefetch
+              className={`${className} touch-manipulation transition-transform active:scale-[0.98] active:bg-canvas`}
+            >
               <div className="font-extrabold tracking-tight">{item.title}</div>
               <div className="mt-1 text-sm text-muted">{item.body}</div>
-            </>
-          );
-          if (item.href) {
-            return (
-              <Link
-                key={item.title}
-                href={item.href}
-                prefetch
-                className={`${className} touch-manipulation transition-transform active:scale-[0.98] active:bg-canvas`}
-              >
-                {inner}
-              </Link>
-            );
-          }
-          return (
-            <div key={item.title} className={className}>
-              {inner}
-            </div>
+            </Link>
           );
         })}
+        <div className="rounded-2xl border border-line bg-surface px-4 py-4 shadow-soft">
+          <div className="font-extrabold tracking-tight">한투 API 동기화</div>
+          <div className="mt-1 text-sm text-muted">
+            휴대폰 인증 이슈로 보류. 토스 연동을 먼저 씁니다.
+          </div>
+        </div>
       </div>
     </div>
   );
