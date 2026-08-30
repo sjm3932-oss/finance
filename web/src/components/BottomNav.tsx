@@ -20,7 +20,6 @@ const PREFETCH_HREFS = [
   "/ocr",
   "/more/net-worth",
   "/more/tax",
-  "/more/toss",
   "/chat",
 ] as const;
 
@@ -78,12 +77,6 @@ const MORE_ITEMS: {
     label: "전체",
     match: (p) => p === "/more",
     icon: IconGrid,
-  },
-  {
-    href: "/more/toss",
-    label: "토스",
-    match: (p) => p.startsWith("/more/toss"),
-    icon: IconSync,
   },
   {
     href: "/record",
@@ -382,41 +375,6 @@ function IconGrid({ active }: IconProps) {
       <rect x="13" y="4" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth={stroke(active)} />
       <rect x="4" y="13" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth={stroke(active)} />
       <rect x="13" y="13" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth={stroke(active)} />
-    </svg>
-  );
-}
-
-function IconSync({ active }: IconProps) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M4 12a8 8 0 0 1 13.5-5.8L20 8"
-        stroke="currentColor"
-        strokeWidth={stroke(active)}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M20 4v4h-4"
-        stroke="currentColor"
-        strokeWidth={stroke(active)}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M20 12a8 8 0 0 1-13.5 5.8L4 16"
-        stroke="currentColor"
-        strokeWidth={stroke(active)}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M4 20v-4h4"
-        stroke="currentColor"
-        strokeWidth={stroke(active)}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }

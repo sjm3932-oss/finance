@@ -100,7 +100,8 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
    - Cursor 환경 Secrets에 `SUPABASE_ACCESS_TOKEN`으로 넣으면 Cloud Agent가 `toss-sync`를 배포합니다
    - 또는 GitHub → Settings → Secrets → Actions에 같은 이름을 넣고 [Actions → Deploy Edge Functions](https://github.com/sjm3932-oss/finance/actions)에서 Run workflow
 
-앱 **더보기 → 토스증권 동기화**가 Edge Function `toss-sync`를 호출합니다.
+앱 **더보기 → 기록하기 → 토스 동기화**가 Edge Function `toss-sync`를 호출합니다.
+고정 IP 워커가 켜져 있으면 기본 6시간마다 잔고를 다시 가져옵니다. 버튼은 지금 당장 동기화할 때 씁니다.
 
 ### Run
 
