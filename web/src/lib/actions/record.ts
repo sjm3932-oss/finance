@@ -127,6 +127,67 @@ export async function updateAccountCash(formData: FormData): Promise<ActionResul
   }
 }
 
+const ACCOUNT_TYPES = new Set(["brokerage", "bank", "loan"]);
+const OWNERSHIPS = new Set(["joint", "mine", "spouse"]);
+
+export async function updateAccount(formData: FormData): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireAllowedUser();
+    const id = str(formData.get("account_id"));
+    const institution = str(formData.get("institution"));
+    const account_type = str(formData.get("account_type")) || "brokerage";
+    const currency = str(formData.get("currency")).toUpperCase() || "KRW";
+    const ownership = str(formData.get("ownership")) || "joint";
+    const cashRaw = str(formData.get("cash_balance"));
+    const cash_balance = cashRaw === "" ? 0 : num(formData.get("cash_balance"));
+
+    if (!id) return fail("계좌를 선택하세요.");
+    if (!institution) return fail("금융기관 이름을 입력하세요.");
+    if (!ACCOUNT_TYPES.has(account_type)) return fail("계좌유형을 확인하세요.");
+    if (!OWNERSHIPS.has(ownership)) return fail("소유를 확인하세요.");
+    if (!/^[A-Z]{3}$/.test(currency)) {
+      return fail("통화는 KRW, USD처럼 3글자 코드로 입력하세요.");
+    }
+    if (!Number.isFinite(cash_balance) || cash_balance < 0) {
+      return fail("현금 잔고를 확인하세요.");
+    }
+
+    const payload: Record<string, unknown> = {
+      institution,
+      account_type,
+      currency,
+      ownership,
+      cash_balance,
+    };
+    let { error } = await supabase.from("accounts").update(payload).eq("id", id);
+    if (error) {
+      ({ error } = await supabase
+        .from("accounts")
+        .update({ institution, account_type, currency })
+        .eq("id", id));
+    }
+    if (error) return dbFail(error);
+    revalidateRecord();
+    return ok(`${institution} (${currency}) 계좌를 저장했습니다.`);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "실패했습니다.");
+  }
+}
+
+export async function deleteAccount(formData: FormData): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireAllowedUser();
+    const id = str(formData.get("account_id"));
+    if (!id) return fail("계좌를 선택하세요.");
+    const { error } = await supabase.from("accounts").delete().eq("id", id);
+    if (error) return dbFail(error);
+    revalidateRecord();
+    return ok("계좌와 연결된 보유·매매를 삭제했습니다.");
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "실패했습니다.");
+  }
+}
+
 export async function createOtherAsset(formData: FormData): Promise<ActionResult> {
   try {
     const { supabase, user } = await requireAllowedUser();

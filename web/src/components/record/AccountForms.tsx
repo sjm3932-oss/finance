@@ -1,18 +1,13 @@
 "use client";
 
 import { CreateAccountFields } from "@/components/record/CreateAccountFields";
+import {
+  AccountEditRow,
+  type EditableAccount,
+} from "@/components/record/AccountEditRow";
 import { Panel } from "@/components/record/FormUI";
 
-type Account = {
-  id: string;
-  institution: string | null;
-  account_type: string | null;
-  currency: string | null;
-  cash_balance?: number | null;
-  ownership?: string | null;
-};
-
-export function AccountForms({ accounts }: { accounts: Account[] }) {
+export function AccountForms({ accounts }: { accounts: EditableAccount[] }) {
   return (
     <div className="space-y-4">
       <Panel title="새 계좌 추가">
@@ -29,17 +24,7 @@ export function AccountForms({ accounts }: { accounts: Account[] }) {
         ) : (
           <ul className="divide-y divide-line">
             {accounts.map((a) => (
-              <li
-                key={a.id}
-                className="flex items-center justify-between gap-3 py-2.5 text-sm"
-              >
-                <span className="font-extrabold tracking-tight">
-                  {a.institution || "계좌"}
-                </span>
-                <span className="shrink-0 text-xs font-semibold text-muted">
-                  {a.account_type} · {a.currency}
-                </span>
-              </li>
+              <AccountEditRow key={a.id} account={a} />
             ))}
           </ul>
         )}
