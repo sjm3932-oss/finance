@@ -214,22 +214,33 @@ export async function createOtherAsset(formData: FormData): Promise<ActionResult
     const name = str(formData.get("name"));
     const asset_kind = str(formData.get("asset_kind")) || "other";
     const value_krw = num(formData.get("value_krw"));
+    const costRaw = str(formData.get("cost_krw"));
+    const cost_krw = costRaw === "" ? null : num(formData.get("cost_krw"));
     const ownership = str(formData.get("ownership")) || "joint";
     const memo = str(formData.get("memo")) || null;
     if (!name) return fail("이름을 입력하세요.");
     if (!Number.isFinite(value_krw) || value_krw < 0) {
-      return fail("평가액을 확인하세요.");
+      return fail("현재 시세를 확인하세요.");
+    }
+    if (cost_krw !== null && (!Number.isFinite(cost_krw) || cost_krw < 0)) {
+      return fail("매수가를 확인하세요.");
     }
 
-    const { error } = await supabase.from("other_assets").insert({
+    const payload: Record<string, unknown> = {
       user_id: user.id,
       name,
       asset_kind,
       value_krw,
+      cost_krw,
       ownership,
       memo,
       updated_at: new Date().toISOString(),
-    });
+    };
+    let { error } = await supabase.from("other_assets").insert(payload);
+    if (error) {
+      delete payload.cost_krw;
+      ({ error } = await supabase.from("other_assets").insert(payload));
+    }
     if (error) return dbFail(error);
     revalidateRecord();
     return ok("기타자산을 추가했습니다.");
@@ -243,18 +254,29 @@ export async function updateOtherAssetValue(formData: FormData): Promise<ActionR
     const { supabase } = await requireAllowedUser();
     const id = str(formData.get("id"));
     const value_krw = num(formData.get("value_krw"));
+    const costRaw = str(formData.get("cost_krw"));
+    const cost_krw = costRaw === "" ? null : num(formData.get("cost_krw"));
     if (!id) return fail("항목을 선택하세요.");
     if (!Number.isFinite(value_krw) || value_krw < 0) {
-      return fail("평가액을 확인하세요.");
+      return fail("현재 시세를 확인하세요.");
+    }
+    if (cost_krw !== null && (!Number.isFinite(cost_krw) || cost_krw < 0)) {
+      return fail("매수가를 확인하세요.");
     }
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from("other_assets")
-      .update({ value_krw, updated_at: new Date().toISOString() })
+      .update({ value_krw, cost_krw, updated_at: new Date().toISOString() })
       .eq("id", id);
+    if (error) {
+      ({ error } = await supabase
+        .from("other_assets")
+        .update({ value_krw, updated_at: new Date().toISOString() })
+        .eq("id", id));
+    }
     if (error) return dbFail(error);
     revalidateRecord();
-    return ok("평가액을 수정했습니다.");
+    return ok("매수가·시세를 저장했습니다.");
   } catch (e) {
     return fail(e instanceof Error ? e.message : "실패했습니다.");
   }

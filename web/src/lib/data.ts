@@ -135,7 +135,7 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
       () =>
         supabase
           .from("other_assets")
-          .select("id,name,asset_kind,value_krw,ownership,memo"),
+          .select("id,name,asset_kind,value_krw,cost_krw,ownership,memo"),
       { optional: true, label: "other_assets" }
     ),
     safeSelect<DailySnap>(
@@ -184,6 +184,17 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
   }
 
   let otherAssets = otherRaw;
+  if (!otherAssets.length) {
+    otherAssets = (
+      await safeSelect<OtherAssetRow>(
+        () =>
+          supabase
+            .from("other_assets")
+            .select("id,name,asset_kind,value_krw,ownership,memo"),
+        { optional: true, label: "other_assets-no-cost" }
+      )
+    ).map((a) => ({ ...a, cost_krw: null }));
+  }
   if (!otherAssets.length) {
     otherAssets = await safeSelect<OtherAssetRow>(
       () => supabase.from("other_assets").select("value_krw,ownership"),

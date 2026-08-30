@@ -33,6 +33,7 @@ export type OtherAssetRow = {
   name: string | null;
   asset_kind: string | null;
   value_krw: number | null;
+  cost_krw?: number | null;
   ownership: string | null;
   memo?: string | null;
 };
@@ -393,6 +394,22 @@ export function debtsDueSoon(
     }
   }
   return out.sort((a, b) => a.due.localeCompare(b.due));
+}
+
+export function otherAssetReturn(row: Pick<OtherAssetRow, "value_krw" | "cost_krw">): {
+  cost: number | null;
+  value: number;
+  pnl: number | null;
+  pct: number | null;
+} {
+  const value = Number(row.value_krw || 0);
+  const costRaw = Number(row.cost_krw);
+  const cost = Number.isFinite(costRaw) && costRaw > 0 ? costRaw : null;
+  if (cost === null) {
+    return { cost: null, value, pnl: null, pct: null };
+  }
+  const pnl = value - cost;
+  return { cost, value, pnl, pct: (100 * pnl) / cost };
 }
 
 export function groupOtherByKind(rows: OtherAssetRow[]) {

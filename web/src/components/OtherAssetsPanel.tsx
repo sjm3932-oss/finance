@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { fmtKrw } from "@/lib/money";
+import { fmtKrw, fmtPct, retTone } from "@/lib/money";
 import {
   ASSET_KIND_KO,
   OWNERSHIP_KO,
   groupOtherByKind,
+  otherAssetReturn,
   type OtherAssetRow,
 } from "@/lib/portfolio";
 
@@ -16,6 +17,12 @@ export function OtherAssetsPanel({
 }) {
   const total = rows.reduce((s, r) => s + Number(r.value_krw || 0), 0);
   const byKind = groupOtherByKind(rows);
+  const withCost = rows.filter((r) => Number(r.cost_krw) > 0);
+  const costSum = withCost.reduce((s, r) => s + Number(r.cost_krw || 0), 0);
+  const valueOnCost = withCost.reduce((s, r) => s + Number(r.value_krw || 0), 0);
+  const totalPnl = costSum > 0 ? valueOnCost - costSum : null;
+  const totalPct = costSum > 0 ? (100 * (valueOnCost - costSum)) / costSum : null;
+  const pnlTone = retTone(totalPct);
 
   if (!rows.length) {
     return (
@@ -32,10 +39,26 @@ export function OtherAssetsPanel({
   return (
     <div className="space-y-3">
       <div className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
-        <p className="text-xs font-semibold text-muted">기타자산 합계</p>
+        <p className="text-xs font-semibold text-muted">기타자산 시세 합계</p>
         <p className="mt-1 text-2xl font-extrabold tracking-tight">
           {fmtKrw(total)}
         </p>
+        {totalPnl !== null ? (
+          <div className="mt-2 flex flex-wrap gap-x-3 text-xs font-bold">
+            <span className="text-muted">매수가 {fmtKrw(costSum)}</span>
+            <span
+              className={
+                pnlTone === "up"
+                  ? "text-up"
+                  : pnlTone === "down"
+                    ? "text-down"
+                    : "text-muted"
+              }
+            >
+              손익 {fmtKrw(totalPnl, { signed: true })} · {fmtPct(totalPct)}
+            </span>
+          </div>
+        ) : null}
         {showBreakdown && byKind.length ? (
           <div className="mt-3 space-y-2 border-t border-line pt-3">
             {byKind.map((k) => (
@@ -57,31 +80,55 @@ export function OtherAssetsPanel({
         {rows
           .slice()
           .sort((a, b) => Number(b.value_krw || 0) - Number(a.value_krw || 0))
-          .map((r, i) => (
-            <div
-              key={r.id || `${r.name}-${i}`}
-              className="border-b border-line px-4 py-3.5 last:border-b-0"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-extrabold tracking-tight">
-                    {r.name || "기타자산"}
+          .map((r, i) => {
+            const ret = otherAssetReturn(r);
+            const tone = retTone(ret.pct);
+            return (
+              <div
+                key={r.id || `${r.name}-${i}`}
+                className="border-b border-line px-4 py-3.5 last:border-b-0"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-[15px] font-extrabold tracking-tight">
+                      {r.name || "기타자산"}
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted">
+                      {ASSET_KIND_KO[r.asset_kind || ""] || r.asset_kind || "기타"}
+                      {" · "}
+                      {OWNERSHIP_KO[r.ownership || "joint"] || "공동"}
+                      {ret.cost !== null
+                        ? ` · 매수 ${fmtKrw(ret.cost)}`
+                        : ""}
+                    </div>
+                    {r.memo ? (
+                      <p className="mt-1 text-xs text-muted">{r.memo}</p>
+                    ) : null}
                   </div>
-                  <div className="mt-0.5 text-xs text-muted">
-                    {ASSET_KIND_KO[r.asset_kind || ""] || r.asset_kind || "기타"}
-                    {" · "}
-                    {OWNERSHIP_KO[r.ownership || "joint"] || "공동"}
+                  <div className="shrink-0 text-right">
+                    <div className="text-[15px] font-extrabold tracking-tight">
+                      {fmtKrw(r.value_krw)}
+                    </div>
+                    {ret.pct !== null ? (
+                      <div
+                        className={`text-xs font-bold ${
+                          tone === "up"
+                            ? "text-up"
+                            : tone === "down"
+                              ? "text-down"
+                              : "text-muted"
+                        }`}
+                      >
+                        {fmtKrw(ret.pnl, { signed: true })} · {fmtPct(ret.pct)}
+                      </div>
+                    ) : (
+                      <div className="text-xs font-bold text-muted">시세</div>
+                    )}
                   </div>
-                  {r.memo ? (
-                    <p className="mt-1 text-xs text-muted">{r.memo}</p>
-                  ) : null}
-                </div>
-                <div className="shrink-0 text-right text-[15px] font-extrabold tracking-tight">
-                  {fmtKrw(r.value_krw)}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
       </div>
     </div>
   );

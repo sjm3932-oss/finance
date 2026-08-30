@@ -46,3 +46,16 @@ if (institutionsForOwnership(brokerAccounts, "spouse").length !== 0) {
 }
 
 console.log("web portfolio smoke ok", { invest, net, mineInst });
+
+function otherAssetReturn(row) {
+  const value = Number(row.value_krw || 0);
+  const costRaw = Number(row.cost_krw);
+  const cost = Number.isFinite(costRaw) && costRaw > 0 ? costRaw : null;
+  if (cost === null) return { cost: null, value, pnl: null, pct: null };
+  const pnl = value - cost;
+  return { cost, value, pnl, pct: (100 * pnl) / cost };
+}
+const re = otherAssetReturn({ cost_krw: 800_000_000, value_krw: 880_000_000 });
+if (re.pnl !== 80_000_000) throw new Error("other pnl");
+if (Math.abs(re.pct - 10) > 1e-9) throw new Error("other pct " + re.pct);
+if (otherAssetReturn({ value_krw: 1 }).pct !== null) throw new Error("no cost");

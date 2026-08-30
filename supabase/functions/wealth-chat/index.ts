@@ -571,9 +571,14 @@ function buildOtherAssetsPlain(rows: Array<Record<string, unknown>>) {
     kind: r.asset_kind,
     kind_ko: kindKo[String(r.asset_kind || "")] || String(r.asset_kind || "기타"),
     value_krw: Number(r.value_krw || 0),
+    cost_krw: r.cost_krw == null ? null : Number(r.cost_krw),
     ownership: r.ownership,
     memo: r.memo ?? null,
-    plain: `${r.name || "항목"}(${kindKo[String(r.asset_kind || "")] || "기타"}) 평가액 ${Number(r.value_krw || 0).toLocaleString("ko-KR")}원`,
+    plain: `${r.name || "항목"}(${kindKo[String(r.asset_kind || "")] || "기타"}) 시세 ${Number(r.value_krw || 0).toLocaleString("ko-KR")}원${
+      Number(r.cost_krw) > 0
+        ? ` · 매수 ${Number(r.cost_krw).toLocaleString("ko-KR")}원`
+        : ""
+    }`,
   }));
 }
 

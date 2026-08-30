@@ -28,7 +28,7 @@ export default async function OtherAssetsPage({
         </p>
         <h1 className="mt-1 text-xl font-extrabold tracking-tight">기타자산</h1>
         <p className="mt-1 text-sm text-muted">
-          부동산 · 연금 · 보험 · 예적금 등
+          부동산 · 연금 · 보험 · 예적금 등 · 매수가 대비 수익률
         </p>
       </div>
 

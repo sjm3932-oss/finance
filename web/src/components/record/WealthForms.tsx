@@ -20,6 +20,7 @@ type OtherAsset = {
   name: string | null;
   asset_kind: string | null;
   value_krw: number | null;
+  cost_krw?: number | null;
   ownership: string | null;
 };
 
@@ -111,8 +112,8 @@ export function WealthForms({
 
       <Panel title="부동산 · 기타자산 추가">
         <p className="mb-3 text-xs text-muted">
-          아파트·주택은 종류를 부동산으로 두고 시세를 평가액에 넣으면 순자산에
-          합산됩니다. 증권 계좌와는 별도입니다.
+          아파트·주택은 종류를 부동산으로 두고, 매수가와 현재 시세를 넣으면
+          수익률이 나옵니다. 순자산은 시세 기준으로 합산됩니다.
         </p>
         <ActionForm action={createOtherAsset} submitLabel="추가">
           <Field label="이름">
@@ -127,16 +128,28 @@ export function WealthForms({
               ))}
             </select>
           </Field>
-          <Field label="평가액(원)">
-            <input
-              name="value_krw"
-              type="number"
-              min={0}
-              step={100000}
-              defaultValue={0}
-              className={inputClass}
-            />
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="매수가(원)">
+              <input
+                name="cost_krw"
+                type="number"
+                min={0}
+                step={100000}
+                className={inputClass}
+                placeholder="실제 산 가격"
+              />
+            </Field>
+            <Field label="현재 시세(원)">
+              <input
+                name="value_krw"
+                type="number"
+                min={0}
+                step={100000}
+                defaultValue={0}
+                className={inputClass}
+              />
+            </Field>
+          </div>
           <Field label="소유">
             <select name="ownership" className={inputClass} defaultValue="joint">
               {OWNERSHIP_OPTIONS.map((o) => (
@@ -157,7 +170,7 @@ export function WealthForms({
           <ActionForm
             key={`upd-${selectedOther.id}`}
             action={updateOtherAssetValue}
-            submitLabel="평가액 저장"
+            submitLabel="매수가·시세 저장"
           >
             <Field label="항목">
               <select
@@ -174,16 +187,34 @@ export function WealthForms({
                 ))}
               </select>
             </Field>
-            <Field label="평가액(원)">
-              <input
-                name="value_krw"
-                type="number"
-                min={0}
-                step={100000}
-                defaultValue={Number(selectedOther.value_krw || 0)}
-                className={inputClass}
-              />
-            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="매수가(원)">
+                <input
+                  name="cost_krw"
+                  type="number"
+                  min={0}
+                  step={100000}
+                  defaultValue={
+                    selectedOther.cost_krw != null &&
+                    Number(selectedOther.cost_krw) > 0
+                      ? Number(selectedOther.cost_krw)
+                      : ""
+                  }
+                  placeholder="실제 산 가격"
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="현재 시세(원)">
+                <input
+                  name="value_krw"
+                  type="number"
+                  min={0}
+                  step={100000}
+                  defaultValue={Number(selectedOther.value_krw || 0)}
+                  className={inputClass}
+                />
+              </Field>
+            </div>
           </ActionForm>
           <div className="mt-3 border-t border-line pt-3">
             <ActionForm
