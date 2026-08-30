@@ -40,7 +40,7 @@ export default function MorePage() {
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">더보기</h1>
         <p className="mt-1 text-sm text-muted">
-          하단 메뉴로 기록·OCR·순자산 등에 바로 이동할 수 있어요
+          하단 「토스」에서 증권 잔고를 가져올 수 있어요
         </p>
       </div>
       <TossSyncPanel />

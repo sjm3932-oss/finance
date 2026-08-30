@@ -125,6 +125,9 @@ export default async function HomePage({
       </section>
 
       <div className="flex flex-wrap gap-3 text-sm font-semibold">
+        <Link href="/more/toss" className="text-brand">
+          토스 동기화
+        </Link>
         <Link href="/pnl" className="text-brand">
           손익
         </Link>
