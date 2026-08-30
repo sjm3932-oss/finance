@@ -1,28 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  createOtherAsset,
-  updateOtherAssetValue,
-  deleteOtherAsset,
-  updateAccountCash,
-} from "@/lib/actions/record";
-import {
-  ASSET_KIND_OPTIONS,
-  OWNERSHIP_OPTIONS,
-} from "@/lib/record";
+import { createOtherAsset, updateAccountCash } from "@/lib/actions/record";
+import { ASSET_KIND_OPTIONS, OWNERSHIP_OPTIONS } from "@/lib/record";
 import { ActionForm, Field, Panel, inputClass } from "@/components/record/FormUI";
-import { fmtKrw } from "@/lib/money";
+import { OtherAssetEditRow } from "@/components/record/OtherAssetEditRow";
+import type { OtherAssetRow } from "@/lib/portfolio";
 import Link from "next/link";
-
-type OtherAsset = {
-  id?: string;
-  name: string | null;
-  asset_kind: string | null;
-  value_krw: number | null;
-  cost_krw?: number | null;
-  ownership: string | null;
-};
 
 type Account = {
   id: string;
@@ -36,20 +20,17 @@ export function WealthForms({
   otherAssets,
   accounts,
 }: {
-  otherAssets: OtherAsset[];
+  otherAssets: OtherAssetRow[];
   accounts: Account[];
 }) {
-  const withId = otherAssets.filter((o) => o.id) as (OtherAsset & { id: string })[];
+  const withId = otherAssets.filter(
+    (o): o is OtherAssetRow & { id: string } => Boolean(o.id)
+  );
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
-  const [otherId, setOtherId] = useState(withId[0]?.id ?? "");
 
   const selectedAccount = useMemo(
     () => accounts.find((a) => a.id === accountId) ?? accounts[0] ?? null,
     [accounts, accountId]
-  );
-  const selectedOther = useMemo(
-    () => withId.find((o) => o.id === otherId) ?? withId[0] ?? null,
-    [withId, otherId]
   );
 
   return (
@@ -160,76 +141,31 @@ export function WealthForms({
             </select>
           </Field>
           <Field label="메모">
-            <input name="memo" className={inputClass} placeholder="선택" />
+            <input
+              name="memo"
+              className={inputClass}
+              placeholder="예: 59.97A, 네이버 단지 링크"
+            />
           </Field>
         </ActionForm>
       </Panel>
 
-      {withId.length && selectedOther ? (
-        <Panel title="기타자산 수정 · 삭제">
-          <ActionForm
-            key={`upd-${selectedOther.id}`}
-            action={updateOtherAssetValue}
-            submitLabel="매수가·시세 저장"
-          >
-            <Field label="항목">
-              <select
-                name="id"
-                required
-                className={inputClass}
-                value={selectedOther.id}
-                onChange={(e) => setOtherId(e.target.value)}
-              >
-                {withId.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name} ({fmtKrw(o.value_krw)})
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="매수가(원)">
-                <input
-                  name="cost_krw"
-                  type="number"
-                  min={0}
-                  step={100000}
-                  defaultValue={
-                    selectedOther.cost_krw != null &&
-                    Number(selectedOther.cost_krw) > 0
-                      ? Number(selectedOther.cost_krw)
-                      : ""
-                  }
-                  placeholder="실제 산 가격"
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="현재 시세(원)">
-                <input
-                  name="value_krw"
-                  type="number"
-                  min={0}
-                  step={100000}
-                  defaultValue={Number(selectedOther.value_krw || 0)}
-                  className={inputClass}
-                />
-              </Field>
-            </div>
-          </ActionForm>
-          <div className="mt-3 border-t border-line pt-3">
-            <ActionForm
-              key={`del-${selectedOther.id}`}
-              action={deleteOtherAsset}
-              submitLabel="선택 항목 삭제"
-            >
-              <input type="hidden" name="id" value={selectedOther.id} />
-              <p className="text-sm text-muted">
-                위에서 고른 「{selectedOther.name}」을(를) 삭제합니다.
-              </p>
-            </ActionForm>
-          </div>
-        </Panel>
-      ) : null}
+      <Panel title={`등록된 기타자산 (${withId.length})`}>
+        {!withId.length ? (
+          <p className="text-sm text-muted">아직 기타자산이 없습니다.</p>
+        ) : (
+          <>
+            <p className="-mt-1 mb-2 text-xs text-muted">
+              이름·종류·소유·매수가·시세·메모를 행마다 수정할 수 있습니다.
+            </p>
+            <ul className="divide-y divide-line">
+              {withId.map((asset) => (
+                <OtherAssetEditRow key={asset.id} asset={asset} />
+              ))}
+            </ul>
+          </>
+        )}
+      </Panel>
     </div>
   );
 }

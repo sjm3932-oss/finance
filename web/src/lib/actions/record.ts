@@ -141,6 +141,14 @@ export async function updateAccountCash(formData: FormData): Promise<ActionResul
 
 const ACCOUNT_TYPES = new Set(["brokerage", "bank", "loan"]);
 const OWNERSHIPS = new Set(["joint", "mine", "spouse"]);
+const ASSET_KINDS = new Set([
+  "real_estate",
+  "pension",
+  "insurance",
+  "deposit",
+  "crypto",
+  "other",
+]);
 
 export async function updateAccount(formData: FormData): Promise<ActionResult> {
   try {
@@ -241,6 +249,10 @@ export async function createOtherAsset(formData: FormData): Promise<ActionResult
       delete payload.cost_krw;
       ({ error } = await supabase.from("other_assets").insert(payload));
     }
+    if (error) {
+      delete payload.memo;
+      ({ error } = await supabase.from("other_assets").insert(payload));
+    }
     if (error) return dbFail(error);
     revalidateRecord();
     return ok("기타자산을 추가했습니다.");
@@ -249,14 +261,21 @@ export async function createOtherAsset(formData: FormData): Promise<ActionResult
   }
 }
 
-export async function updateOtherAssetValue(formData: FormData): Promise<ActionResult> {
+export async function updateOtherAsset(formData: FormData): Promise<ActionResult> {
   try {
     const { supabase } = await requireAllowedUser();
     const id = str(formData.get("id"));
+    const name = str(formData.get("name"));
+    const asset_kind = str(formData.get("asset_kind")) || "other";
     const value_krw = num(formData.get("value_krw"));
     const costRaw = str(formData.get("cost_krw"));
     const cost_krw = costRaw === "" ? null : num(formData.get("cost_krw"));
+    const ownership = str(formData.get("ownership")) || "joint";
+    const memo = str(formData.get("memo")) || null;
     if (!id) return fail("항목을 선택하세요.");
+    if (!name) return fail("이름을 입력하세요.");
+    if (!ASSET_KINDS.has(asset_kind)) return fail("종류를 확인하세요.");
+    if (!OWNERSHIPS.has(ownership)) return fail("소유를 확인하세요.");
     if (!Number.isFinite(value_krw) || value_krw < 0) {
       return fail("현재 시세를 확인하세요.");
     }
@@ -264,22 +283,46 @@ export async function updateOtherAssetValue(formData: FormData): Promise<ActionR
       return fail("매수가를 확인하세요.");
     }
 
+    const payload: Record<string, unknown> = {
+      name,
+      asset_kind,
+      value_krw,
+      cost_krw,
+      ownership,
+      memo,
+      updated_at: new Date().toISOString(),
+    };
     let { error } = await supabase
       .from("other_assets")
-      .update({ value_krw, cost_krw, updated_at: new Date().toISOString() })
+      .update(payload)
       .eq("id", id);
     if (error) {
+      delete payload.cost_krw;
       ({ error } = await supabase
         .from("other_assets")
-        .update({ value_krw, updated_at: new Date().toISOString() })
+        .update(payload)
+        .eq("id", id));
+    }
+    if (error) {
+      delete payload.memo;
+      ({ error } = await supabase
+        .from("other_assets")
+        .update(payload)
         .eq("id", id));
     }
     if (error) return dbFail(error);
     revalidateRecord();
-    return ok("매수가·시세를 저장했습니다.");
+    return ok(`${name}을(를) 저장했습니다.`);
   } catch (e) {
     return fail(e instanceof Error ? e.message : "실패했습니다.");
   }
+}
+
+/** @deprecated use updateOtherAsset */
+export async function updateOtherAssetValue(
+  formData: FormData
+): Promise<ActionResult> {
+  return updateOtherAsset(formData);
 }
 
 export async function deleteOtherAsset(formData: FormData): Promise<ActionResult> {
