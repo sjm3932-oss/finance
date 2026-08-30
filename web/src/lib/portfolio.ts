@@ -136,7 +136,7 @@ export function buildLiveHoldings(
   return holdings.map((h) => {
     const acct = amap.get(h.account_id);
     const mp = pmap.get(h.ticker);
-    const price = mp?.price ?? null;
+    const price = mp?.price ?? (avg > 0 ? avg : null);
     const qty = Number(h.quantity || 0);
     const avg = Number(h.avg_price || 0);
     // Prefer holding currency → price currency → account currency → KRW

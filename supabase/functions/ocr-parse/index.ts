@@ -9,6 +9,7 @@ import {
   bytesToBase64,
   serviceClient,
 } from "../_shared/gemini.ts";
+import { correctOcrParsed } from "../_shared/krTicker.ts";
 
 const OCR_PROMPT = `You are a financial OCR assistant for a Korean couple's wealth tracker (부자뚱).
 Extract holdings, trades, dividends, and/or debt (loan) info from this screenshot.
@@ -18,7 +19,7 @@ Return ONLY valid JSON (no markdown) with this schema:
   "account_hint": "institution name if visible",
   "trades": [{"trade_date":"YYYY-MM-DD","ticker":"string","name":"string","trade_type":"buy"|"sell","price":number,"quantity":number,"fee":number,"currency":"KRW"|"USD","reason":"string"}],
   "dividends": [{"pay_date":"YYYY-MM-DD","ticker":"string","name":"string","amount":number,"currency":"KRW"|"USD","memo":"string"}],
-  "holdings_snapshot": [{"ticker":"string","name":"string","quantity":number,"avg_price":number,"currency":"KRW"|"USD"}],
+  "holdings_snapshot": [{"ticker":"string","name":"string","quantity":number,"avg_price":number,"last_price":number,"currency":"KRW"|"USD"}],
   "debts": [{"lender":"string","debt_kind":"mortgage"|"credit"|"card"|"student"|"jeonse"|"other","balance":number,"original_principal":number|null,"interest_rate":number|null,"due_date":"YYYY-MM-DD"|null,"memo":"string"}],
   "debt_payments": [{"pay_date":"YYYY-MM-DD","lender":"string","amount":number,"interest_portion":number|null,"principal_portion":number|null,"balance_after":number|null,"rate":number|null,"memo":"string"}]
 }
@@ -26,6 +27,8 @@ Return ONLY valid JSON (no markdown) with this schema:
 Rules:
 - Prefer holdings_snapshot for balances, trades for order history, dividends for 배당, debts/debt_payments for loans.
 - Numbers must be plain JSON numbers. Korean stocks: 6-digit tickers. Always include both ticker and name.
+- last_price is 현재가/평가단가 when visible. avg_price is 평균단가.
+- Do not invent a 6-digit ticker. If the code is unreadable, omit ticker and keep the Korean name.
 - If unreadable return empty arrays and "error":"unreadable".`;
 
 const DOC_HINTS: Record<string, string> = {
@@ -105,6 +108,9 @@ Deno.serve(async (req) => {
     }
     if (accountId) parsed.account_id = accountId;
     parsed.doc_type = docType;
+    if (status !== "failed") {
+      parsed = await correctOcrParsed(parsed);
+    }
 
     const { data: row, error: insErr } = await supabase
       .from("ocr_staging")
