@@ -50,7 +50,11 @@ export default async function RecordPage({
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">기록</h1>
         <p className="mt-1 text-sm text-muted">
-          증권 동기화 · 수기 입력 · OCR은{" "}
+          증권 동기화 · 계좌 · 부동산은{" "}
+          <Link href="/record?tab=wealth" className="font-semibold text-brand">
+            부동산·기타
+          </Link>
+          · OCR은{" "}
           <Link href="/ocr" className="font-semibold text-brand">
             /ocr
           </Link>
