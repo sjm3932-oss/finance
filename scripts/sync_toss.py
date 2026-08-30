@@ -105,7 +105,7 @@ def issue_token(client_id: str, client_secret: str) -> str:
     )
     token = (payload or {}).get("access_token") if isinstance(payload, dict) else None
     if status != 200 or not token:
-        raise SystemExit(humanize_toss_error(status, payload))
+        raise RuntimeError(humanize_toss_error(status, payload))
     return str(token)
 
 
@@ -194,12 +194,12 @@ def set_cash(c, account_id: str, cash: float) -> None:
         print(f"  cash_balance skip: {exc}")
 
 
-def main() -> None:
+def run_sync(*, user_id: str | None = None) -> dict:
     client_id = os.getenv("TOSS_CLIENT_ID", "").strip()
     client_secret = os.getenv("TOSS_CLIENT_SECRET", "").strip()
     if not client_id or not client_secret:
-        raise SystemExit(
-            "TOSS_CLIENT_ID / TOSS_CLIENT_SECRET required.\n"
+        raise RuntimeError(
+            "TOSS_CLIENT_ID / TOSS_CLIENT_SECRET required. "
             "토스증권 WTS → 설정 → Open API 에서 발급하세요."
         )
 
@@ -207,25 +207,26 @@ def main() -> None:
     print(f"Public IP (allow-list this in Toss WTS): {ip}")
 
     c = supabase()
-    users = c.table("users").select("id,email").eq("email", USER_EMAIL).execute().data or []
-    if not users:
-        raise SystemExit(f"User {USER_EMAIL} not found — log in once first")
-    uid = users[0]["id"]
+    uid = user_id
+    if not uid:
+        users = c.table("users").select("id,email").eq("email", USER_EMAIL).execute().data or []
+        if not users:
+            raise RuntimeError(f"User {USER_EMAIL} not found — log in once first")
+        uid = users[0]["id"]
 
     token = issue_token(client_id, client_secret)
     print("Token ok")
 
     status, payload = toss_request("GET", "/api/v1/accounts", token=token)
     if status != 200:
-        raise SystemExit(humanize_toss_error(status, payload))
+        raise RuntimeError(humanize_toss_error(status, payload))
     accounts = (payload or {}).get("result") or []
     brokerage = [a for a in accounts if a.get("accountType") in (None, "BROKERAGE")]
     if not brokerage:
         brokerage = accounts
     if not brokerage:
-        raise SystemExit("토스 계좌가 없습니다. Open API에 계좌가 연결되어 있는지 확인하세요.")
+        raise RuntimeError("토스 계좌가 없습니다. Open API에 계좌가 연결되어 있는지 확인하세요.")
 
-    # FX for net-worth
     fx_status, fx_payload = toss_request(
         "GET",
         "/api/v1/exchange-rate",
@@ -245,16 +246,17 @@ def main() -> None:
     else:
         print(f"  exchange-rate skip: {humanize_toss_error(fx_status, fx_payload)}")
 
+    summary: list[dict] = []
     total_rows = 0
     for i, acct in enumerate(brokerage):
         seq = acct.get("accountSeq")
         if seq is None:
             continue
         if i:
-            time.sleep(1.1)  # ACCOUNT/ASSET courtesy
+            time.sleep(1.1)
         hs, hp = toss_request("GET", "/api/v1/holdings", token=token, account_seq=int(seq))
         if hs != 200:
-            raise SystemExit(humanize_toss_error(hs, hp))
+            raise RuntimeError(humanize_toss_error(hs, hp))
         items = ((hp or {}).get("result") or {}).get("items") or []
         by_ccy = holdings_by_currency(items)
 
@@ -279,9 +281,18 @@ def main() -> None:
             upsert_holdings(c, aid, rows)
             set_cash(c, aid, cash[ccy])
             total_rows += len(rows)
+            summary.append({"currency": ccy, "holdings": len(rows), "cash": cash[ccy]})
             print(f"  {INSTITUTION} {ccy}: {len(rows)} holdings, cash={cash[ccy]}")
 
     print(f"Done. Synced {total_rows} holdings into {INSTITUTION}.")
+    return {"ok": True, "institution": INSTITUTION, "accounts": summary, "egress_ip": ip}
+
+
+def main() -> None:
+    try:
+        run_sync()
+    except Exception as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":

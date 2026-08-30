@@ -63,10 +63,9 @@ Secrets: `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`
 {}
 ```
 
-Response: `{ ok, institution: "토스증권", accounts: [{ currency, holdings, cash }] }`
-
-Toss WTS IP allow-listing cannot work with Edge Functions: egress IPs rotate
-on every invoke. A static outbound IP (home NAT, VPS, or paid proxy) is required.
+Response: `{ ok, queued, job_id }` — Edge only enqueues. A static-IP cloud
+worker (`scripts/toss_sync_worker.py`) calls Toss Open API. See
+`infra/toss-sync/cloud-init.sh`.
 
 ## Next.js routes
 
