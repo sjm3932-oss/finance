@@ -65,7 +65,7 @@ export async function createAccount(formData: FormData): Promise<ActionResult> {
     const institution = str(formData.get("institution"));
     const account_type = str(formData.get("account_type")) || "brokerage";
     const currency = str(formData.get("currency")).toUpperCase() || "KRW";
-    const ownership = str(formData.get("ownership")) || "joint";
+    const ownership = str(formData.get("ownership")) || "mine";
     const cashRaw = str(formData.get("cash_balance"));
     const cash_balance = cashRaw === "" ? 0 : num(formData.get("cash_balance"));
 
@@ -109,7 +109,7 @@ export async function updateAccountCash(formData: FormData): Promise<ActionResul
     const { supabase } = await requireAllowedUser();
     const id = str(formData.get("account_id"));
     const cash_balance = num(formData.get("cash_balance"));
-    const ownership = str(formData.get("ownership")) || "joint";
+    const ownership = str(formData.get("ownership")) || "mine";
     if (!id) return fail("계좌를 선택하세요.");
     if (!Number.isFinite(cash_balance) || cash_balance < 0) {
       return fail("현금 잔고를 확인하세요.");
@@ -137,7 +137,7 @@ export async function updateAccount(formData: FormData): Promise<ActionResult> {
     const institution = str(formData.get("institution"));
     const account_type = str(formData.get("account_type")) || "brokerage";
     const currency = str(formData.get("currency")).toUpperCase() || "KRW";
-    const ownership = str(formData.get("ownership")) || "joint";
+    const ownership = str(formData.get("ownership")) || "mine";
     const cashRaw = str(formData.get("cash_balance"));
     const cash_balance = cashRaw === "" ? 0 : num(formData.get("cash_balance"));
 

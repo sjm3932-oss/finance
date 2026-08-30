@@ -20,7 +20,7 @@ export default async function PnlPage({
 }) {
   const sp = await searchParams;
   const tab = sp.tab === "dividend" ? "dividend" : "realized";
-  const { institutions, accounts, usdkrw } = await loadPortfolioSnapshot({
+  const { accounts, usdkrw } = await loadPortfolioSnapshot({
     ownership: sp.own,
     institution: sp.inst,
   });
@@ -72,7 +72,7 @@ export default async function PnlPage({
       </div>
 
       <Suspense fallback={null}>
-        <PortfolioFilters institutions={institutions} />
+        <PortfolioFilters accounts={accounts} />
       </Suspense>
 
       <div className="flex gap-1.5">

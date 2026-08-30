@@ -128,7 +128,7 @@ def ensure_account(c, user_id: str, currency: str) -> str:
         "institution": inst,
         "account_type": account_type,
         "currency": ccy,
-        "ownership": "joint",
+        "ownership": "mine",
         "cash_balance": 0,
     }
     try:

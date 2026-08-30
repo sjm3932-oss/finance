@@ -64,7 +64,7 @@ export function CreateAccountFields({
             />
           </Field>
           <Field label="소유">
-            <select name="ownership" className={inputClass} defaultValue="joint">
+            <select name="ownership" className={inputClass} defaultValue="mine">
               {OWNERSHIP_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}

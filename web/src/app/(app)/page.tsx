@@ -34,7 +34,6 @@ export default async function HomePage({
     returnPct,
     byTicker,
     latestSnap,
-    institutions,
     monthly,
     alerts,
     snaps,
@@ -70,7 +69,7 @@ export default async function HomePage({
       </div>
 
       <Suspense fallback={null}>
-        <PortfolioFilters institutions={institutions} />
+        <PortfolioFilters accounts={accounts} />
       </Suspense>
 
       <AlertBanners alerts={alerts} />

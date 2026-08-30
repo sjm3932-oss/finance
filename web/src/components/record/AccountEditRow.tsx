@@ -26,8 +26,8 @@ export function AccountEditRow({ account }: { account: EditableAccount }) {
     account.account_type ||
     "계좌";
   const ownLabel =
-    OWNERSHIP_OPTIONS.find((o) => o.value === (account.ownership || "joint"))
-      ?.label || "공동";
+    OWNERSHIP_OPTIONS.find((o) => o.value === (account.ownership || "mine"))
+      ?.label || "정명";
 
   return (
     <li className="py-2.5">
@@ -104,7 +104,7 @@ export function AccountEditRow({ account }: { account: EditableAccount }) {
                 <select
                   name="ownership"
                   className={inputClass}
-                  defaultValue={account.ownership || "joint"}
+                  defaultValue={account.ownership || "mine"}
                 >
                   {OWNERSHIP_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>

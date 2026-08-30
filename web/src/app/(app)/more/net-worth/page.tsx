@@ -17,7 +17,7 @@ export default async function NetWorthPage({
   const {
     nw,
     returnPct,
-    institutions,
+    accounts,
     cashAccounts,
     otherAssets,
   } = await loadPortfolioSnapshot({
@@ -41,7 +41,7 @@ export default async function NetWorthPage({
       </div>
 
       <Suspense fallback={null}>
-        <PortfolioFilters institutions={institutions} />
+        <PortfolioFilters accounts={accounts} />
       </Suspense>
 
       <NetWorthHero nw={nw} returnPct={returnPct} />

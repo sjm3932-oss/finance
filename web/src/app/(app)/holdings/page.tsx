@@ -12,7 +12,7 @@ export default async function HoldingsPage({
   searchParams: Promise<{ own?: string; inst?: string }>;
 }) {
   const sp = await searchParams;
-  const { byTicker, nw, returnPct, institutions } = await loadPortfolioSnapshot({
+  const { byTicker, nw, returnPct, accounts } = await loadPortfolioSnapshot({
     ownership: sp.own,
     institution: sp.inst,
   });
@@ -27,7 +27,7 @@ export default async function HoldingsPage({
         </p>
       </div>
       <Suspense fallback={null}>
-        <PortfolioFilters institutions={institutions} />
+        <PortfolioFilters accounts={accounts} />
       </Suspense>
       <HoldingList
         items={byTicker}

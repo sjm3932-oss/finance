@@ -15,7 +15,7 @@ export default async function FlowsPage({
   searchParams: Promise<{ own?: string; inst?: string }>;
 }) {
   const sp = await searchParams;
-  const { institutions, accounts } = await loadPortfolioSnapshot({
+  const { accounts } = await loadPortfolioSnapshot({
     ownership: sp.own,
     institution: sp.inst,
   });
@@ -65,7 +65,7 @@ export default async function FlowsPage({
       </div>
 
       <Suspense fallback={null}>
-        <PortfolioFilters institutions={institutions} />
+        <PortfolioFilters accounts={accounts} />
       </Suspense>
 
       <div className="grid grid-cols-2 gap-2">

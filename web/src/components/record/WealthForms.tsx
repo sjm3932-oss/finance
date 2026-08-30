@@ -96,7 +96,7 @@ export function WealthForms({
               <select
                 name="ownership"
                 className={inputClass}
-                defaultValue={selectedAccount.ownership || "joint"}
+                defaultValue={selectedAccount.ownership || "mine"}
               >
                 {OWNERSHIP_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>

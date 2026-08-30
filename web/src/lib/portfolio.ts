@@ -411,10 +411,22 @@ export function groupOtherByKind(rows: OtherAssetRow[]) {
     .sort((a, b) => b.value - a.value);
 }
 
-export function institutionsFromAccounts(accounts: AccountRow[]): string[] {
+export function institutionsForOwnership(
+  accounts: Array<Pick<AccountRow, "institution" | "ownership">>,
+  ownership?: string | null
+): string[] {
+  const own =
+    ownership && ["joint", "mine", "spouse"].includes(ownership)
+      ? ownership
+      : null;
   const set = new Set<string>();
   for (const a of accounts) {
+    if (own && (a.ownership || "joint") !== own) continue;
     set.add(a.institution || "계좌");
   }
   return [...set].sort((a, b) => a.localeCompare(b, "ko"));
+}
+
+export function institutionsFromAccounts(accounts: AccountRow[]): string[] {
+  return institutionsForOwnership(accounts, null);
 }

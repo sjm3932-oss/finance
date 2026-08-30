@@ -12,7 +12,7 @@ export default async function OtherAssetsPage({
   searchParams: Promise<{ own?: string; inst?: string }>;
 }) {
   const sp = await searchParams;
-  const { otherAssets, institutions } = await loadPortfolioSnapshot({
+  const { otherAssets, accounts } = await loadPortfolioSnapshot({
     ownership: sp.own,
     institution: sp.inst,
   });
@@ -33,7 +33,7 @@ export default async function OtherAssetsPage({
       </div>
 
       <Suspense fallback={null}>
-        <PortfolioFilters institutions={institutions} />
+        <PortfolioFilters accounts={accounts} />
       </Suspense>
 
       <OtherAssetsPanel rows={otherAssets} />
