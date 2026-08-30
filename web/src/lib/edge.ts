@@ -37,7 +37,12 @@ export async function invokeEdge<T = Record<string, unknown>>(
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data?.ok === false) {
-    throw new Error(data?.error || `Edge ${name} failed (${res.status})`);
+    const ip =
+      typeof data?.egress_ip === "string" && data.egress_ip
+        ? ` IP ${data.egress_ip}`
+        : "";
+    const base = data?.error || `Edge ${name} failed (${res.status})`;
+    throw new Error(base.includes(data?.egress_ip) ? base : `${base}${ip}`);
   }
   return data as T;
 }

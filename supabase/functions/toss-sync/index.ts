@@ -58,13 +58,39 @@ function mapHolding(item: Record<string, unknown>): Mapped | null {
   };
 }
 
-function humanize(status: number, payload: unknown): string {
+async function egressIp(): Promise<string | null> {
+  for (const url of ["https://api.ipify.org?format=json", "https://ipv4.icanhazip.com"]) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      const text = (await res.text()).trim();
+      if (url.includes("ipify")) {
+        const ip = String((JSON.parse(text) as { ip?: string }).ip || "").trim();
+        if (ip) return ip;
+      } else if (text) {
+        return text.split(/\s+/)[0];
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+function isIpBlocked(status: number, payload: unknown): boolean {
+  const p = payload as { error?: { code?: string } | string };
+  const err = p?.error;
+  const code = typeof err === "string" ? err : err?.code || "";
+  return status === 403 || code === "edge-blocked" || code === "forbidden";
+}
+
+function humanize(status: number, payload: unknown, ip?: string | null): string {
   const p = payload as { error?: { code?: string; message?: string } | string; error_description?: string };
   const err = p?.error;
   const code = typeof err === "string" ? err : err?.code || "";
   const message = typeof err === "object" && err ? err.message || "" : p?.error_description || "";
-  if (status === 403 || code === "edge-blocked" || code === "forbidden") {
-    return "토스 Open API가 이 서버 IP를 막았습니다. WTS 설정 → Open API → 허용 IP에 호출 IP를 등록하세요.";
+  if (isIpBlocked(status, payload)) {
+    const shown = ip ? ` ${ip}` : "";
+    return `토스 Open API가 이 서버 IP를 막았습니다.${shown} WTS 설정 → Open API → 허용 IP에 이 주소를 등록한 뒤 다시 동기화하세요.`;
   }
   if (status === 401 || code === "invalid-token" || code === "expired-token" || code === "invalid_client") {
     return "토스 인증 실패. TOSS_CLIENT_ID / TOSS_CLIENT_SECRET 을 Function secrets에 넣었는지 확인하세요.";
@@ -113,8 +139,24 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
   try {
+    if (req.method === "GET") {
+      const ip = await egressIp();
+      return json({ ok: true, egress_ip: ip });
+    }
     if (req.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
     const { user } = await requireCoupleUser(req);
+
+    let probe = false;
+    try {
+      const body = await req.clone().json();
+      probe = !!(body && typeof body === "object" && (body as { probe?: boolean }).probe);
+    } catch {
+      /* empty body is a full sync */
+    }
+    if (probe) {
+      const ip = await egressIp();
+      return json({ ok: true, egress_ip: ip });
+    }
 
     const clientId = Deno.env.get("TOSS_CLIENT_ID")?.trim();
     const clientSecret = Deno.env.get("TOSS_CLIENT_SECRET")?.trim();
@@ -135,12 +177,20 @@ Deno.serve(async (req) => {
     });
     const access = (tok.payload as { access_token?: string })?.access_token;
     if (tok.status !== 200 || !access) {
-      return json({ ok: false, error: humanize(tok.status, tok.payload) }, 400);
+      const ip = isIpBlocked(tok.status, tok.payload) ? await egressIp() : null;
+      return json(
+        { ok: false, error: humanize(tok.status, tok.payload, ip), egress_ip: ip },
+        isIpBlocked(tok.status, tok.payload) ? 403 : 400,
+      );
     }
 
     const acc = await tossRequest("GET", "/api/v1/accounts", { token: access });
     if (acc.status !== 200) {
-      return json({ ok: false, error: humanize(acc.status, acc.payload) }, 400);
+      const ip = isIpBlocked(acc.status, acc.payload) ? await egressIp() : null;
+      return json(
+        { ok: false, error: humanize(acc.status, acc.payload, ip), egress_ip: ip },
+        isIpBlocked(acc.status, acc.payload) ? 403 : 400,
+      );
     }
     const listed = ((acc.payload as { result?: Array<Record<string, unknown>> })?.result) || [];
     let brokerage = listed.filter((a) => a.accountType === "BROKERAGE" || a.accountType == null);
@@ -174,7 +224,11 @@ Deno.serve(async (req) => {
         accountSeq: seq,
       });
       if (hold.status !== 200) {
-        return json({ ok: false, error: humanize(hold.status, hold.payload) }, 400);
+        const ip = isIpBlocked(hold.status, hold.payload) ? await egressIp() : null;
+        return json(
+          { ok: false, error: humanize(hold.status, hold.payload, ip), egress_ip: ip },
+          isIpBlocked(hold.status, hold.payload) ? 403 : 400,
+        );
       }
       const items =
         ((hold.payload as { result?: { items?: Array<Record<string, unknown>> } })?.result?.items) ||

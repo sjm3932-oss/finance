@@ -65,7 +65,8 @@ Secrets: `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`
 
 Response: `{ ok, institution: "토스증권", accounts: [{ currency, holdings, cash }] }`
 
-Toss WTS must allow-list the caller IP. Edge egress IPs rotate; prefer `scripts/sync_toss.py` from a stable IP if 403.
+Toss WTS must allow-list the Edge Function egress IP (shown on 더보기 → 토스).
+Edge IPs rotate; if 403, register the IP shown on the panel and retry.
 
 ## Next.js routes
 

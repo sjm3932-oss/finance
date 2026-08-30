@@ -90,3 +90,4 @@ def test_split_by_currency():
 def test_ip_block_message():
     msg = humanize_toss_error(403, {"error": {"code": "edge-blocked", "message": "blocked"}})
     assert "허용 IP" in msg
+    assert "403" in msg or "막았" in msg
