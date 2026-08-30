@@ -106,8 +106,8 @@ export function TossSyncPanel() {
     <div className="rounded-2xl border border-line bg-surface px-4 py-4 shadow-soft">
       <div className="font-extrabold tracking-tight">토스증권 동기화</div>
       <p className="mt-1 text-sm text-muted">
-        앱은 작업만 넣고, 고정 공인 IP가 있는 클라우드 VM 워커가 토스 Open
-        API를 호출합니다. 노트북에서 실행하지 않습니다.
+        워커가 켜져 있으면 몇 시간마다 잔고를 자동으로 가져옵니다. 지금 당장
+        반영하려면 아래 버튼을 누르세요. 노트북에서 실행하지 않습니다.
       </p>
       {workerIp ? (
         <p className="mt-2 rounded-xl bg-canvas px-3 py-2 font-mono text-sm font-extrabold">

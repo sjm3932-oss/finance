@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { TossSyncPanel } from "@/components/TossSyncPanel";
 
 const LINKS = [
   {
     title: "기록하기",
-    body: "계좌 · 매매 · 배당 · 현금 · 부채 · 기타자산",
+    body: "토스 · 한투 동기화 · 계좌 · 매매 · 배당 · 부채",
     href: "/record",
   },
   {
@@ -40,10 +39,9 @@ export default function MorePage() {
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">더보기</h1>
         <p className="mt-1 text-sm text-muted">
-          하단 「토스」에서 증권 잔고를 가져올 수 있어요
+          증권 동기화는 기록하기에서 할 수 있어요
         </p>
       </div>
-      <TossSyncPanel />
       <div className="space-y-3">
         {LINKS.map((item) => {
           const className =
@@ -60,12 +58,6 @@ export default function MorePage() {
             </Link>
           );
         })}
-        <div className="rounded-2xl border border-line bg-surface px-4 py-4 shadow-soft">
-          <div className="font-extrabold tracking-tight">한투 API 동기화</div>
-          <div className="mt-1 text-sm text-muted">
-            휴대폰 인증 이슈로 보류. 토스 연동을 먼저 씁니다.
-          </div>
-        </div>
       </div>
     </div>
   );

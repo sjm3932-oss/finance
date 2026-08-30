@@ -40,6 +40,7 @@ SUPABASE_URL=https://lsqkixysysfhywipmrky.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=
 TOSS_CLIENT_ID=
 TOSS_CLIENT_SECRET=
+TOSS_AUTO_SYNC_SECONDS=21600
 ENV
 chmod 600 /opt/toss-sync/env.example
 if [ ! -f /opt/toss-sync/env ]; then
