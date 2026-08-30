@@ -4,42 +4,44 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { invokeEdge } from "@/lib/edge";
 
+type Job = {
+  id: string;
+  status: string;
+  error?: string | null;
+  result?: { accounts?: Array<{ currency: string; holdings: number; cash: number }> } | null;
+};
+
 export function TossSyncPanel() {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [ip, setIp] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [workerIp, setWorkerIp] = useState<string | null>(null);
+  const [workerOnline, setWorkerOnline] = useState(false);
 
   useEffect(() => {
-    invokeEdge<{ egress_ip?: string | null }>("toss-sync", { probe: true })
+    invokeEdge<{
+      worker_ip?: string | null;
+      worker_online?: boolean;
+    }>("toss-sync", { probe: true })
       .then((res) => {
-        if (res.egress_ip) setIp(res.egress_ip);
+        setWorkerIp(res.worker_ip ?? null);
+        setWorkerOnline(!!res.worker_online);
       })
       .catch(() => {
-        /* probe is optional; sync error still shows the IP */
+        setWorkerOnline(false);
       });
   }, []);
 
-  function copyIp() {
-    if (!ip) return;
-    void navigator.clipboard.writeText(ip).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    });
-  }
-
-  function sync() {
-    start(async () => {
-      setErr(null);
-      setMsg("토스증권 잔고를 가져오는 중…");
-      try {
-        const res = await invokeEdge<{
-          accounts?: Array<{ currency: string; holdings: number; cash: number }>;
-          egress_ip?: string | null;
-        }>("toss-sync", {});
-        const parts = (res.accounts || []).map(
+  function pollJob(jobId: string) {
+    let n = 0;
+    const tick = async () => {
+      n += 1;
+      const res = await invokeEdge<{ job?: Job }>("toss-sync", { job_id: jobId });
+      const job = res.job;
+      if (!job) return;
+      if (job.status === "ok") {
+        const parts = (job.result?.accounts || []).map(
           (a) => `${a.currency} ${a.holdings}종목 · 현금 ${a.cash}`
         );
         setMsg(
@@ -48,6 +50,51 @@ export function TossSyncPanel() {
             : "토스 계좌는 연결됐지만 보유 종목이 없습니다."
         );
         router.refresh();
+        return;
+      }
+      if (job.status === "error") {
+        setMsg(null);
+        setErr(job.error || "동기화 실패");
+        return;
+      }
+      if (n > 40) {
+        setMsg(null);
+        setErr(
+          "클라우드 워커가 작업을 가져가지 않았습니다. 고정 IP VM에서 toss-sync-worker 가 켜져 있는지 확인하세요."
+        );
+        return;
+      }
+      setMsg(
+        job.status === "running"
+          ? "클라우드 워커가 토스 잔고를 가져오는 중…"
+          : "클라우드 워커 대기 중…"
+      );
+      window.setTimeout(() => void tick(), 2000);
+    };
+    void tick();
+  }
+
+  function sync() {
+    start(async () => {
+      setErr(null);
+      setMsg("클라우드 워커에 작업을 넣는 중…");
+      try {
+        const res = await invokeEdge<{
+          job_id?: string;
+          worker_online?: boolean;
+          worker_ip?: string | null;
+        }>("toss-sync", {});
+        if (res.worker_ip) setWorkerIp(res.worker_ip);
+        setWorkerOnline(!!res.worker_online);
+        if (!res.job_id) throw new Error("작업 ID가 없습니다.");
+        if (!res.worker_online) {
+          setMsg(null);
+          setErr(
+            `클라우드 워커가 꺼져 있습니다.${res.worker_ip ? ` 등록 IP ${res.worker_ip}` : ""} 고정 IP VM에서 워커를 켜세요.`
+          );
+          return;
+        }
+        pollJob(res.job_id);
       } catch (e) {
         setMsg(null);
         setErr(e instanceof Error ? e.message : "동기화 실패");
@@ -59,29 +106,18 @@ export function TossSyncPanel() {
     <div className="rounded-2xl border border-line bg-surface px-4 py-4 shadow-soft">
       <div className="font-extrabold tracking-tight">토스증권 동기화</div>
       <p className="mt-1 text-sm text-muted">
-        주문은 하지 않습니다. Supabase Edge Function은 호출할 때마다 출구 IP가
-        바뀌므로, 토스 허용 IP에 하나를 넣어도 다음번에 또 막힐 수 있습니다.
+        앱은 작업만 넣고, 고정 공인 IP가 있는 클라우드 VM 워커가 토스 Open
+        API를 호출합니다. 노트북에서 실행하지 않습니다.
       </p>
-      {ip ? (
-        <div className="mt-3 flex items-center gap-2 rounded-xl bg-canvas px-3 py-2">
-          <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-semibold text-muted">
-              이번 호출 IP (곧 바뀔 수 있음)
-            </div>
-            <div className="truncate font-mono text-sm font-extrabold tracking-tight">
-              {ip}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={copyIp}
-            className="shrink-0 rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-bold"
-          >
-            {copied ? "복사됨" : "복사"}
-          </button>
-        </div>
+      {workerIp ? (
+        <p className="mt-2 rounded-xl bg-canvas px-3 py-2 font-mono text-sm font-extrabold">
+          워커 IP {workerIp}
+          <span className="ml-2 text-xs font-semibold text-muted">
+            {workerOnline ? "온라인" : "오프라인"}
+          </span>
+        </p>
       ) : (
-        <p className="mt-2 text-xs text-muted">호출 IP를 확인하는 중…</p>
+        <p className="mt-2 text-xs text-muted">클라우드 워커가 아직 접속하지 않았습니다.</p>
       )}
       <button
         type="button"
@@ -89,7 +125,7 @@ export function TossSyncPanel() {
         disabled={pending}
         className="mt-3 w-full rounded-xl bg-brand px-4 py-3 text-sm font-extrabold text-white transition hover:bg-brand-dark disabled:opacity-60"
       >
-        {pending ? "동기화 중…" : "지금 동기화"}
+        {pending ? "처리 중…" : "지금 동기화"}
       </button>
       {msg ? (
         <p role="status" className="mt-2 rounded-xl bg-brand-soft px-3 py-2 text-sm font-semibold text-brand-dark">
