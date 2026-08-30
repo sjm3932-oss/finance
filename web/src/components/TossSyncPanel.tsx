@@ -59,13 +59,15 @@ export function TossSyncPanel() {
     <div className="rounded-2xl border border-line bg-surface px-4 py-4 shadow-soft">
       <div className="font-extrabold tracking-tight">토스증권 동기화</div>
       <p className="mt-1 text-sm text-muted">
-        토스 WTS → 설정 → Open API → 허용 IP에 아래 주소를 등록한 뒤 잔고를
-        가져옵니다. 주문은 하지 않습니다. Edge 출구 IP는 바뀔 수 있습니다.
+        주문은 하지 않습니다. Supabase Edge Function은 호출할 때마다 출구 IP가
+        바뀌므로, 토스 허용 IP에 하나를 넣어도 다음번에 또 막힐 수 있습니다.
       </p>
       {ip ? (
         <div className="mt-3 flex items-center gap-2 rounded-xl bg-canvas px-3 py-2">
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-semibold text-muted">지금 호출 IP</div>
+            <div className="text-[11px] font-semibold text-muted">
+              이번 호출 IP (곧 바뀔 수 있음)
+            </div>
             <div className="truncate font-mono text-sm font-extrabold tracking-tight">
               {ip}
             </div>

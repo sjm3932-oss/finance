@@ -65,8 +65,8 @@ Secrets: `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`
 
 Response: `{ ok, institution: "토스증권", accounts: [{ currency, holdings, cash }] }`
 
-Toss WTS must allow-list the Edge Function egress IP (shown on 더보기 → 토스).
-Edge IPs rotate; if 403, register the IP shown on the panel and retry.
+Toss WTS IP allow-listing cannot work with Edge Functions: egress IPs rotate
+on every invoke. A static outbound IP (home NAT, VPS, or paid proxy) is required.
 
 ## Next.js routes
 
