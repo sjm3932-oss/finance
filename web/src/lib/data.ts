@@ -68,9 +68,20 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
     () =>
       supabase
         .from("accounts")
-        .select("id,institution,account_type,currency,ownership,cash_balance"),
+        .select("id,institution,account_type,currency,ownership,cash_balance,memo"),
     { optional: true, label: "accounts" }
   );
+  if (!accountRows.length) {
+    accountRows = (
+      await safeSelect<AccountRow>(
+        () =>
+          supabase
+            .from("accounts")
+            .select("id,institution,account_type,currency,ownership,cash_balance"),
+        { optional: true, label: "accounts-no-memo" }
+      )
+    ).map((a) => ({ ...a, memo: null }));
+  }
   if (!accountRows.length) {
     accountRows = (
       await safeSelect<AccountRow>(
@@ -80,7 +91,7 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
             .select("id,institution,account_type,currency,ownership"),
         { optional: true, label: "accounts-ownership" }
       )
-    ).map((a) => ({ ...a, cash_balance: 0 }));
+    ).map((a) => ({ ...a, cash_balance: 0, memo: null }));
   }
   if (!accountRows.length) {
     accountRows = (
@@ -91,7 +102,7 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
             .select("id,institution,account_type,currency"),
         { label: "accounts-lean" }
       )
-    ).map((a) => ({ ...a, ownership: "mine", cash_balance: 0 }));
+    ).map((a) => ({ ...a, ownership: "mine", cash_balance: 0, memo: null }));
   }
 
   const monthIso = monthStartKst();
@@ -256,6 +267,7 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
       ownership: a.ownership || "joint",
       currency: (a.currency || "KRW").toUpperCase(),
       cash_balance: Number(a.cash_balance || 0),
+      memo: a.memo || null,
     }));
 
   return {

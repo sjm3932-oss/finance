@@ -8,6 +8,7 @@ type CashAccount = {
   ownership: string;
   currency: string;
   cash_balance: number;
+  memo?: string | null;
 };
 
 export function CashAccountsPanel({ rows }: { rows: CashAccount[] }) {
@@ -34,6 +35,9 @@ export function CashAccountsPanel({ rows }: { rows: CashAccount[] }) {
               {a.account_type} · {OWNERSHIP_KO[a.ownership] || a.ownership} ·{" "}
               {a.currency}
             </div>
+            {a.memo ? (
+              <p className="mt-1 text-xs text-muted">{a.memo}</p>
+            ) : null}
           </div>
           <div className="shrink-0 text-right text-[15px] font-extrabold tracking-tight">
             {a.currency === "USD"

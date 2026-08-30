@@ -74,6 +74,13 @@ export function CreateAccountFields({
           </Field>
         </div>
       ) : null}
+      <Field label="메모">
+        <input
+          name="memo"
+          className={inputClass}
+          placeholder="예: ISA, 계좌 끝자리 1234"
+        />
+      </Field>
     </ActionForm>
   );
 }

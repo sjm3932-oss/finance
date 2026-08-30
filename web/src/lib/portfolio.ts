@@ -8,6 +8,7 @@ export type AccountRow = {
   currency: string | null;
   ownership?: string | null;
   cash_balance?: number | null;
+  memo?: string | null;
 };
 
 export type HoldingRow = {

@@ -13,6 +13,7 @@ export type EditableAccount = {
   currency: string | null;
   cash_balance?: number | null;
   ownership?: string | null;
+  memo?: string | null;
 };
 
 export function AccountEditRow({ account }: { account: EditableAccount }) {
@@ -39,6 +40,9 @@ export function AccountEditRow({ account }: { account: EditableAccount }) {
           <div className="mt-0.5 text-xs font-semibold text-muted">
             {typeLabel} · {account.currency || "KRW"} · {ownLabel}
           </div>
+          {account.memo ? (
+            <p className="mt-1 text-xs text-muted">{account.memo}</p>
+          ) : null}
         </div>
         <button
           type="button"
@@ -114,6 +118,14 @@ export function AccountEditRow({ account }: { account: EditableAccount }) {
                 </select>
               </Field>
             </div>
+            <Field label="메모">
+              <input
+                name="memo"
+                className={inputClass}
+                defaultValue={account.memo || ""}
+                placeholder="예: ISA, 계좌 끝자리 1234"
+              />
+            </Field>
           </ActionForm>
           <form
             onSubmit={(e) => {

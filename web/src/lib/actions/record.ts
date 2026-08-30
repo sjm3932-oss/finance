@@ -68,6 +68,7 @@ export async function createAccount(formData: FormData): Promise<ActionResult> {
     const ownership = str(formData.get("ownership")) || "mine";
     const cashRaw = str(formData.get("cash_balance"));
     const cash_balance = cashRaw === "" ? 0 : num(formData.get("cash_balance"));
+    const memo = str(formData.get("memo")) || null;
 
     if (!institution) return fail("금융기관 이름을 입력하세요.");
     if (!/^[A-Z]{3}$/.test(currency)) {
@@ -84,10 +85,21 @@ export async function createAccount(formData: FormData): Promise<ActionResult> {
       currency,
       ownership,
       cash_balance,
+      memo,
     };
 
     let { error } = await supabase.from("accounts").insert(payload);
-    // Older schemas may lack cash/ownership columns — retry lean insert.
+    // Older schemas may lack cash/ownership/memo columns — retry lean insert.
+    if (error) {
+      ({ error } = await supabase.from("accounts").insert({
+        user_id: user.id,
+        institution,
+        account_type,
+        currency,
+        ownership,
+        cash_balance,
+      }));
+    }
     if (error) {
       ({ error } = await supabase.from("accounts").insert({
         user_id: user.id,
@@ -140,6 +152,7 @@ export async function updateAccount(formData: FormData): Promise<ActionResult> {
     const ownership = str(formData.get("ownership")) || "mine";
     const cashRaw = str(formData.get("cash_balance"));
     const cash_balance = cashRaw === "" ? 0 : num(formData.get("cash_balance"));
+    const memo = str(formData.get("memo")) || null;
 
     if (!id) return fail("계좌를 선택하세요.");
     if (!institution) return fail("금융기관 이름을 입력하세요.");
@@ -158,8 +171,15 @@ export async function updateAccount(formData: FormData): Promise<ActionResult> {
       currency,
       ownership,
       cash_balance,
+      memo,
     };
     let { error } = await supabase.from("accounts").update(payload).eq("id", id);
+    if (error) {
+      ({ error } = await supabase
+        .from("accounts")
+        .update({ institution, account_type, currency, ownership, cash_balance })
+        .eq("id", id));
+    }
     if (error) {
       ({ error } = await supabase
         .from("accounts")
