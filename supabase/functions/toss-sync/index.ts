@@ -90,7 +90,7 @@ function humanize(status: number, payload: unknown, ip?: string | null): string 
   const message = typeof err === "object" && err ? err.message || "" : p?.error_description || "";
   if (isIpBlocked(status, payload)) {
     const shown = ip ? ` ${ip}` : "";
-    return `토스 Open API가 이 서버 IP를 막았습니다.${shown} WTS 설정 → Open API → 허용 IP에 이 주소를 등록한 뒤 다시 동기화하세요.`;
+    return `토스 Open API가 이 서버 IP를 막았습니다.${shown} Edge Function 출구 IP는 호출마다 바뀝니다. 하나를 등록해도 다음 동기화에서 또 막힐 수 있습니다.`;
   }
   if (status === 401 || code === "invalid-token" || code === "expired-token" || code === "invalid_client") {
     return "토스 인증 실패. TOSS_CLIENT_ID / TOSS_CLIENT_SECRET 을 Function secrets에 넣었는지 확인하세요.";
