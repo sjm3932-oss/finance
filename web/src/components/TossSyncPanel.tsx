@@ -115,8 +115,8 @@ export function TossSyncPanel() {
     <div className="rounded-2xl border border-line bg-surface px-4 py-4 shadow-soft">
       <div className="font-extrabold tracking-tight">토스증권 동기화</div>
       <p className="mt-1 text-sm text-muted">
-        워커가 켜져 있으면 몇 시간마다 잔고와 체결 내역을 가져옵니다. 지금
-        당장 반영하려면 아래 버튼을 누르세요. 노트북에서 실행하지 않습니다.
+        워커가 켜져 있으면 매일 오전 6시·오후 4시(한국 시간)에 잔고와 체결을
+        가져옵니다. 지금 당장 반영하려면 아래 버튼을 누르세요.
       </p>
       {workerIp ? (
         <p className="mt-2 rounded-xl bg-canvas px-3 py-2 font-mono text-sm font-extrabold">

@@ -5,7 +5,9 @@ on:
   repository_dispatch:
     types: [toss-sync]
   schedule:
-    - cron: "0 23 * * *"
+    # 06:00 KST = 21:00 UTC, 16:00 KST = 07:00 UTC
+    - cron: "0 21 * * *"
+    - cron: "0 7 * * *"
 
 jobs:
   sync:

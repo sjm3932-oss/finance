@@ -101,7 +101,7 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
    - 또는 GitHub → Settings → Secrets → Actions에 같은 이름을 넣고 [Actions → Deploy Edge Functions](https://github.com/sjm3932-oss/finance/actions)에서 Run workflow
 
 앱 **더보기 → 기록하기 → 토스 동기화**가 Edge Function `toss-sync`를 호출합니다.
-고정 IP 워커가 켜져 있으면 기본 6시간마다 잔고를 다시 가져옵니다. 버튼은 지금 당장 동기화할 때 씁니다.
+고정 IP 워커가 켜져 있으면 매일 오전 6시·오후 4시(한국 시간)에 잔고와 체결을 다시 가져옵니다. 버튼은 지금 당장 동기화할 때 씁니다.
 
 ### Run
 

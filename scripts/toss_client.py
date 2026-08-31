@@ -9,11 +9,14 @@ Base: https://openapi.tossinvest.com
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 TOSS_BASE = "https://openapi.tossinvest.com"
 INSTITUTION = "토스증권"
 ACCOUNT_TYPE = "brokerage"
+KST = ZoneInfo("Asia/Seoul")
 
 
 def to_number(raw: Any) -> float:
@@ -149,3 +152,46 @@ def humanize_toss_error(status: int, payload: Any) -> str:
     if code:
         return f"토스 API 오류 ({code})"
     return f"토스 API HTTP {status}"
+
+
+def parse_auto_sync_hours(raw: str | None) -> list[int]:
+    if raw is None or not str(raw).strip():
+        raw = "6,16"
+    hours: list[int] = []
+    for part in str(raw).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            hour = int(part)
+        except ValueError:
+            continue
+        if 0 <= hour <= 23:
+            hours.append(hour)
+    return sorted(set(hours)) or [6, 16]
+
+
+def kst_auto_sync_due(
+    now: datetime,
+    last_ok: datetime | None,
+    hours: list[int],
+) -> bool:
+    """True when a KST clock slot (e.g. 06:00, 16:00) is due and not yet synced."""
+    if not hours:
+        return False
+    now_kst = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
+    last = None
+    if last_ok is not None:
+        last = (
+            last_ok.replace(tzinfo=KST)
+            if last_ok.tzinfo is None
+            else last_ok.astimezone(KST)
+        )
+    for hour in hours:
+        deadline = now_kst.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if now_kst < deadline:
+            continue
+        if last is not None and last >= deadline:
+            continue
+        return True
+    return False

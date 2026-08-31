@@ -22,10 +22,12 @@ from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
 from sync_toss import public_ip, run_sync, supabase  # noqa: E402
-from toss_client import INSTITUTION  # noqa: E402
+from toss_client import INSTITUTION, KST, kst_auto_sync_due, parse_auto_sync_hours  # noqa: E402
 
-# 0 disables automatic enqueue. The in-app 지금 동기화 button still works.
-AUTO_EVERY = int(os.getenv("TOSS_AUTO_SYNC_SECONDS", str(6 * 3600)))
+# TOSS_AUTO_SYNC_SECONDS=0 disables auto enqueue. The in-app button still works.
+# Default clock: 06:00 and 16:00 KST.
+AUTO_DISABLED = int(os.getenv("TOSS_AUTO_SYNC_SECONDS", "1")) <= 0
+AUTO_HOURS = parse_auto_sync_hours(os.getenv("TOSS_AUTO_SYNC_HOURS", "6,16"))
 _last_auto_check = 0.0
 
 
@@ -33,11 +35,11 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _parse_ts(value: str | None) -> float | None:
+def _parse_dt(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except Exception:
         return None
 
@@ -68,7 +70,7 @@ def users_for_autosync(c) -> list[str]:
 
 def maybe_enqueue_auto(c) -> None:
     global _last_auto_check
-    if AUTO_EVERY <= 0:
+    if AUTO_DISABLED or not AUTO_HOURS:
         return
     now = time.time()
     if now - _last_auto_check < 60:
@@ -84,8 +86,8 @@ def maybe_enqueue_auto(c) -> None:
         .data
         or []
     )
-    ts = _parse_ts(last[0].get("finished_at") if last else None)
-    if ts is not None and now - ts < AUTO_EVERY:
+    last_ok = _parse_dt(last[0].get("finished_at") if last else None)
+    if not kst_auto_sync_due(datetime.now(KST), last_ok, AUTO_HOURS):
         return
     for uid in users_for_autosync(c):
         pending = (
@@ -101,7 +103,7 @@ def maybe_enqueue_auto(c) -> None:
         if pending:
             continue
         c.table("toss_sync_jobs").insert({"user_id": uid, "status": "queued"}).execute()
-        print(f"auto-queued toss sync for {uid}", flush=True)
+        print(f"auto-queued toss sync for {uid} (KST {AUTO_HOURS})", flush=True)
 
 
 def heartbeat(c) -> str:

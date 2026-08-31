@@ -10,9 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from toss_client import (  # noqa: E402
     holdings_by_currency,
     humanize_toss_error,
+    kst_auto_sync_due,
     map_filled_order,
     map_holding,
     normalize_ticker,
+    parse_auto_sync_hours,
 )
 
 
@@ -174,3 +176,36 @@ def test_map_partial_sell_uses_fill():
     assert abs(row["fee"] - 0.66) < 1e-9
     assert row["trade_date"] == "2026-03-29"
     assert row["currency"] == "USD"
+
+
+def test_parse_auto_sync_hours():
+    assert parse_auto_sync_hours(None) == [6, 16]
+    assert parse_auto_sync_hours("") == [6, 16]
+    assert parse_auto_sync_hours("6,16") == [6, 16]
+    assert parse_auto_sync_hours("16, 6, 6") == [6, 16]
+    assert parse_auto_sync_hours("25, -1, abc") == [6, 16]
+
+
+def test_kst_slots_six_and_sixteen():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    kst = ZoneInfo("Asia/Seoul")
+    hours = [6, 16]
+    d = datetime(2026, 8, 31, tzinfo=kst)
+    assert kst_auto_sync_due(d.replace(hour=5, minute=59), None, hours) is False
+    assert kst_auto_sync_due(d.replace(hour=6, minute=0), None, hours) is True
+    synced_six = d.replace(hour=6, minute=5)
+    assert kst_auto_sync_due(d.replace(hour=10, minute=0), synced_six, hours) is False
+    assert kst_auto_sync_due(d.replace(hour=16, minute=0), synced_six, hours) is True
+    synced_sixteen = d.replace(hour=16, minute=5)
+    assert kst_auto_sync_due(d.replace(hour=16, minute=30), synced_sixteen, hours) is False
+    yesterday = datetime(2026, 8, 30, 16, 5, tzinfo=kst)
+    assert kst_auto_sync_due(d.replace(hour=10, minute=0), yesterday, hours) is True
+    # last_ok from Postgres is UTC; 21:05 UTC = 06:05 KST
+    from datetime import timezone
+
+    last_utc = datetime(2026, 8, 30, 21, 5, tzinfo=timezone.utc)
+    assert kst_auto_sync_due(d.replace(hour=10, minute=0), last_utc, hours) is False
+    assert kst_auto_sync_due(d.replace(hour=16, minute=0), last_utc, hours) is True
+
