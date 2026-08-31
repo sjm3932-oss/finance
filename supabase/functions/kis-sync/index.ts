@@ -1,5 +1,5 @@
-// KIS (한투) sync enqueue only. Open API calls run on the same static-IP
-// cloud worker as Toss (scripts/toss_sync_worker.py also claims kis jobs).
+// KIS (한투) sync: save app keys in DB and run Open API from this function.
+// SSH / Cloud Shell / worker env is not required for "지금 동기화".
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   corsHeaders,
@@ -7,6 +7,13 @@ import {
   requireCoupleUser,
   serviceClient,
 } from "../_shared/gemini.ts";
+import {
+  DEFAULT_ACCOUNTS,
+  loadKisSettings,
+  parseAccounts,
+  runKisSync,
+  settingsPublic,
+} from "../_shared/kis.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -15,24 +22,22 @@ Deno.serve(async (req) => {
   try {
     const admin = serviceClient();
 
-    async function workerStatus() {
-      const { data: worker } = await admin
-        .from("toss_sync_worker")
-        .select("public_ip,seen_at")
+    async function settingsStatus() {
+      const { data } = await admin
+        .from("kis_api_settings")
+        .select("app_key,app_secret,accounts,env")
         .eq("id", 1)
         .maybeSingle();
-      const seen = worker?.seen_at ? Date.parse(String(worker.seen_at)) : 0;
-      const stale = !seen || Date.now() - seen > 2 * 60 * 1000;
-      return {
-        worker_ip: worker?.public_ip ?? null,
-        worker_seen_at: worker?.seen_at ?? null,
-        worker_online: !stale && !!worker?.public_ip,
-      };
+      return settingsPublic(data || {});
     }
 
     if (req.method === "GET") {
-      const w = await workerStatus();
-      return json({ ok: true, mode: "cloud-worker", ...w });
+      return json({
+        ok: true,
+        mode: "edge",
+        default_accounts: DEFAULT_ACCOUNTS,
+        ...(await settingsStatus()),
+      });
     }
 
     if (req.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
@@ -46,8 +51,12 @@ Deno.serve(async (req) => {
     }
 
     if (body.probe) {
-      const w = await workerStatus();
-      return json({ ok: true, mode: "cloud-worker", ...w });
+      return json({
+        ok: true,
+        mode: "edge",
+        default_accounts: DEFAULT_ACCOUNTS,
+        ...(await settingsStatus()),
+      });
     }
 
     if (typeof body.job_id === "string" && body.job_id) {
@@ -60,9 +69,70 @@ Deno.serve(async (req) => {
       return json({ ok: true, job });
     }
 
+    if (body.save) {
+      const appKeyIn = String(body.app_key || "").trim();
+      const appSecretIn = String(body.app_secret || "").trim();
+      const accountsIn = String(body.accounts || "").trim();
+      const envIn = String(body.env || "real").trim() === "demo" ? "demo" : "real";
+
+      const { data: existing } = await admin
+        .from("kis_api_settings")
+        .select("app_key,app_secret,accounts,env")
+        .eq("id", 1)
+        .maybeSingle();
+
+      const nextKey = appKeyIn || String(existing?.app_key || "").trim();
+      const nextSecret = appSecretIn || String(existing?.app_secret || "").trim();
+      const accounts = accountsIn || String(existing?.accounts || "").trim() || DEFAULT_ACCOUNTS;
+      const parsed = parseAccounts("", "01", accounts);
+      if (!nextKey || !nextSecret) {
+        return json({ ok: false, error: "앱키와 앱시크릿을 모두 입력하세요." }, 400);
+      }
+      if (!parsed.length) {
+        return json({
+          ok: false,
+          error: "계좌를 12345678-01 형식으로 입력하세요. 여러 좌는 쉼표로 구분합니다.",
+        }, 400);
+      }
+      const keyChanged = nextKey !== String(existing?.app_key || "") ||
+        nextSecret !== String(existing?.app_secret || "");
+      const { error } = await admin.from("kis_api_settings").upsert({
+        id: 1,
+        app_key: nextKey,
+        app_secret: nextSecret,
+        accounts,
+        env: envIn,
+        updated_at: new Date().toISOString(),
+        updated_by: user.id,
+        ...(keyChanged ? { access_token: null, token_expires_at: null } : {}),
+      });
+      if (error) {
+        return json({
+          ok: false,
+          error: error.message.includes("kis_api_settings")
+            ? "설정 테이블이 없습니다. 마이그레이션 0028 을 적용하세요."
+            : error.message,
+        }, 400);
+      }
+      return json({
+        ok: true,
+        saved: true,
+        ...settingsPublic({ app_key: nextKey, app_secret: nextSecret, accounts, env: envIn }),
+      });
+    }
+
+    const ready = await loadKisSettings(admin);
+    if (!ready) {
+      return json({
+        ok: false,
+        error: "먼저 앱키·앱시크릿·계좌를 저장하세요. Cloud Shell이나 SSH는 필요 없습니다.",
+      }, 400);
+    }
+
+    const now = new Date().toISOString();
     const { data: job, error } = await admin
       .from("kis_sync_jobs")
-      .insert({ user_id: user.id, status: "queued" })
+      .insert({ user_id: user.id, status: "running", started_at: now })
       .select("id,status,created_at")
       .single();
     if (error || !job) {
@@ -72,14 +142,26 @@ Deno.serve(async (req) => {
       }, 400);
     }
 
-    const w = await workerStatus();
-    return json({
-      ok: true,
-      queued: true,
-      job_id: job.id,
-      worker_online: w.worker_online,
-      worker_ip: w.worker_ip,
-    });
+    try {
+      const result = await runKisSync(admin, { userId: user.id, lookbackDays: 90 });
+      await admin
+        .from("kis_sync_jobs")
+        .update({ status: "ok", result, finished_at: new Date().toISOString(), error: null })
+        .eq("id", job.id);
+      return json({
+        ok: true,
+        ran: true,
+        job_id: job.id,
+        ...result,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "kis-sync failed";
+      await admin
+        .from("kis_sync_jobs")
+        .update({ status: "error", error: message.slice(0, 800), finished_at: new Date().toISOString() })
+        .eq("id", job.id);
+      return json({ ok: false, error: message, job_id: job.id }, 400);
+    }
   } catch (e) {
     if (e instanceof Response) return e;
     return json({ ok: false, error: e instanceof Error ? e.message : "kis-sync failed" }, 500);

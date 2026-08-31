@@ -91,7 +91,7 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
 
 ### Toss Securities / 한국투자증권 sync
 
-주문은 하지 않습니다. 노트북 클론은 필요 없습니다. 같은 고정 IP 워커가 토스와 한투를 모두 돌립니다.
+주문은 하지 않습니다. 노트북 클론은 필요 없습니다. 토스는 고정 IP 워커가 필요하고, 한투는 앱에 키를 저장하면 Edge에서 바로 동기화합니다.
 
 **토스**
 
@@ -101,8 +101,8 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
 **한투**
 
 1. [KIS Developers](https://apiportal.koreainvestment.com)에서 앱키 발급 (포털 가입 때 휴대폰 인증이 **한 번** 필요합니다. API 호출마다 인증하지는 않습니다)
-2. 워커 env에 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_CANO` (계좌 8자리). 상품코드는 기본 `01`. ISA 등이 있으면 `KIS_ACCOUNTS=12345678-01,12345678-22`
-3. 앱키에 IP 제한을 켠 경우, 워커 공인 IP를 KIS 포털에 등록
+2. 앱 **기록하기 → 한투 동기화**에 앱키·앱시크릿·계좌(`12345678-01` 형식, 여러 좌는 쉼표)를 붙여 넣고 저장한 뒤 **지금 동기화**. SSH / Cloud Shell / 워커 env는 필요 없습니다.
+3. 포털에서 IP 제한을 켜 두었다면 끄세요. (한투는 토스와 달리 보통 IP 락이 필요 없습니다.)
 
 **공통**
 
@@ -110,10 +110,10 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
    - [Supabase Access Tokens](https://supabase.com/dashboard/account/tokens)에서 토큰 생성
    - Cursor 환경 Secrets에 `SUPABASE_ACCESS_TOKEN`으로 넣으면 Cloud Agent가 `toss-sync` / `kis-sync`를 배포합니다
    - 또는 GitHub → Settings → Secrets → Actions에 같은 이름을 넣고 [Actions → Deploy Edge Functions](https://github.com/sjm3932-oss/finance/actions)에서 Run workflow
-2. 워커를 최신 브랜치로 pull 한 뒤 `systemctl restart toss-sync-worker`
+2. 토스 동기화만 워커를 최신 브랜치로 pull 한 뒤 `systemctl restart toss-sync-worker`
 
 앱 **기록하기 → 토스 동기화 / 한투 동기화**가 각각 Edge Function을 호출합니다.
-고정 IP 워커가 켜져 있으면 매일 오전 6시·오후 4시(한국 시간)에 잔고·체결(한투는 배당 포함)을 다시 가져옵니다. 버튼은 지금 당장 동기화할 때 씁니다.
+한투 **지금 동기화**는 Edge에서 바로 한투 API를 호출합니다. 매일 오전 6시·오후 4시(한국 시간) 자동 동기화는 GitHub Actions 또는 워커가 DB에 저장된 키를 읽습니다.
 
 ### Run
 

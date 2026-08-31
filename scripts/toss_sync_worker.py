@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Cloud worker: claim queued Toss/KIS sync jobs and run Open API from this host.
 
-This process must run on a cloud VM with a *static* public IP. Register that
-IP in Toss WTS and, if the KIS app key has IP lock, in KIS Developers.
-Do not run this on a laptop.
+This process must run on a cloud VM with a *static* public IP for Toss.
+KIS keys are stored in kis_api_settings (in-app). The worker reads them from
+the DB when env is empty. Do not run Toss sync on a laptop.
 """
 
 from __future__ import annotations

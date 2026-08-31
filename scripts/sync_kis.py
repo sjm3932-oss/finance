@@ -6,8 +6,8 @@ Does not place orders.
 Prereqs:
   1. KIS Developers (https://apiportal.koreainvestment.com) 에서 앱키 발급
      — 포털 가입 때 휴대폰 인증이 한 번 필요합니다. API 호출마다 인증하지는 않습니다.
-  2. 앱키에 이 머신의 공인 IP를 허용 (포털에서 IP 제한을 켠 경우)
-  3. Env:
+  2. 앱 기록하기 → 한투 동기화에 앱키·시크릿·계좌를 저장 (또는 env)
+    3. Env (optional override):
        KIS_APP_KEY, KIS_APP_SECRET
        KIS_CANO (8자리) + KIS_ACNT_PRDT_CD (기본 01)
        또는 KIS_ACCOUNTS=12345678-01,12345678-22
@@ -54,9 +54,9 @@ from kis_client import (  # noqa: E402
     map_overseas_dividend,
     map_overseas_fill,
     map_overseas_holding,
+    merge_credentials,
     output_rows,
     overseas_cash,
-    parse_accounts,
     to_number,
 )
 
@@ -134,6 +134,10 @@ def kis_request(
         return e.code, _json_body(raw), hdrs
 
 
+def _token_until(expires_in: int) -> datetime:
+    return datetime.now(timezone.utc) + timedelta(seconds=max(60, expires_in - 60))
+
+
 def _load_cached_token() -> str | None:
     try:
         data = json.loads(TOKEN_PATH.read_text())
@@ -153,7 +157,7 @@ def _load_cached_token() -> str | None:
 
 
 def _save_cached_token(token: str, expires_in: int) -> None:
-    until = datetime.now(timezone.utc) + timedelta(seconds=max(60, expires_in - 60))
+    until = _token_until(expires_in)
     try:
         TOKEN_PATH.write_text(
             json.dumps({"access_token": token, "expires_at": until.isoformat()})
@@ -162,8 +166,49 @@ def _save_cached_token(token: str, expires_in: int) -> None:
         pass
 
 
-def issue_token(appkey: str, appsecret: str, base: str) -> str:
-    cached = _load_cached_token()
+def _load_db_token(c) -> str | None:
+    try:
+        rows = (
+            c.table("kis_api_settings")
+            .select("access_token,token_expires_at")
+            .eq("id", 1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return None
+    if not rows:
+        return None
+    token = str(rows[0].get("access_token") or "").strip()
+    if not token:
+        return None
+    exp = rows[0].get("token_expires_at")
+    if not exp:
+        return token
+    try:
+        until = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+    except Exception:
+        return token
+    if datetime.now(timezone.utc) + timedelta(minutes=5) >= until:
+        return None
+    return token
+
+
+def _save_db_token(c, token: str, expires_in: int) -> None:
+    if c is None:
+        return
+    until = _token_until(expires_in)
+    try:
+        c.table("kis_api_settings").update(
+            {"access_token": token, "token_expires_at": until.isoformat()}
+        ).eq("id", 1).execute()
+    except Exception:
+        pass
+
+
+def issue_token(appkey: str, appsecret: str, base: str, *, db=None) -> str:
+    cached = _load_cached_token() or _load_db_token(db)
     if cached:
         return cached
     status, payload, _hdrs = kis_request(
@@ -186,10 +231,11 @@ def issue_token(appkey: str, appsecret: str, base: str) -> str:
         expires_in = 86400
     if status == 200 and token:
         _save_cached_token(token, expires_in)
+        _save_db_token(db, token, expires_in)
         return token
     # EGW00133: already issued — wait briefly and retry once.
     time.sleep(1.2)
-    cached = _load_cached_token()
+    cached = _load_cached_token() or _load_db_token(db)
     if cached:
         return cached
     status, payload, _hdrs = kis_request(
@@ -206,7 +252,9 @@ def issue_token(appkey: str, appsecret: str, base: str) -> str:
     )
     token = str((payload or {}).get("access_token") or "") if isinstance(payload, dict) else ""
     if status == 200 and token:
-        _save_cached_token(token, int(to_number((payload or {}).get("expires_in") or 86400)))
+        exp = int(to_number((payload or {}).get("expires_in") or 86400)) if isinstance(payload, dict) else 86400
+        _save_cached_token(token, exp)
+        _save_db_token(db, token, exp)
         return token
     raise RuntimeError(humanize_kis_error(status, payload))
 
@@ -728,24 +776,47 @@ def fetch_overseas_dividends(ctx: dict, cano: str, prod: str, start, end) -> lis
     return mapped
 
 
+def _kis_settings_row() -> dict | None:
+    try:
+        rows = (
+            supabase()
+            .table("kis_api_settings")
+            .select("app_key,app_secret,accounts,env")
+            .eq("id", 1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return None
+    return rows[0] if rows else None
+
+
 def kis_credentials() -> tuple[str, str, str, list[tuple[str, str]]]:
-    appkey = os.getenv("KIS_APP_KEY", "").strip()
-    appsecret = os.getenv("KIS_APP_SECRET", "").strip()
-    env = os.getenv("KIS_ENV", "real").strip() or "real"
-    accounts = parse_accounts(
-        os.getenv("KIS_CANO", ""),
-        os.getenv("KIS_ACNT_PRDT_CD", "01"),
-        os.getenv("KIS_ACCOUNTS", ""),
+    env_key = os.getenv("KIS_APP_KEY", "")
+    env_secret = os.getenv("KIS_APP_SECRET", "")
+    env_cano = os.getenv("KIS_CANO", "")
+    env_accounts = os.getenv("KIS_ACCOUNTS", "")
+    db = None
+    if not env_key.strip() or not env_secret.strip() or not (env_cano.strip() or env_accounts.strip()):
+        db = _kis_settings_row()
+    return merge_credentials(
+        env_key=env_key,
+        env_secret=env_secret,
+        env_env=os.getenv("KIS_ENV", ""),
+        env_cano=env_cano,
+        env_product=os.getenv("KIS_ACNT_PRDT_CD", "01"),
+        env_accounts=env_accounts,
+        db=db,
     )
-    return appkey, appsecret, env, accounts
 
 
 def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
     appkey, appsecret, env, accounts = kis_credentials()
     if not appkey or not appsecret:
         msg = (
-            "KIS_APP_KEY / KIS_APP_SECRET 가 필요합니다. "
-            "KIS Developers(https://apiportal.koreainvestment.com)에서 발급하세요."
+            "한투 앱키와 앱시크릿이 필요합니다. "
+            "앱 기록하기 → 한투 동기화에 붙여 넣거나 KIS Developers에서 발급하세요."
         )
         if require_creds:
             raise RuntimeError(msg)
@@ -753,8 +824,8 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
         return {"ok": True, "skipped": True, "reason": "missing-keys"}
     if not accounts:
         msg = (
-            "KIS_CANO (계좌 8자리) 또는 KIS_ACCOUNTS=12345678-01 이 필요합니다. "
-            "상품코드 기본값은 01 입니다."
+            "한투 계좌(예: 12345678-01)가 필요합니다. "
+            "앱 기록하기 → 한투 동기화에 계좌를 저장하세요."
         )
         if require_creds:
             raise RuntimeError(msg)
@@ -773,7 +844,7 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
         uid = users[0]["id"]
 
     base = kis_base(env)
-    token = issue_token(appkey, appsecret, base)
+    token = issue_token(appkey, appsecret, base, db=c)
     print("Token ok")
     ctx = {
         "env": env,

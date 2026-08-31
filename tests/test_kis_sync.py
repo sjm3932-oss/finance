@@ -20,6 +20,7 @@ from kis_client import (  # noqa: E402
     map_overseas_fill,
     map_overseas_holding,
     merge_holdings,
+    merge_credentials,
     normalize_kr_ticker,
     overseas_cash,
     parse_account_spec,
@@ -36,6 +37,13 @@ def test_parse_account_specs():
         ("12345678", "22"),
     ]
     assert parse_accounts("12345678", "01", "12345678-01") == [("12345678", "01")]
+    assert parse_accounts("", "01", "64209634-01,64209634-21,64209634-22,64209634-29") == [
+        ("64209634", "01"),
+        ("64209634", "21"),
+        ("64209634", "22"),
+        ("64209634", "29"),
+    ]
+    assert parse_account_spec("21") is None
 
 
 def test_normalize_kr_ticker():
@@ -245,4 +253,46 @@ def test_ip_and_auth_messages():
     msg = humanize_kis_error(403, {"msg_cd": "EGW00201", "msg1": "blocked"})
     assert "IP" in msg
     auth = humanize_kis_error(401, {"msg_cd": "EGW00121"})
-    assert "KIS_APP_KEY" in auth
+    assert "앱키" in auth
+
+
+def test_merge_credentials_prefers_env():
+    key, secret, env, accounts = merge_credentials(
+        env_key="e-key",
+        env_secret="e-sec",
+        env_env="real",
+        env_cano="",
+        env_product="01",
+        env_accounts="12345678-01",
+        db={
+            "app_key": "d-key",
+            "app_secret": "d-sec",
+            "accounts": "99999999-01",
+            "env": "demo",
+        },
+    )
+    assert key == "e-key"
+    assert secret == "e-sec"
+    assert env == "real"
+    assert accounts == [("12345678", "01")]
+
+
+def test_merge_credentials_falls_back_to_db():
+    key, secret, env, accounts = merge_credentials(
+        env_key="",
+        env_secret="",
+        env_env="",
+        env_cano="",
+        env_product="01",
+        env_accounts="",
+        db={
+            "app_key": "d-key",
+            "app_secret": "d-sec",
+            "accounts": "64209634-01,64209634-21",
+            "env": "real",
+        },
+    )
+    assert key == "d-key"
+    assert secret == "d-sec"
+    assert env == "real"
+    assert accounts == [("64209634", "01"), ("64209634", "21")]

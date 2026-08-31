@@ -119,6 +119,34 @@ def parse_accounts(cano: str, product: str, accounts_csv: str) -> list[tuple[str
     return out
 
 
+def merge_credentials(
+    *,
+    env_key: str,
+    env_secret: str,
+    env_env: str,
+    env_cano: str,
+    env_product: str,
+    env_accounts: str,
+    db: dict[str, Any] | None,
+) -> tuple[str, str, str, list[tuple[str, str]]]:
+    """Env wins when set; otherwise fall back to kis_api_settings row."""
+    appkey = str(env_key or "").strip()
+    appsecret = str(env_secret or "").strip()
+    env = str(env_env or "").strip() or "real"
+    cano = str(env_cano or "").strip()
+    product = str(env_product or "").strip() or "01"
+    accounts_csv = str(env_accounts or "").strip()
+    if db:
+        appkey = appkey or str(db.get("app_key") or "").strip()
+        appsecret = appsecret or str(db.get("app_secret") or "").strip()
+        if not str(env_env or "").strip():
+            env = str(db.get("env") or "").strip() or env
+        if not cano and not accounts_csv:
+            accounts_csv = str(db.get("accounts") or "").strip()
+    accounts = parse_accounts(cano, product, accounts_csv)
+    return appkey, appsecret, env, accounts
+
+
 def output_rows(payload: Any, *keys: str) -> list[dict[str, Any]]:
     if not isinstance(payload, dict):
         return []
@@ -483,7 +511,7 @@ def humanize_kis_error(status: int, payload: Any) -> str:
             "현재 공인 IP를 허용했는지 확인하세요."
         )
     if status == 401 or code in {"EGW00121", "EGW00123", "EGW00002"}:
-        return "한투 인증이 실패했습니다. KIS_APP_KEY / KIS_APP_SECRET 을 확인하세요."
+        return "한투 인증이 실패했습니다. 앱키와 앱시크릿을 확인하세요."
     if code == "EGW00133":
         return "한투 접근토큰이 이미 발급되어 있습니다. 잠시 후 다시 시도하세요."
     if status == 429:

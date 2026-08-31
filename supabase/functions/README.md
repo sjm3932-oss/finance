@@ -10,7 +10,7 @@ Next.js only uploads files / shows UI and invokes Functions with the user JWT.
 | `ocr-parse` | `supabase/functions/ocr-parse` | Storage image → Gemini Vision → `ocr_staging` |
 | `wealth-chat` | `supabase/functions/wealth-chat` | Rebuild wealth context → Gemini → `ai_chat_logs` |
 | `toss-sync` | `supabase/functions/toss-sync` | Toss Open API holdings/trades → queue |
-| `kis-sync` | `supabase/functions/kis-sync` | KIS (한투) holdings/trades/dividends → queue |
+| `kis-sync` | `supabase/functions/kis-sync` | KIS (한투) keys in DB → holdings/trades/dividends |
 | Shared | `supabase/functions/_shared/gemini.ts` | CORS, auth, Gemini REST helpers |
 
 ## Deploy (cloud only — no laptop)
@@ -71,9 +71,18 @@ worker (`scripts/toss_sync_worker.py`) calls Toss Open API. See
 ### `POST /functions/v1/kis-sync`
 Auth: user Bearer JWT
 
-Same contract as `toss-sync`. Worker reads `KIS_APP_KEY`, `KIS_APP_SECRET`,
-`KIS_CANO` (or `KIS_ACCOUNTS`) and writes `accounts` / `holdings` / `trades` /
-`dividends`. Heartbeat still uses `toss_sync_worker` (same VM).
+앱에서 앱키를 저장하고, Edge Function이 한투 REST를 직접 호출합니다. SSH / Cloud Shell / 워커 env는 필요 없습니다.
+
+```json
+{ "probe": true }
+{ "save": true, "app_key": "...", "app_secret": "...", "accounts": "12345678-01,12345678-21", "env": "real" }
+{}
+{ "job_id": "uuid" }
+```
+
+- `save` — `kis_api_settings` (id=1)에 저장. 시크릿은 RLS로 클라이언트에 노출되지 않습니다.
+- `{}` — 한투 API를 이 함수에서 실행 (lookback ~90일). 응답 `{ ok, ran, accounts }`.
+- Worker / GitHub Actions `sync_kis.py` 는 같은 테이블을 fallback으로 읽습니다.
 
 ## Next.js routes
 
