@@ -127,6 +127,9 @@ export default async function HomePage({
         <Link href="/record?tab=toss" className="text-brand">
           토스 동기화
         </Link>
+        <Link href="/record?tab=hankook" className="text-brand">
+          한투 동기화
+        </Link>
         <Link href="/pnl" className="text-brand">
           손익
         </Link>

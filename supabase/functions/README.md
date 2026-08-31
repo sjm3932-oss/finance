@@ -9,14 +9,15 @@ Next.js only uploads files / shows UI and invokes Functions with the user JWT.
 |------|------|------|
 | `ocr-parse` | `supabase/functions/ocr-parse` | Storage image → Gemini Vision → `ocr_staging` |
 | `wealth-chat` | `supabase/functions/wealth-chat` | Rebuild wealth context → Gemini → `ai_chat_logs` |
-| `toss-sync` | `supabase/functions/toss-sync` | Toss Open API holdings → `accounts` / `holdings` |
+| `toss-sync` | `supabase/functions/toss-sync` | Toss Open API holdings/trades → queue |
+| `kis-sync` | `supabase/functions/kis-sync` | KIS (한투) keys in DB → holdings/trades/dividends |
 | Shared | `supabase/functions/_shared/gemini.ts` | CORS, auth, Gemini REST helpers |
 
 ## Deploy (cloud only — no laptop)
 
 1. Create a token at https://supabase.com/dashboard/account/tokens
 2. Put it in Cursor environment secrets as `SUPABASE_ACCESS_TOKEN`, **or** GitHub repo Actions secret with the same name
-3. Cloud Agent can then run `supabase functions deploy toss-sync --project-ref lsqkixysysfhywipmrky`
+3. Cloud Agent can then run `supabase functions deploy toss-sync --project-ref lsqkixysysfhywipmrky` (and `kis-sync`)
 4. Or GitHub Actions: workflow `Deploy Edge Functions` (`.github/workflows/deploy-functions.yml`)
 
 `TOSS_CLIENT_ID` / `TOSS_CLIENT_SECRET` are Edge Function secrets (already in the project). They are not a substitute for deploying the function code.
@@ -66,6 +67,22 @@ Secrets: `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`
 Response: `{ ok, queued, job_id }` — Edge only enqueues. A static-IP cloud
 worker (`scripts/toss_sync_worker.py`) calls Toss Open API. See
 `infra/toss-sync/cloud-init.sh`.
+
+### `POST /functions/v1/kis-sync`
+Auth: user Bearer JWT
+
+앱에서 앱키를 저장하고, Edge Function이 한투 REST를 직접 호출합니다. SSH / Cloud Shell / 워커 env는 필요 없습니다.
+
+```json
+{ "probe": true }
+{ "save": true, "app_key": "...", "app_secret": "...", "accounts": "12345678-01,12345678-21", "env": "real" }
+{}
+{ "job_id": "uuid" }
+```
+
+- `save` — `kis_api_settings` (id=1)에 저장. 시크릿은 RLS로 클라이언트에 노출되지 않습니다.
+- `{}` — 한투 API를 이 함수에서 실행 (lookback ~90일). 응답 `{ ok, ran, accounts }`.
+- Worker / GitHub Actions `sync_kis.py` 는 같은 테이블을 fallback으로 읽습니다.
 
 ## Next.js routes
 

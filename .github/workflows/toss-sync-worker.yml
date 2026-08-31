@@ -17,6 +17,13 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TOSS_CLIENT_ID: ${{ secrets.TOSS_CLIENT_ID }}
       TOSS_CLIENT_SECRET: ${{ secrets.TOSS_CLIENT_SECRET }}
+      KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+      KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+      KIS_CANO: ${{ secrets.KIS_CANO }}
+      KIS_ACNT_PRDT_CD: ${{ secrets.KIS_ACNT_PRDT_CD }}
+      KIS_ACCOUNTS: ${{ secrets.KIS_ACCOUNTS }}
+      KIS_ENV: ${{ secrets.KIS_ENV }}
+      KIS_SKIP_IF_UNCONFIGURED: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,3 +32,5 @@ jobs:
       - run: pip install supabase python-dotenv
       - name: Sync holdings and filled orders from this runner's static IP
         run: python3 scripts/sync_toss.py
+      - name: Sync KIS holdings, fills, and dividends
+        run: python3 scripts/sync_kis.py

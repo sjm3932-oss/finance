@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Cloud worker: claim queued Toss sync jobs and run Open API from this host.
+"""Cloud worker: claim queued Toss/KIS sync jobs and run Open API from this host.
 
-This process must run on a cloud VM with a *static* public IP. Register that
-IP once in Toss WTS → Open API → 허용 IP. Do not run this on a laptop.
+This process must run on a cloud VM with a *static* public IP for Toss.
+KIS keys are stored in kis_api_settings (in-app). The worker reads them from
+the DB when env is empty. Do not run Toss sync on a laptop.
 """
 
 from __future__ import annotations
@@ -21,6 +22,8 @@ from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env")
 
+from kis_client import INSTITUTION as KIS_INSTITUTION  # noqa: E402
+from sync_kis import kis_credentials, run_sync as run_kis_sync  # noqa: E402
 from sync_toss import public_ip, run_sync, supabase  # noqa: E402
 from toss_client import INSTITUTION, KST, kst_auto_sync_due, parse_auto_sync_hours  # noqa: E402
 
@@ -28,6 +31,7 @@ from toss_client import INSTITUTION, KST, kst_auto_sync_due, parse_auto_sync_hou
 # Default clock: 06:00 and 16:00 KST.
 AUTO_DISABLED = int(os.getenv("TOSS_AUTO_SYNC_SECONDS", "1")) <= 0
 AUTO_HOURS = parse_auto_sync_hours(os.getenv("TOSS_AUTO_SYNC_HOURS", "6,16"))
+KIS_AUTO_DISABLED = int(os.getenv("KIS_AUTO_SYNC_SECONDS", "1")) <= 0
 _last_auto_check = 0.0
 
 
@@ -44,11 +48,11 @@ def _parse_dt(value: str | None) -> datetime | None:
         return None
 
 
-def users_for_autosync(c) -> list[str]:
+def users_for_autosync(c, institution: str) -> list[str]:
     rows = (
         c.table("accounts")
         .select("user_id")
-        .eq("institution", INSTITUTION)
+        .eq("institution", institution)
         .execute()
         .data
         or []
@@ -68,16 +72,9 @@ def users_for_autosync(c) -> list[str]:
     return [u["id"] for u in users if u.get("id")]
 
 
-def maybe_enqueue_auto(c) -> None:
-    global _last_auto_check
-    if AUTO_DISABLED or not AUTO_HOURS:
-        return
-    now = time.time()
-    if now - _last_auto_check < 60:
-        return
-    _last_auto_check = now
+def _last_ok(c, table: str) -> datetime | None:
     last = (
-        c.table("toss_sync_jobs")
+        c.table(table)
         .select("finished_at")
         .eq("status", "ok")
         .order("finished_at", desc=True)
@@ -86,24 +83,57 @@ def maybe_enqueue_auto(c) -> None:
         .data
         or []
     )
-    last_ok = _parse_dt(last[0].get("finished_at") if last else None)
-    if not kst_auto_sync_due(datetime.now(KST), last_ok, AUTO_HOURS):
+    return _parse_dt(last[0].get("finished_at") if last else None)
+
+
+def maybe_enqueue_auto(c) -> None:
+    global _last_auto_check
+    if not AUTO_HOURS:
         return
-    for uid in users_for_autosync(c):
-        pending = (
-            c.table("toss_sync_jobs")
-            .select("id")
-            .eq("user_id", uid)
-            .in_("status", ["queued", "running"])
-            .limit(1)
-            .execute()
-            .data
-            or []
+    now = time.time()
+    if now - _last_auto_check < 60:
+        return
+    _last_auto_check = now
+    now_kst = datetime.now(KST)
+    if not AUTO_DISABLED and kst_auto_sync_due(now_kst, _last_ok(c, "toss_sync_jobs"), AUTO_HOURS):
+        for uid in users_for_autosync(c, INSTITUTION):
+            _enqueue_if_idle(
+                c,
+                "toss_sync_jobs",
+                uid,
+                f"auto-queued toss sync for {uid} (KST {AUTO_HOURS})",
+            )
+    if KIS_AUTO_DISABLED:
+        return
+    appkey, appsecret, _env, accounts = kis_credentials()
+    if not (appkey and appsecret and accounts):
+        return
+    if not kst_auto_sync_due(now_kst, _last_ok(c, "kis_sync_jobs"), AUTO_HOURS):
+        return
+    for uid in users_for_autosync(c, KIS_INSTITUTION):
+        _enqueue_if_idle(
+            c,
+            "kis_sync_jobs",
+            uid,
+            f"auto-queued kis sync for {uid} (KST {AUTO_HOURS})",
         )
-        if pending:
-            continue
-        c.table("toss_sync_jobs").insert({"user_id": uid, "status": "queued"}).execute()
-        print(f"auto-queued toss sync for {uid} (KST {AUTO_HOURS})", flush=True)
+
+
+def _enqueue_if_idle(c, table: str, uid: str, log: str) -> None:
+    pending = (
+        c.table(table)
+        .select("id")
+        .eq("user_id", uid)
+        .in_("status", ["queued", "running"])
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if pending:
+        return
+    c.table(table).insert({"user_id": uid, "status": "queued"}).execute()
+    print(log, flush=True)
 
 
 def heartbeat(c) -> str:
@@ -112,8 +142,8 @@ def heartbeat(c) -> str:
     return ip
 
 
-def claim(c):
-    res = c.rpc("claim_toss_sync_job").execute()
+def claim(c, rpc: str):
+    res = c.rpc(rpc).execute()
     data = res.data
     if not data:
         return None
@@ -122,8 +152,8 @@ def claim(c):
     return data
 
 
-def finish(c, job_id: str, *, status: str, error: str | None, result: dict | None) -> None:
-    c.table("toss_sync_jobs").update(
+def finish(c, table: str, job_id: str, *, status: str, error: str | None, result: dict | None) -> None:
+    c.table(table).update(
         {
             "status": status,
             "error": error,
@@ -136,31 +166,47 @@ def finish(c, job_id: str, *, status: str, error: str | None, result: dict | Non
 def loop() -> None:
     c = supabase()
     ip = heartbeat(c)
-    print(f"toss-sync worker up. public IP={ip} (register this in Toss WTS)", flush=True)
+    print(
+        f"broker-sync worker up. public IP={ip} (Toss WTS + KIS Developers allow-list)",
+        flush=True,
+    )
     while True:
         try:
             heartbeat(c)
             maybe_enqueue_auto(c)
-            job = claim(c)
+            job = claim(c, "claim_toss_sync_job")
+            kind = "toss"
+            table = "toss_sync_jobs"
+            runner = run_sync
+            if not job or not job.get("id"):
+                try:
+                    job = claim(c, "claim_kis_sync_job")
+                except Exception as exc:
+                    print(f"kis claim skip: {exc}", flush=True)
+                    job = None
+                kind = "kis"
+                table = "kis_sync_jobs"
+                runner = run_kis_sync
             if not job or not job.get("id"):
                 time.sleep(5)
                 continue
             job_id = job["id"]
             user_id = job["user_id"]
-            print(f"claimed {job_id} user={user_id}", flush=True)
+            print(f"claimed {kind} {job_id} user={user_id}", flush=True)
             try:
-                result = run_sync(user_id=user_id)
-                finish(c, job_id, status="ok", error=None, result=result)
-                print(f"ok {job_id} {result}", flush=True)
+                result = runner(user_id=user_id)
+                finish(c, table, job_id, status="ok", error=None, result=result)
+                print(f"ok {kind} {job_id} {result}", flush=True)
             except Exception as exc:
                 finish(
                     c,
+                    table,
                     job_id,
                     status="error",
                     error=str(exc)[:800],
                     result=None,
                 )
-                print(f"error {job_id}: {exc}", flush=True)
+                print(f"error {kind} {job_id}: {exc}", flush=True)
                 traceback.print_exc()
         except Exception as exc:
             print(f"worker loop: {exc}", flush=True)
