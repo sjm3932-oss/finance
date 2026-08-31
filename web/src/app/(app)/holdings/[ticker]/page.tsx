@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { loadPortfolioSnapshot } from "@/lib/data";
 import { loadTickerHistory } from "@/lib/data-insights";
 import { accountIdsForInstitution } from "@/lib/portfolio";
-import { fmtKrw, fmtUnitPrice } from "@/lib/money";
+import { fmtKrw, fmtMoney, fmtUnitPrice, tradeNotional } from "@/lib/money";
 import { NetWorthTrend } from "@/components/NetWorthTrend";
 
 export const dynamic = "force-dynamic";
@@ -117,9 +117,11 @@ export default async function HoldingDetailPage({
               </div>
             </div>
             <div className="text-right text-xs font-bold text-muted">
-              {t.realized_pnl != null && t.realized_pnl !== undefined
-                ? fmtKrw(Number(t.realized_pnl), { signed: true })
-                : String(t.currency || "")}
+              {t.trade_type === "sell" &&
+              t.realized_pnl != null &&
+              Number(t.realized_pnl) !== 0
+                ? fmtMoney(Number(t.realized_pnl), t.currency as string, { signed: true })
+                : fmtMoney(tradeNotional(t), t.currency as string)}
             </div>
           </div>
         ))}
