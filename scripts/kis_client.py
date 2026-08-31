@@ -495,17 +495,58 @@ def local_account_key(currency: str) -> tuple[str, str, str]:
     return (INSTITUTION, ACCOUNT_TYPE, currency)
 
 
-def humanize_kis_error(status: int, payload: Any) -> str:
-    code = ""
+PRODUCT_LABELS = {
+    "01": "위탁",
+    "21": "ISA",
+    "22": "개인연금",
+    "29": "퇴직연금",
+}
+
+
+def product_label(code: str) -> str:
+    return PRODUCT_LABELS.get(str(code), str(code))
+
+
+def isa_fund_nav(nass: float, cash: float) -> float:
+    """순자산(nass)에는 CMA가 포함되므로 현금은 빼서 펀드만 남긴다."""
+    return max(0.0, float(nass or 0) - float(cash or 0))
+
+
+def kis_msg_cd(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    code = str(payload.get("msg_cd") or payload.get("error_code") or "")
+    err = payload.get("error")
+    if isinstance(err, dict):
+        code = code or str(err.get("code") or "")
+    return code
+
+
+def is_rate_limited(status: int, payload: Any) -> bool:
+    return status == 429 or kis_msg_cd(payload) == "EGW00201"
+
+
+def is_trust_account_only(payload: Any) -> bool:
+    """TTTC8434R rejects ISA/pension product codes with APAC0489."""
+    if kis_msg_cd(payload) == "APAC0489":
+        return True
     message = ""
     if isinstance(payload, dict):
-        code = str(payload.get("msg_cd") or payload.get("error_code") or "")
+        message = str(payload.get("msg1") or "")
+    return "위탁계좌인 경우만" in message
+
+
+def humanize_kis_error(status: int, payload: Any) -> str:
+    code = kis_msg_cd(payload)
+    message = ""
+    if isinstance(payload, dict):
         message = str(payload.get("msg1") or payload.get("msg") or payload.get("error") or "")
         err = payload.get("error")
         if isinstance(err, dict):
-            code = code or str(err.get("code") or "")
             message = message or str(err.get("message") or "")
-    if status == 403 or code in {"EGW00201", "EGW00204"}:
+    if code == "EGW00201" or status == 429:
+        return "한투 API 호출 한도를 넘었습니다. 잠시 후 다시 시도하세요."
+    if status == 403 or code in {"EGW00204"}:
         return (
             "한투 Open API가 이 IP를 막았습니다. KIS Developers → 앱키 관리에서 "
             "현재 공인 IP를 허용했는지 확인하세요."
@@ -514,8 +555,6 @@ def humanize_kis_error(status: int, payload: Any) -> str:
         return "한투 인증이 실패했습니다. 앱키와 앱시크릿을 확인하세요."
     if code == "EGW00133":
         return "한투 접근토큰이 이미 발급되어 있습니다. 잠시 후 다시 시도하세요."
-    if status == 429:
-        return "한투 API 호출 한도를 넘었습니다. 잠시 후 다시 시도하세요."
     if message:
         return message if "한투" in message else f"한투 API: {message}"
     if code:

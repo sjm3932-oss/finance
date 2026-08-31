@@ -5,6 +5,21 @@ export const KIS_REAL_BASE = "https://openapi.koreainvestment.com:9443";
 export const KIS_DEMO_BASE = "https://openapivts.koreainvestment.com:29443";
 export const INSTITUTION = "한국투자증권";
 export const DEFAULT_ACCOUNTS = "64209634-01,64209634-21,64209634-22,64209634-29";
+const PRODUCT_LABELS: Record<string, string> = {
+  "01": "위탁",
+  "21": "ISA",
+  "22": "개인연금",
+  "29": "퇴직연금",
+};
+
+export function productLabel(code: string): string {
+  return PRODUCT_LABELS[code] || code;
+}
+
+export function isaFundNav(nass: number, cash: number): number {
+  return Math.max(0, Number(nass || 0) - Number(cash || 0));
+}
+
 const DIVIDEND_NAME_HINTS = ["배당", "분배"];
 const DIVIDEND_RIGHT_CODES = new Set(["03", "04", "17", "18"]);
 
@@ -453,14 +468,14 @@ export function humanizeKisError(status: number, payload: unknown): string {
       message = message || String(e.message || "");
     }
   }
-  if (status === 403 || code === "EGW00201" || code === "EGW00204") {
+  if (code === "EGW00201" || status === 429) return "한투 API 호출 한도를 넘었습니다. 잠시 후 다시 시도하세요.";
+  if (status === 403 || code === "EGW00204") {
     return "한투 Open API가 이 IP를 막았습니다. KIS Developers → 앱키 관리에서 IP 제한을 끄거나, 아래 표시 IP를 허용하세요.";
   }
   if (status === 401 || code === "EGW00121" || code === "EGW00123" || code === "EGW00002") {
     return "한투 인증이 실패했습니다. 앱키와 앱시크릿을 확인하세요.";
   }
   if (code === "EGW00133") return "한투 접근토큰이 이미 발급되어 있습니다. 잠시 후 다시 시도하세요.";
-  if (status === 429) return "한투 API 호출 한도를 넘었습니다. 잠시 후 다시 시도하세요.";
   if (message) return message.includes("한투") ? message : `한투 API: ${message}`;
   if (code) return `한투 API 오류 (${code})`;
   return `한투 API HTTP ${status}`;
@@ -593,8 +608,14 @@ async function pagedGet(
       trCont,
       query: q,
     });
-    if (status === 429) {
-      await sleep(1500);
+    let retries = 0;
+    while (
+      retries < 4 &&
+      (status === 429 ||
+        (payload && typeof payload === "object" && String((payload as Json).msg_cd || "") === "EGW00201"))
+    ) {
+      await sleep(1200 + retries * 400);
+      retries += 1;
       ({ status, payload, headers } = await kisRequest("GET", opts.path, ctx, {
         trId: opts.trId,
         trCont,
@@ -621,19 +642,45 @@ async function pagedGet(
 }
 
 async function fetchDomesticBalance(ctx: KisCtx, cano: string, prod: string): Promise<{ holdings: Holding[]; cash: number }> {
+  const query = {
+    CANO: cano,
+    ACNT_PRDT_CD: prod,
+    AFHR_FLPR_YN: "N",
+    OFL_YN: "",
+    INQR_DVSN: "02",
+    UNPR_DVSN: "01",
+    FUND_STTL_ICLD_YN: "N",
+    FNCG_AMT_AUTO_RDPT_YN: "N",
+    PRCS_DVSN: "00",
+    CTX_AREA_FK100: "",
+    CTX_AREA_NK100: "",
+  };
+  try {
+    const { rows, summary } = await pagedGet(ctx, {
+      path: "/uapi/domestic-stock/v1/trading/inquire-balance",
+      trId: isDemo(ctx.env) ? "VTTC8434R" : "TTTC8434R",
+      query,
+      fkKey: "CTX_AREA_FK100",
+      nkKey: "CTX_AREA_NK100",
+      outputKey: "output1",
+      extraOutput: "output2",
+    });
+    return {
+      holdings: rows.map(mapDomesticHolding).filter((x): x is Holding => !!x),
+      cash: domesticCash(summary),
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!msg.includes("위탁계좌인 경우만") && !msg.includes("APAC0489")) throw e;
+  }
   const { rows, summary } = await pagedGet(ctx, {
-    path: "/uapi/domestic-stock/v1/trading/inquire-balance",
-    trId: isDemo(ctx.env) ? "VTTC8434R" : "TTTC8434R",
+    path: "/uapi/domestic-stock/v1/trading/pension/inquire-balance",
+    trId: "TTTC2208R",
     query: {
       CANO: cano,
       ACNT_PRDT_CD: prod,
-      AFHR_FLPR_YN: "N",
-      OFL_YN: "",
-      INQR_DVSN: "02",
-      UNPR_DVSN: "01",
-      FUND_STTL_ICLD_YN: "N",
-      FNCG_AMT_AUTO_RDPT_YN: "N",
-      PRCS_DVSN: "00",
+      ACCA_DVSN_CD: "00",
+      INQR_DVSN: "00",
       CTX_AREA_FK100: "",
       CTX_AREA_NK100: "",
     },
@@ -646,6 +693,68 @@ async function fetchDomesticBalance(ctx: KisCtx, cano: string, prod: string): Pr
     holdings: rows.map(mapDomesticHolding).filter((x): x is Holding => !!x),
     cash: domesticCash(summary),
   };
+}
+
+const ISA_FUND_NAME = "한국투자증권 ISA(21) 펀드";
+
+async function fetchAccountOverview(ctx: KisCtx, cano: string, prod: string): Promise<{ nass: number; cash: number }> {
+  try {
+    const { summary } = await pagedGet(ctx, {
+      path: "/uapi/domestic-stock/v1/trading/inquire-account-balance",
+      trId: "CTRP6548R",
+      query: {
+        CANO: cano,
+        ACNT_PRDT_CD: prod,
+        AFHR_FLPR_YN: "N",
+        OFL_YN: "",
+        INQR_DVSN: "00",
+        UNPR_DVSN: "01",
+        FUND_STTL_ICLD_YN: "N",
+        FNCG_AMT_AUTO_RDPT_YN: "N",
+        PRCS_DVSN: "00",
+        CTX_AREA_FK100: "",
+        CTX_AREA_NK100: "",
+      },
+      fkKey: "CTX_AREA_FK100",
+      nkKey: "CTX_AREA_NK100",
+      outputKey: "output1",
+      extraOutput: "output2",
+      maxPages: 1,
+    });
+    return {
+      nass: toNumber(summary?.nass_tot_amt || summary?.evlu_amt_smtl),
+      cash: toNumber(summary?.cma_evlu_amt) || toNumber(summary?.tot_dncl_amt),
+    };
+  } catch {
+    return { nass: 0, cash: 0 };
+  }
+}
+
+async function upsertIsaFundAsset(admin: SupabaseClient, userId: string, value: number): Promise<void> {
+  const { data: existing } = await admin
+    .from("other_assets")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("name", ISA_FUND_NAME)
+    .limit(1);
+  if (value <= 0) {
+    if (existing?.[0]?.id) await admin.from("other_assets").delete().eq("id", existing[0].id);
+    return;
+  }
+  const payload = {
+    user_id: userId,
+    name: ISA_FUND_NAME,
+    asset_kind: "pension",
+    value_krw: value,
+    ownership: "mine",
+    memo: "KIS 21. 펀드는 종목 API가 없어 순자산에서 CMA를 뺀 평가액만 가져옵니다.",
+    updated_at: new Date().toISOString(),
+  };
+  if (existing?.[0]?.id) {
+    await admin.from("other_assets").update(payload).eq("id", existing[0].id);
+  } else {
+    await admin.from("other_assets").insert(payload);
+  }
 }
 
 async function fetchOverseasBalance(ctx: KisCtx, cano: string, prod: string): Promise<Holding[]> {
@@ -887,6 +996,15 @@ async function ensureAccount(admin: SupabaseClient, userId: string, currency: st
   return data.id as string;
 }
 
+async function setMergedAccountMemo(
+  admin: SupabaseClient,
+  accountId: string,
+  productCodes: string[]
+): Promise<void> {
+  const codes = productCodes.length ? productCodes.join("·") : "01·21·22·29";
+  await admin.from("accounts").update({ memo: `${codes} 합산` }).eq("id", accountId);
+}
+
 async function upsertHoldings(admin: SupabaseClient, accountId: string, rows: Holding[]): Promise<void> {
   const keep = new Set<string>();
   for (const h of rows) {
@@ -1031,7 +1149,12 @@ export async function loadKisSettings(admin: SupabaseClient): Promise<{
 export async function runKisSync(
   admin: SupabaseClient,
   opts: { userId: string; lookbackDays?: number }
-): Promise<{ ok: true; institution: string; accounts: Array<Record<string, unknown>> }> {
+): Promise<{
+  ok: true;
+  institution: string;
+  accounts: Array<Record<string, unknown>>;
+  products: Array<Record<string, unknown>>;
+}> {
   const settings = await loadKisSettings(admin);
   if (!settings) {
     throw new Error("한투 앱키를 앱에 저장하세요. 기록하기 → 한투 동기화.");
@@ -1051,17 +1174,50 @@ export async function runKisSync(
   const cash = { KRW: 0, USD: 0 };
   const fills: Fill[] = [];
   const dividends: Dividend[] = [];
+  let isaFund = 0;
+  const products: Array<Record<string, unknown>> = [];
 
   for (let i = 0; i < settings.accounts.length; i++) {
     const [cano, prod] = settings.accounts[i];
-    if (i) await sleep(250);
+    if (i) await sleep(900);
+    let krHold: Holding[] = [];
+    let krCash = 0;
+    let ovCash = 0;
+    let fund = 0;
+    let note = "";
     try {
       const kr = await fetchDomesticBalance(ctx, cano, prod);
+      krHold = kr.holdings;
+      krCash = kr.cash;
       holdings.push(...kr.holdings);
       cash.KRW += kr.cash;
     } catch (e) {
+      note = e instanceof Error ? e.message : String(e);
       console.log("domestic balance skip", cano, prod, e);
     }
+    if (prod === "21") {
+      try {
+        const ov = await fetchAccountOverview(ctx, cano, prod);
+        ovCash = ov.cash;
+        cash.KRW += ov.cash;
+        if (!krHold.length && ov.nass > 0) {
+          fund = isaFundNav(ov.nass, ov.cash);
+          isaFund = fund;
+          if (!note) note = "펀드는 종목 API가 없어 기타자산으로 반영";
+        }
+      } catch (e) {
+        console.log("21 overview skip", e);
+        note = note || (e instanceof Error ? e.message : String(e));
+      }
+    }
+    products.push({
+      code: prod,
+      label: productLabel(prod),
+      holdings: krHold.length,
+      cash: krCash + ovCash,
+      fund,
+      note,
+    });
     try {
       holdings.push(...(await fetchOverseasBalance(ctx, cano, prod)));
     } catch (e) {
@@ -1105,6 +1261,13 @@ export async function runKisSync(
     accountIds[ccy] = aid;
     await upsertHoldings(admin, aid, rows);
     await admin.from("accounts").update({ cash_balance: cash[ccy] }).eq("id", aid);
+    if (ccy === "KRW") {
+      await setMergedAccountMemo(
+        admin,
+        aid,
+        settings.accounts.map(([, p]) => p)
+      );
+    }
   }
 
   const insertedTrades = Object.keys(accountIds).length
@@ -1113,6 +1276,11 @@ export async function runKisSync(
   const insertedDivs = Object.keys(accountIds).length
     ? await insertDividends(admin, opts.userId, accountIds, dividends)
     : {};
+  try {
+    await upsertIsaFundAsset(admin, opts.userId, isaFund);
+  } catch (e) {
+    console.log("isa fund asset skip", e);
+  }
 
   const summary = Object.entries(accountIds).map(([ccy, _aid]) => ({
     currency: ccy,
@@ -1122,5 +1290,5 @@ export async function runKisSync(
     dividends: insertedDivs[ccy] || 0,
   }));
 
-  return { ok: true, institution: INSTITUTION, accounts: summary };
+  return { ok: true, institution: INSTITUTION, accounts: summary, products };
 }

@@ -15,7 +15,26 @@ type AccountSummary = {
   dividends?: number;
 };
 
-function formatResult(accounts: AccountSummary[] | undefined): string {
+type ProductSummary = {
+  code: string;
+  label?: string;
+  holdings: number;
+  cash?: number;
+  fund?: number;
+  note?: string;
+};
+
+function formatResult(
+  accounts: AccountSummary[] | undefined,
+  products?: ProductSummary[]
+): string {
+  const productBits = (products || []).map((p) => {
+    const bits = [`${p.code} ${p.label || ""}`.trim()];
+    if (Number(p.holdings || 0) > 0) bits.push(`${p.holdings}종목`);
+    if (Number(p.fund || 0) > 0) bits.push("펀드");
+    else if (p.note) bits.push(p.note);
+    return bits.join(" ");
+  });
   const parts = (accounts || []).map((a) => {
     const trades = Number(a.trades || 0);
     const divs = Number(a.dividends || 0);
@@ -27,9 +46,10 @@ function formatResult(accounts: AccountSummary[] | undefined): string {
       .join(" · ");
     return `${a.currency} ${a.holdings}종목 · 현금 ${a.cash}${extra ? ` · ${extra}` : ""}`;
   });
-  return parts.length
-    ? `동기화 완료. ${parts.join(" / ")}`
+  const merged = parts.length
+    ? `동기화 완료. ${parts.join(" / ")} (화면의 한투 계좌는 하나로 합쳐 보입니다)`
     : "한투 계좌는 연결됐지만 보유 종목이 없습니다.";
+  return productBits.length ? `${merged}. ${productBits.join(" · ")}` : merged;
 }
 
 export function HankookSyncPanel() {
@@ -121,8 +141,9 @@ export function HankookSyncPanel() {
         const res = await invokeEdge<{
           ran?: boolean;
           accounts?: AccountSummary[];
+          products?: ProductSummary[];
         }>("kis-sync", {});
-        setMsg(formatResult(res.accounts));
+        setMsg(formatResult(res.accounts, res.products));
         router.refresh();
       } catch (e) {
         setMsg(null);
@@ -149,8 +170,10 @@ export function HankookSyncPanel() {
       </p>
       <p className="mt-2 text-xs text-muted">
         계좌는 <span className="font-mono">8자리-상품코드</span> 입니다. 위탁 01,
-        ISA 등은 21·22처럼 포털에 보이는 코드를 그대로 씁니다. 여러 좌는 쉼표로
-        구분합니다.
+        ISA 21, 개인연금 22, 퇴직연금 29를 모두 가져옵니다. 화면의 한국투자증권은
+        네 좌를 합친 한 줄입니다. ISA 펀드는 종목 목록이 아니라{" "}
+        <span className="font-semibold">기록하기 → 부동산·기타</span>에 연금으로
+        들어갑니다.
       </p>
 
       <div className="mt-3 space-y-3">
