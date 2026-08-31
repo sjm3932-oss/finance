@@ -46,8 +46,11 @@ from kis_client import (  # noqa: E402
     holdings_by_currency,
     humanize_kis_error,
     is_demo,
+    is_rate_limited,
+    isa_fund_nav,
     kis_base,
     lookback_range,
+    product_label,
     map_domestic_dividend,
     map_domestic_fill,
     map_domestic_holding,
@@ -292,8 +295,10 @@ def paged_get(
             tr_cont=tr_cont,
             query=q,
         )
-        if status == 429:
-            time.sleep(1.5)
+        retries = 0
+        while is_rate_limited(status, payload) and retries < 4:
+            time.sleep(1.2 + retries)
+            retries += 1
             status, payload, hdrs = kis_request(
                 "GET",
                 path,
@@ -361,6 +366,15 @@ def ensure_account(c, user_id: str, currency: str) -> str:
         raise SystemExit(f"failed to create {INSTITUTION} {currency} account")
     print(f"  + account {INSTITUTION} {currency}")
     return res.data[0]["id"]
+
+
+def set_merged_account_memo(c, account_id: str, product_codes: list[str]) -> None:
+    codes = "·".join(product_codes) if product_codes else "01·21·22·29"
+    memo = f"{codes} 합산"
+    try:
+        c.table("accounts").update({"memo": memo}).eq("id", account_id).execute()
+    except Exception as exc:
+        print(f"  account memo skip: {exc}")
 
 
 def upsert_holdings(c, account_id: str, rows: list[dict]) -> None:
@@ -538,34 +552,130 @@ def insert_dividends(c, *, user_id: str, account_ids: dict[str, str], rows: list
 
 
 def fetch_domestic_balance(ctx: dict, cano: str, prod: str) -> tuple[list[dict], float]:
+    query = {
+        "CANO": cano,
+        "ACNT_PRDT_CD": prod,
+        "AFHR_FLPR_YN": "N",
+        "OFL_YN": "",
+        "INQR_DVSN": "02",
+        "UNPR_DVSN": "01",
+        "FUND_STTL_ICLD_YN": "N",
+        "FNCG_AMT_AUTO_RDPT_YN": "N",
+        "PRCS_DVSN": "00",
+        "CTX_AREA_FK100": "",
+        "CTX_AREA_NK100": "",
+    }
     tr_id = "VTTC8434R" if is_demo(ctx["env"]) else "TTTC8434R"
-    rows, summary = paged_get(
-        path="/uapi/domestic-stock/v1/trading/inquire-balance",
-        tr_id=tr_id,
-        query={
-            "CANO": cano,
-            "ACNT_PRDT_CD": prod,
-            "AFHR_FLPR_YN": "N",
-            "OFL_YN": "",
-            "INQR_DVSN": "02",
-            "UNPR_DVSN": "01",
-            "FUND_STTL_ICLD_YN": "N",
-            "FNCG_AMT_AUTO_RDPT_YN": "N",
-            "PRCS_DVSN": "00",
-            "CTX_AREA_FK100": "",
-            "CTX_AREA_NK100": "",
-        },
-        base=ctx["base"],
-        appkey=ctx["appkey"],
-        appsecret=ctx["appsecret"],
-        token=ctx["token"],
-        fk_key="CTX_AREA_FK100",
-        nk_key="CTX_AREA_NK100",
-        output_key="output1",
-        extra_output="output2",
-    )
+    try:
+        rows, summary = paged_get(
+            path="/uapi/domestic-stock/v1/trading/inquire-balance",
+            tr_id=tr_id,
+            query=query,
+            base=ctx["base"],
+            appkey=ctx["appkey"],
+            appsecret=ctx["appsecret"],
+            token=ctx["token"],
+            fk_key="CTX_AREA_FK100",
+            nk_key="CTX_AREA_NK100",
+            output_key="output1",
+            extra_output="output2",
+        )
+    except RuntimeError as exc:
+        if "위탁계좌인 경우만" not in str(exc) and "APAC0489" not in str(exc):
+            raise
+        rows, summary = paged_get(
+            path="/uapi/domestic-stock/v1/trading/pension/inquire-balance",
+            tr_id="TTTC2208R",
+            query={
+                "CANO": cano,
+                "ACNT_PRDT_CD": prod,
+                "ACCA_DVSN_CD": "00",
+                "INQR_DVSN": "00",
+                "CTX_AREA_FK100": "",
+                "CTX_AREA_NK100": "",
+            },
+            base=ctx["base"],
+            appkey=ctx["appkey"],
+            appsecret=ctx["appsecret"],
+            token=ctx["token"],
+            fk_key="CTX_AREA_FK100",
+            nk_key="CTX_AREA_NK100",
+            output_key="output1",
+            extra_output="output2",
+        )
     mapped = [m for r in rows if (m := map_domestic_holding(r))]
     return mapped, domestic_cash(summary)
+
+
+def fetch_account_overview(ctx: dict, cano: str, prod: str) -> dict[str, float]:
+    """투자계좌자산현황 — 펀드처럼 종목 API가 안 주는 금액을 잡는다."""
+    try:
+        _rows, summary = paged_get(
+            path="/uapi/domestic-stock/v1/trading/inquire-account-balance",
+            tr_id="CTRP6548R",
+            query={
+                "CANO": cano,
+                "ACNT_PRDT_CD": prod,
+                "AFHR_FLPR_YN": "N",
+                "OFL_YN": "",
+                "INQR_DVSN": "00",
+                "UNPR_DVSN": "01",
+                "FUND_STTL_ICLD_YN": "N",
+                "FNCG_AMT_AUTO_RDPT_YN": "N",
+                "PRCS_DVSN": "00",
+                "CTX_AREA_FK100": "",
+                "CTX_AREA_NK100": "",
+            },
+            base=ctx["base"],
+            appkey=ctx["appkey"],
+            appsecret=ctx["appsecret"],
+            token=ctx["token"],
+            fk_key="CTX_AREA_FK100",
+            nk_key="CTX_AREA_NK100",
+            output_key="output1",
+            extra_output="output2",
+            max_pages=1,
+        )
+    except Exception as exc:
+        print(f"  account overview skip {cano}-{prod}: {exc}")
+        return {"nass": 0.0, "cash": 0.0}
+    nass = to_number((summary or {}).get("nass_tot_amt") or (summary or {}).get("evlu_amt_smtl"))
+    cash = to_number((summary or {}).get("cma_evlu_amt")) or to_number(
+        (summary or {}).get("tot_dncl_amt")
+    )
+    return {"nass": nass, "cash": cash}
+
+
+ISA_FUND_NAME = "한국투자증권 ISA(21) 펀드"
+
+
+def upsert_isa_fund_asset(c, user_id: str, value: float) -> None:
+    rows = (
+        c.table("other_assets")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("name", ISA_FUND_NAME)
+        .execute()
+        .data
+        or []
+    )
+    payload = {
+        "user_id": user_id,
+        "name": ISA_FUND_NAME,
+        "asset_kind": "pension",
+        "value_krw": value,
+        "ownership": "mine",
+        "memo": "KIS 21. 펀드는 종목 API가 없어 순자산에서 CMA를 뺀 평가액만 가져옵니다.",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if value <= 0:
+        if rows:
+            c.table("other_assets").delete().eq("id", rows[0]["id"]).execute()
+        return
+    if rows:
+        c.table("other_assets").update(payload).eq("id", rows[0]["id"]).execute()
+    else:
+        c.table("other_assets").insert(payload).execute()
 
 
 def fetch_overseas_balance(ctx: dict, cano: str, prod: str) -> list[dict]:
@@ -860,16 +970,49 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
     fills: list[dict] = []
     dividends: list[dict] = []
 
+    isa_fund = 0.0
+    products: list[dict] = []
+
     for i, (cano, prod) in enumerate(accounts):
         if i:
-            time.sleep(0.4)
+            time.sleep(0.9)
         print(f"  account {cano}-{prod}")
+        kr_hold: list[dict] = []
+        kr_cash = 0.0
+        ov_cash = 0.0
+        fund = 0.0
+        note = ""
         try:
             kr_hold, kr_cash = fetch_domestic_balance(ctx, cano, prod)
             holdings.extend(kr_hold)
             cash["KRW"] += kr_cash
         except Exception as exc:
+            note = str(exc)
             print(f"  domestic balance skip: {exc}")
+        if prod == "21":
+            try:
+                ov = fetch_account_overview(ctx, cano, prod)
+                ov_cash = ov["cash"]
+                cash["KRW"] += ov_cash
+                if not kr_hold and ov["nass"] > 0:
+                    fund = isa_fund_nav(ov["nass"], ov_cash)
+                    isa_fund = fund
+                    print(f"  21 fund NAV {fund} cash {ov_cash} (nass {ov['nass']})")
+                    if not note:
+                        note = "펀드는 종목 API가 없어 기타자산으로 반영"
+            except Exception as exc:
+                print(f"  21 overview skip: {exc}")
+                note = note or str(exc)
+        products.append(
+            {
+                "code": prod,
+                "label": product_label(prod),
+                "holdings": len(kr_hold),
+                "cash": kr_cash + ov_cash,
+                "fund": fund,
+                "note": note,
+            }
+        )
         try:
             holdings.extend(fetch_overseas_balance(ctx, cano, prod))
         except Exception as exc:
@@ -908,9 +1051,15 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
         account_ids[ccy] = aid
         upsert_holdings(c, aid, rows)
         set_cash(c, aid, cash[ccy])
+        if ccy == "KRW":
+            set_merged_account_memo(c, aid, [p[1] for p in accounts])
 
     inserted_trades = insert_trades(c, user_id=uid, account_ids=account_ids, rows=fills) if account_ids else {}
     inserted_divs = insert_dividends(c, user_id=uid, account_ids=account_ids, rows=dividends) if account_ids else {}
+    try:
+        upsert_isa_fund_asset(c, uid, isa_fund)
+    except Exception as exc:
+        print(f"  isa fund asset skip: {exc}")
 
     summary: list[dict] = []
     for ccy, aid in account_ids.items():
@@ -930,10 +1079,17 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
         )
 
     print(f"Done. Synced {INSTITUTION}.")
+    for p in products:
+        print(
+            f"  product {p['code']} {p['label']}: {p['holdings']} holdings, "
+            f"cash={p['cash']}, fund={p['fund']}"
+            + (f" ({p['note']})" if p.get("note") else "")
+        )
     return {
         "ok": True,
         "institution": INSTITUTION,
         "accounts": summary,
+        "products": products,
         "egress_ip": ip,
     }
 
