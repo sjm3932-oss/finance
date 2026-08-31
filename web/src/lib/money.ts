@@ -15,6 +15,43 @@ export function fmtKrw(
   return n < 0 ? `-${body}` : body;
 }
 
+export function fmtMoney(
+  v: number | null | undefined,
+  currency?: string | null,
+  opts?: { signed?: boolean }
+): string {
+  const ccy = String(currency || "KRW").toUpperCase();
+  if (ccy === "USD") {
+    if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
+    const n = Number(v);
+    const body = `$${Math.abs(n).toLocaleString("en-US", {
+      maximumFractionDigits: 2,
+    })}`;
+    if (opts?.signed) {
+      if (n > 0) return `+${body}`;
+      if (n < 0) return `-${body}`;
+      return body;
+    }
+    return n < 0 ? `-${body}` : body;
+  }
+  return fmtKrw(v, opts);
+}
+
+/** 체결 대금: 수량 × 단가 (±수수료). 매수는 실현손익이 없어서 이걸 보여준다. */
+export function tradeNotional(t: {
+  price?: unknown;
+  quantity?: unknown;
+  fee?: unknown;
+  trade_type?: unknown;
+}): number {
+  const qty = Number(t.quantity || 0);
+  const price = Number(t.price || 0);
+  const fee = Number(t.fee || 0);
+  const gross = qty * price;
+  if (!Number.isFinite(gross)) return 0;
+  return String(t.trade_type) === "sell" ? gross - fee : gross + fee;
+}
+
 /** 평단·체결단가: 천 단위 쉼표, KRW는 정수만. */
 export function fmtUnitPrice(
   v: number | string | null | undefined,
