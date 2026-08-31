@@ -507,11 +507,6 @@ def product_label(code: str) -> str:
     return PRODUCT_LABELS.get(str(code), str(code))
 
 
-def isa_fund_nav(nass: float, cash: float) -> float:
-    """순자산(nass)에는 CMA가 포함되므로 현금은 빼서 펀드만 남긴다."""
-    return max(0.0, float(nass or 0) - float(cash or 0))
-
-
 def kis_msg_cd(payload: Any) -> str:
     if not isinstance(payload, dict):
         return ""

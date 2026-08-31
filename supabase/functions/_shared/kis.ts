@@ -16,10 +16,6 @@ export function productLabel(code: string): string {
   return PRODUCT_LABELS[code] || code;
 }
 
-export function isaFundNav(nass: number, cash: number): number {
-  return Math.max(0, Number(nass || 0) - Number(cash || 0));
-}
-
 const DIVIDEND_NAME_HINTS = ["배당", "분배"];
 const DIVIDEND_RIGHT_CODES = new Set(["03", "04", "17", "18"]);
 
@@ -673,45 +669,15 @@ async function fetchDomesticBalance(ctx: KisCtx, cano: string, prod: string): Pr
     const msg = e instanceof Error ? e.message : String(e);
     if (!msg.includes("위탁계좌인 경우만") && !msg.includes("APAC0489")) throw e;
   }
-  const { rows, summary } = await pagedGet(ctx, {
-    path: "/uapi/domestic-stock/v1/trading/pension/inquire-balance",
-    trId: "TTTC2208R",
-    query: {
-      CANO: cano,
-      ACNT_PRDT_CD: prod,
-      ACCA_DVSN_CD: "00",
-      INQR_DVSN: "00",
-      CTX_AREA_FK100: "",
-      CTX_AREA_NK100: "",
-    },
-    fkKey: "CTX_AREA_FK100",
-    nkKey: "CTX_AREA_NK100",
-    outputKey: "output1",
-    extraOutput: "output2",
-  });
-  return {
-    holdings: rows.map(mapDomesticHolding).filter((x): x is Holding => !!x),
-    cash: domesticCash(summary),
-  };
-}
-
-const ISA_FUND_NAME = "한국투자증권 ISA(21) 펀드";
-
-async function fetchAccountOverview(ctx: KisCtx, cano: string, prod: string): Promise<{ nass: number; cash: number }> {
   try {
-    const { summary } = await pagedGet(ctx, {
-      path: "/uapi/domestic-stock/v1/trading/inquire-account-balance",
-      trId: "CTRP6548R",
+    const { rows, summary } = await pagedGet(ctx, {
+      path: "/uapi/domestic-stock/v1/trading/pension/inquire-balance",
+      trId: "TTTC2208R",
       query: {
         CANO: cano,
         ACNT_PRDT_CD: prod,
-        AFHR_FLPR_YN: "N",
-        OFL_YN: "",
+        ACCA_DVSN_CD: "00",
         INQR_DVSN: "00",
-        UNPR_DVSN: "01",
-        FUND_STTL_ICLD_YN: "N",
-        FNCG_AMT_AUTO_RDPT_YN: "N",
-        PRCS_DVSN: "00",
         CTX_AREA_FK100: "",
         CTX_AREA_NK100: "",
       },
@@ -719,14 +685,45 @@ async function fetchAccountOverview(ctx: KisCtx, cano: string, prod: string): Pr
       nkKey: "CTX_AREA_NK100",
       outputKey: "output1",
       extraOutput: "output2",
-      maxPages: 1,
     });
     return {
-      nass: toNumber(summary?.nass_tot_amt || summary?.evlu_amt_smtl),
-      cash: toNumber(summary?.cma_evlu_amt) || toNumber(summary?.tot_dncl_amt),
+      holdings: rows.map(mapDomesticHolding).filter((x): x is Holding => !!x),
+      cash: domesticCash(summary),
     };
+  } catch (e) {
+    console.log("pension balance skip", cano, prod, e);
+    return { holdings: [], cash: 0 };
+  }
+}
+
+const ISA_FUND_NAME = "한국투자증권 ISA(21) 펀드";
+
+async function fetchAccountOverview(
+  ctx: KisCtx,
+  cano: string,
+  prod: string
+): Promise<{ nass: number; cash: number; ok: boolean }> {
+  try {
+    const { rows, summary } = await pagedGet(ctx, {
+      path: "/uapi/domestic-stock/v1/trading/inquire-account-balance",
+      trId: "CTRP6548R",
+      query: { CANO: cano, ACNT_PRDT_CD: prod },
+      fkKey: "CTX_AREA_FK100",
+      nkKey: "CTX_AREA_NK100",
+      outputKey: "output1",
+      extraOutput: "output2",
+      maxPages: 1,
+    });
+    let nass = toNumber(summary?.nass_tot_amt || summary?.evlu_amt_smtl);
+    const cash = toNumber(summary?.cma_evlu_amt) || toNumber(summary?.tot_dncl_amt);
+    if (nass <= 0) {
+      for (const row of rows) {
+        nass = Math.max(nass, toNumber(row.evlu_amt || row.real_nass_amt));
+      }
+    }
+    return { nass, cash, ok: true };
   } catch {
-    return { nass: 0, cash: 0 };
+    return { nass: 0, cash: 0, ok: false };
   }
 }
 
@@ -747,7 +744,7 @@ async function upsertIsaFundAsset(admin: SupabaseClient, userId: string, value: 
     asset_kind: "pension",
     value_krw: value,
     ownership: "mine",
-    memo: "KIS 21. 펀드는 종목 API가 없어 순자산에서 CMA를 뺀 평가액만 가져옵니다.",
+    memo: "KIS 21. 펀드는 종목 API가 없어 평가액만 가져옵니다. CMA는 한투 현금으로 들어갑니다.",
     updated_at: new Date().toISOString(),
   };
   if (existing?.[0]?.id) {
@@ -1175,6 +1172,7 @@ export async function runKisSync(
   const fills: Fill[] = [];
   const dividends: Dividend[] = [];
   let isaFund = 0;
+  let isaSeen = false;
   const products: Array<Record<string, unknown>> = [];
 
   for (let i = 0; i < settings.accounts.length; i++) {
@@ -1198,12 +1196,17 @@ export async function runKisSync(
     if (prod === "21") {
       try {
         const ov = await fetchAccountOverview(ctx, cano, prod);
-        ovCash = ov.cash;
-        cash.KRW += ov.cash;
-        if (!krHold.length && ov.nass > 0) {
-          fund = isaFundNav(ov.nass, ov.cash);
-          isaFund = fund;
-          if (!note) note = "펀드는 종목 API가 없어 기타자산으로 반영";
+        if (ov.ok) {
+          isaSeen = true;
+          ovCash = ov.cash;
+          cash.KRW += ov.cash;
+          if (!krHold.length && ov.nass > 0) {
+            fund = ov.nass;
+            isaFund = fund;
+            if (!note) note = "펀드는 종목 API가 없어 기타자산으로 반영";
+          } else if (!krHold.length) {
+            isaFund = 0;
+          }
         }
       } catch (e) {
         console.log("21 overview skip", e);
@@ -1277,7 +1280,7 @@ export async function runKisSync(
     ? await insertDividends(admin, opts.userId, accountIds, dividends)
     : {};
   try {
-    await upsertIsaFundAsset(admin, opts.userId, isaFund);
+    if (isaSeen) await upsertIsaFundAsset(admin, opts.userId, isaFund);
   } catch (e) {
     console.log("isa fund asset skip", e);
   }

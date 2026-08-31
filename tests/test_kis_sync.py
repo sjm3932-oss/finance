@@ -15,7 +15,6 @@ from kis_client import (  # noqa: E402
     humanize_kis_error,
     is_rate_limited,
     is_trust_account_only,
-    isa_fund_nav,
     map_domestic_dividend,
     map_domestic_fill,
     map_domestic_holding,
@@ -263,8 +262,6 @@ def test_ip_and_auth_messages():
     assert is_rate_limited(200, {"msg_cd": "EGW00201"})
     assert not is_rate_limited(403, {"msg_cd": "EGW00204"})
     assert is_trust_account_only({"msg_cd": "APAC0489", "msg1": "위탁계좌인 경우만 사용가능합니다"})
-    assert isa_fund_nav(13_206_415, 1_000_213) == 12_206_202
-    assert isa_fund_nav(100, 200) == 0
 
 
 def test_merge_credentials_prefers_env():
