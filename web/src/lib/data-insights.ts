@@ -14,6 +14,7 @@ import {
   normalizeSeries,
 } from "@/lib/insights";
 import type { DailySnap, DebtRow } from "@/lib/portfolio";
+import { fmtUnitPrice } from "@/lib/money";
 
 async function safeSelect<T>(
   run: () => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
@@ -178,7 +179,7 @@ export async function loadRealizedRows(
       currency: ccy,
       pnl_krw: toKrwAmount(pnl, ccy, usdkrw),
       account_id: t.account_id,
-      detail: `매도 ${t.quantity ?? ""} @ ${t.price ?? ""}`,
+      detail: `매도 ${t.quantity ?? ""} @ ${fmtUnitPrice(t.price, t.currency)}`,
     });
   }
 

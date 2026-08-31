@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { loadPortfolioSnapshot } from "@/lib/data";
 import { loadTickerHistory } from "@/lib/data-insights";
 import { accountIdsForInstitution } from "@/lib/portfolio";
-import { fmtKrw } from "@/lib/money";
+import { fmtKrw, fmtUnitPrice } from "@/lib/money";
 import { NetWorthTrend } from "@/components/NetWorthTrend";
 
 export const dynamic = "force-dynamic";
@@ -82,7 +82,7 @@ export default async function HoldingDetailPage({
               <div>
                 <div className="text-sm font-extrabold">{r.institution}</div>
                 <div className="text-xs text-muted">
-                  {r.qty.toLocaleString("ko-KR")}주 · 평단 {r.avg}
+                  {r.qty.toLocaleString("ko-KR")}주 · 평단 {fmtUnitPrice(r.avg, r.ccy)}
                 </div>
               </div>
               <div className="text-sm font-extrabold">{fmtKrw(r.value_krw)}</div>
@@ -111,8 +111,9 @@ export default async function HoldingDetailPage({
                 {t.trade_type === "sell" ? "매도" : "매수"}
               </div>
               <div className="text-xs text-muted">
-                {String(t.trade_date).slice(0, 10)} · {String(t.quantity)} @{" "}
-                {String(t.price)}
+                {String(t.trade_date).slice(0, 10)} ·{" "}
+                {Number(t.quantity).toLocaleString("ko-KR")} @{" "}
+                {fmtUnitPrice(t.price as number, t.currency as string)}
               </div>
             </div>
             <div className="text-right text-xs font-bold text-muted">
