@@ -89,19 +89,31 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
 3. Put couple emails in `ALLOWED_EMAILS` and Streamlit Secrets
 4. Bookmark only `https://richddoong.streamlit.app`
 
-### Toss Securities sync (holdings only)
+### Toss Securities / 한국투자증권 sync
 
-한투 휴대폰 인증 대신 **토스증권 Open API**로 잔고를 가져옵니다. 주문은 하지 않습니다. 노트북 클론은 필요 없습니다.
+주문은 하지 않습니다. 노트북 클론은 필요 없습니다. 같은 고정 IP 워커가 토스와 한투를 모두 돌립니다.
+
+**토스**
 
 1. [토스증권 WTS](https://www.tossinvest.com) → **설정 → Open API**에서 키 발급 + 허용 IP
-2. Supabase Edge Secrets에 `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET` (이미 넣었으면 생략)
-3. **함수 배포 (클라우드만)**
-   - [Supabase Access Tokens](https://supabase.com/dashboard/account/tokens)에서 토큰 생성
-   - Cursor 환경 Secrets에 `SUPABASE_ACCESS_TOKEN`으로 넣으면 Cloud Agent가 `toss-sync`를 배포합니다
-   - 또는 GitHub → Settings → Secrets → Actions에 같은 이름을 넣고 [Actions → Deploy Edge Functions](https://github.com/sjm3932-oss/finance/actions)에서 Run workflow
+2. 워커 `/opt/toss-sync/env` 에 `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`
 
-앱 **더보기 → 기록하기 → 토스 동기화**가 Edge Function `toss-sync`를 호출합니다.
-고정 IP 워커가 켜져 있으면 매일 오전 6시·오후 4시(한국 시간)에 잔고와 체결을 다시 가져옵니다. 버튼은 지금 당장 동기화할 때 씁니다.
+**한투**
+
+1. [KIS Developers](https://apiportal.koreainvestment.com)에서 앱키 발급 (포털 가입 때 휴대폰 인증이 **한 번** 필요합니다. API 호출마다 인증하지는 않습니다)
+2. 워커 env에 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_CANO` (계좌 8자리). 상품코드는 기본 `01`. ISA 등이 있으면 `KIS_ACCOUNTS=12345678-01,12345678-22`
+3. 앱키에 IP 제한을 켠 경우, 워커 공인 IP를 KIS 포털에 등록
+
+**공통**
+
+1. **함수 배포 (클라우드만)**
+   - [Supabase Access Tokens](https://supabase.com/dashboard/account/tokens)에서 토큰 생성
+   - Cursor 환경 Secrets에 `SUPABASE_ACCESS_TOKEN`으로 넣으면 Cloud Agent가 `toss-sync` / `kis-sync`를 배포합니다
+   - 또는 GitHub → Settings → Secrets → Actions에 같은 이름을 넣고 [Actions → Deploy Edge Functions](https://github.com/sjm3932-oss/finance/actions)에서 Run workflow
+2. 워커를 최신 브랜치로 pull 한 뒤 `systemctl restart toss-sync-worker`
+
+앱 **기록하기 → 토스 동기화 / 한투 동기화**가 각각 Edge Function을 호출합니다.
+고정 IP 워커가 켜져 있으면 매일 오전 6시·오후 4시(한국 시간)에 잔고·체결(한투는 배당 포함)을 다시 가져옵니다. 버튼은 지금 당장 동기화할 때 씁니다.
 
 ### Run
 

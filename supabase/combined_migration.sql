@@ -2524,3 +2524,1075 @@ grant select, insert, update, delete on public.allocation_targets to authenticat
 grant select, insert, update, delete on public.wealth_alert_events to authenticated;
 
 
+-- >>> 0018_tighten_email_allowlist.sql
+-- 0018_tighten_email_allowlist.sql
+-- Empty allowed_emails must NOT mean "allow everyone".
+
+create or replace function public.email_is_allowed(p_email text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.allowed_emails ae
+    where lower(ae.email) = lower(trim(p_email))
+  );
+$$;
+
+revoke all on function public.email_is_allowed(text) from public;
+grant execute on function public.email_is_allowed(text) to authenticated;
+grant execute on function public.email_is_allowed(text) to service_role;
+
+comment on function public.email_is_allowed(text) is
+  'True only when email is present in public.allowed_emails. Empty table denies all.';
+
+
+-- >>> 0019_toss_sync_jobs.sql
+-- Queue for Toss holdings sync. Edge Functions only enqueue; a cloud VM
+-- with a static IP performs the Open API calls.
+
+create table if not exists public.toss_sync_jobs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  status text not null default 'queued'
+    check (status in ('queued', 'running', 'ok', 'error')),
+  error text,
+  result jsonb,
+  created_at timestamptz not null default now(),
+  started_at timestamptz,
+  finished_at timestamptz
+);
+
+create index if not exists toss_sync_jobs_queued_idx
+  on public.toss_sync_jobs (created_at)
+  where status = 'queued';
+
+create table if not exists public.toss_sync_worker (
+  id int primary key default 1 check (id = 1),
+  public_ip text,
+  seen_at timestamptz not null default now()
+);
+
+insert into public.toss_sync_worker (id)
+values (1)
+on conflict (id) do nothing;
+
+alter table public.toss_sync_jobs enable row level security;
+alter table public.toss_sync_worker enable row level security;
+
+drop policy if exists couple_select_toss_sync_jobs on public.toss_sync_jobs;
+create policy couple_select_toss_sync_jobs on public.toss_sync_jobs
+  for select to authenticated
+  using (public.is_couple_member());
+
+drop policy if exists couple_insert_toss_sync_jobs on public.toss_sync_jobs;
+create policy couple_insert_toss_sync_jobs on public.toss_sync_jobs
+  for insert to authenticated
+  with check (user_id = auth.uid() and public.is_couple_member());
+
+drop policy if exists couple_select_toss_sync_worker on public.toss_sync_worker;
+create policy couple_select_toss_sync_worker on public.toss_sync_worker
+  for select to authenticated
+  using (public.is_couple_member());
+
+create or replace function public.claim_toss_sync_job()
+returns public.toss_sync_jobs
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  job public.toss_sync_jobs;
+begin
+  select * into job
+  from public.toss_sync_jobs
+  where status = 'queued'
+  order by created_at
+  for update skip locked
+  limit 1;
+
+  if not found then
+    return null;
+  end if;
+
+  update public.toss_sync_jobs
+  set status = 'running', started_at = now()
+  where id = job.id
+  returning * into job;
+
+  return job;
+end;
+$$;
+
+revoke all on function public.claim_toss_sync_job() from public;
+grant execute on function public.claim_toss_sync_job() to service_role;
+
+create or replace function public.touch_toss_sync_worker(p_ip text)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  insert into public.toss_sync_worker (id, public_ip, seen_at)
+  values (1, p_ip, now())
+  on conflict (id) do update
+    set public_ip = excluded.public_ip,
+        seen_at = excluded.seen_at;
+$$;
+
+revoke all on function public.touch_toss_sync_worker(text) from public;
+grant execute on function public.touch_toss_sync_worker(text) to service_role;
+
+
+-- >>> 0020_ocr_seed_market_prices.sql
+-- 0020_ocr_seed_market_prices.sql
+-- OCR holdings commit also seeds market_prices (last_price or avg_price)
+-- so 홈 평가액 is not ₩0 until the hourly refresh runs.
+-- Then kick refresh-prices (best-effort) for live quotes.
+
+create or replace function public.commit_ocr_staging()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_account_id uuid;
+  v_trade jsonb;
+  v_holding jsonb;
+  v_dividend jsonb;
+  v_debt jsonb;
+  v_pay jsonb;
+  v_created_by uuid;
+  v_has_portfolio boolean;
+  v_has_debt boolean;
+  v_debt_id uuid;
+  v_lender text;
+  v_balance numeric;
+  v_orig numeric;
+  v_rate numeric;
+  v_old_rate numeric;
+  v_pay_amt numeric;
+  v_interest numeric;
+  v_principal numeric;
+  v_bal_before numeric;
+  v_bal_after numeric;
+  v_rate_used numeric;
+  v_px numeric;
+begin
+  if tg_op <> 'UPDATE' then
+    return new;
+  end if;
+
+  if new.status is distinct from 'approved' then
+    return new;
+  end if;
+
+  if old.status is not distinct from 'approved' then
+    return new;
+  end if;
+
+  v_created_by := coalesce(new.reviewed_by, new.uploaded_by);
+
+  v_has_portfolio :=
+    jsonb_typeof(coalesce(new.parsed_json->'trades', '[]'::jsonb)) = 'array'
+      and jsonb_array_length(coalesce(new.parsed_json->'trades', '[]'::jsonb)) > 0
+    or jsonb_typeof(coalesce(new.parsed_json->'dividends', '[]'::jsonb)) = 'array'
+      and jsonb_array_length(coalesce(new.parsed_json->'dividends', '[]'::jsonb)) > 0
+    or jsonb_typeof(coalesce(new.parsed_json->'holdings_snapshot', '[]'::jsonb)) = 'array'
+      and jsonb_array_length(coalesce(new.parsed_json->'holdings_snapshot', '[]'::jsonb)) > 0;
+
+  v_has_debt :=
+    jsonb_typeof(coalesce(new.parsed_json->'debts', '[]'::jsonb)) = 'array'
+      and jsonb_array_length(coalesce(new.parsed_json->'debts', '[]'::jsonb)) > 0
+    or jsonb_typeof(coalesce(new.parsed_json->'debt_payments', '[]'::jsonb)) = 'array'
+      and jsonb_array_length(coalesce(new.parsed_json->'debt_payments', '[]'::jsonb)) > 0;
+
+  v_account_id := nullif(new.parsed_json->>'account_id', '')::uuid;
+
+  if v_has_portfolio then
+    if v_account_id is null then
+      raise exception 'ocr_staging.parsed_json.account_id is required for portfolio items';
+    end if;
+    if not exists (select 1 from public.accounts a where a.id = v_account_id) then
+      raise exception 'account_id % not found', v_account_id;
+    end if;
+  elsif not v_has_debt then
+    raise exception 'nothing to commit: empty trades/dividends/holdings/debts/debt_payments';
+  end if;
+
+  -- Trades
+  if v_account_id is not null
+     and jsonb_typeof(coalesce(new.parsed_json->'trades', '[]'::jsonb)) = 'array' then
+    for v_trade in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'trades', '[]'::jsonb))
+    loop
+      insert into public.trades (
+        account_id, trade_date, ticker, trade_type, price, quantity,
+        fee, currency, reason, created_by, adjust_holdings
+      ) values (
+        v_account_id,
+        coalesce((v_trade->>'trade_date')::date, current_date),
+        v_trade->>'ticker',
+        v_trade->>'trade_type',
+        coalesce((v_trade->>'price')::numeric, 0),
+        coalesce((v_trade->>'quantity')::numeric, 0),
+        coalesce((v_trade->>'fee')::numeric, 0),
+        coalesce(nullif(v_trade->>'currency', ''), 'USD'),
+        nullif(v_trade->>'reason', ''),
+        v_created_by,
+        false
+      );
+    end loop;
+  end if;
+
+  -- Dividends
+  if v_account_id is not null
+     and jsonb_typeof(coalesce(new.parsed_json->'dividends', '[]'::jsonb)) = 'array' then
+    for v_dividend in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'dividends', '[]'::jsonb))
+    loop
+      insert into public.dividends (
+        user_id, account_id, ticker, name, pay_date, amount, currency, memo
+      ) values (
+        v_created_by,
+        v_account_id,
+        v_dividend->>'ticker',
+        coalesce(nullif(v_dividend->>'name', ''), v_dividend->>'ticker'),
+        coalesce((v_dividend->>'pay_date')::date, current_date),
+        coalesce((v_dividend->>'amount')::numeric, 0),
+        coalesce(nullif(v_dividend->>'currency', ''), 'USD'),
+        nullif(v_dividend->>'memo', '')
+      );
+    end loop;
+  end if;
+
+  -- Holdings snapshot upsert
+  if v_account_id is not null
+     and jsonb_typeof(coalesce(new.parsed_json->'holdings_snapshot', '[]'::jsonb)) = 'array' then
+    for v_holding in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'holdings_snapshot', '[]'::jsonb))
+    loop
+      insert into public.holdings (
+        account_id, ticker, name, quantity, avg_price, currency, updated_at
+      ) values (
+        v_account_id,
+        v_holding->>'ticker',
+        v_holding->>'name',
+        coalesce((v_holding->>'quantity')::numeric, 0),
+        coalesce((v_holding->>'avg_price')::numeric, 0),
+        coalesce(v_holding->>'currency', 'KRW'),
+        now()
+      )
+      on conflict (account_id, ticker) do update
+      set
+        name = excluded.name,
+        quantity = excluded.quantity,
+        avg_price = excluded.avg_price,
+        currency = excluded.currency,
+        updated_at = now();
+
+      v_px := coalesce(
+        nullif(v_holding->>'last_price', '')::numeric,
+        nullif(v_holding->>'current_price', '')::numeric,
+        nullif(v_holding->>'avg_price', '')::numeric
+      );
+      if nullif(v_holding->>'ticker', '') is not null
+         and v_px is not null and v_px > 0 then
+        insert into public.market_prices (ticker, price, currency, updated_at)
+        values (
+          v_holding->>'ticker',
+          v_px,
+          coalesce(nullif(v_holding->>'currency', ''), 'KRW'),
+          now()
+        )
+        on conflict (ticker) do update
+        set
+          price = excluded.price,
+          currency = excluded.currency,
+          updated_at = now();
+      end if;
+    end loop;
+  end if;
+
+  -- Debt payments first (history + 잔금 via trigger)
+  if jsonb_typeof(coalesce(new.parsed_json->'debt_payments', '[]'::jsonb)) = 'array' then
+    for v_pay in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'debt_payments', '[]'::jsonb))
+    loop
+      v_lender := nullif(trim(coalesce(v_pay->>'lender', '')), '');
+      v_debt_id := nullif(v_pay->>'debt_id', '')::uuid;
+
+      if v_debt_id is null and v_lender is not null then
+        select d.id into v_debt_id
+        from public.debts d
+        where d.lender ilike v_lender
+           or v_lender ilike '%' || d.lender || '%'
+           or d.lender ilike '%' || v_lender || '%'
+        order by
+          case when d.lender = v_lender then 0 else 1 end,
+          d.created_at desc
+        limit 1;
+      end if;
+
+      if v_debt_id is null then
+        raise exception 'debt_payment lender/debt_id not matched: %', coalesce(v_lender, '(empty)');
+      end if;
+
+      select d.principal, d.interest_rate
+        into v_bal_before, v_rate_used
+      from public.debts d
+      where d.id = v_debt_id;
+
+      v_pay_amt := coalesce((v_pay->>'amount')::numeric, 0);
+      if v_pay_amt <= 0 then
+        continue;
+      end if;
+
+      v_rate_used := coalesce(nullif(v_pay->>'rate', '')::numeric, v_rate_used, 0);
+      v_interest := nullif(v_pay->>'interest_portion', '')::numeric;
+      v_principal := nullif(v_pay->>'principal_portion', '')::numeric;
+
+      if v_interest is null or v_principal is null then
+        v_interest := round(greatest(v_bal_before, 0) * (v_rate_used / 100.0) / 12.0);
+        if v_pay_amt <= v_interest then
+          v_interest := v_pay_amt;
+          v_principal := 0;
+        else
+          v_principal := v_pay_amt - v_interest;
+          if v_principal > v_bal_before then
+            v_principal := v_bal_before;
+            v_interest := v_pay_amt - v_principal;
+          end if;
+        end if;
+      end if;
+
+      v_bal_after := coalesce(
+        nullif(v_pay->>'balance_after', '')::numeric,
+        greatest(v_bal_before - coalesce(v_principal, 0), 0)
+      );
+
+      insert into public.debt_transactions (
+        debt_id, user_id, tx_date, tx_type, amount,
+        interest_portion, principal_portion,
+        balance_before, balance_after, rate_used, memo
+      ) values (
+        v_debt_id,
+        v_created_by,
+        coalesce((v_pay->>'pay_date')::date, current_date),
+        'payment',
+        v_pay_amt,
+        v_interest,
+        v_principal,
+        v_bal_before,
+        v_bal_after,
+        v_rate_used,
+        coalesce(nullif(v_pay->>'memo', ''), 'OCR 원리금 납부')
+      );
+
+      -- If statement shows ending balance, sync 잔금 to it (authoritative)
+      if nullif(v_pay->>'balance_after', '') is not null then
+        update public.debts
+          set principal = greatest((v_pay->>'balance_after')::numeric, 0)
+          where id = v_debt_id;
+      end if;
+    end loop;
+  end if;
+
+  -- Debt balance / rate snapshot (authoritative 잔금 when provided)
+  if jsonb_typeof(coalesce(new.parsed_json->'debts', '[]'::jsonb)) = 'array' then
+    for v_debt in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'debts', '[]'::jsonb))
+    loop
+      v_lender := nullif(trim(coalesce(v_debt->>'lender', '')), '');
+      if v_lender is null then
+        continue;
+      end if;
+
+      v_balance := coalesce((v_debt->>'balance')::numeric, (v_debt->>'principal')::numeric);
+      if v_balance is null then
+        continue;
+      end if;
+
+      v_orig := coalesce(
+        nullif(v_debt->>'original_principal', '')::numeric,
+        v_balance
+      );
+      v_rate := coalesce(nullif(v_debt->>'interest_rate', '')::numeric, 0);
+
+      select d.id, d.interest_rate into v_debt_id, v_old_rate
+      from public.debts d
+      where d.lender ilike v_lender
+         or v_lender ilike '%' || d.lender || '%'
+         or d.lender ilike '%' || v_lender || '%'
+      order by
+        case when d.lender = v_lender then 0 else 1 end,
+        d.created_at desc
+      limit 1;
+
+      if v_debt_id is null then
+        insert into public.debts (
+          user_id, lender, debt_kind, principal, original_principal,
+          interest_rate, due_date, memo
+        ) values (
+          v_created_by,
+          v_lender,
+          coalesce(nullif(v_debt->>'debt_kind', ''), 'other'),
+          greatest(v_balance, 0),
+          greatest(v_orig, 0),
+          v_rate,
+          nullif(v_debt->>'due_date', '')::date,
+          coalesce(nullif(v_debt->>'memo', ''), 'OCR 등록')
+        )
+        returning id into v_debt_id;
+
+        insert into public.debt_rate_history (
+          debt_id, user_id, effective_date, interest_rate, memo
+        ) values (
+          v_debt_id, v_created_by, current_date, v_rate, 'OCR 등록 이자율'
+        );
+      else
+        update public.debts
+        set
+          principal = greatest(v_balance, 0),
+          interest_rate = case
+            when nullif(v_debt->>'interest_rate', '') is not null then v_rate
+            else interest_rate
+          end,
+          debt_kind = coalesce(nullif(v_debt->>'debt_kind', ''), debt_kind),
+          due_date = coalesce(nullif(v_debt->>'due_date', '')::date, due_date),
+          original_principal = coalesce(original_principal, greatest(v_orig, 0)),
+          memo = coalesce(nullif(v_debt->>'memo', ''), memo)
+        where id = v_debt_id;
+
+        if nullif(v_debt->>'interest_rate', '') is not null
+           and v_old_rate is distinct from v_rate then
+          insert into public.debt_rate_history (
+            debt_id, user_id, effective_date, interest_rate, memo
+          ) values (
+            v_debt_id, v_created_by, current_date, v_rate, 'OCR 이자율 갱신'
+          );
+        end if;
+      end if;
+    end loop;
+  end if;
+
+  new.reviewed_at := coalesce(new.reviewed_at, now());
+  begin
+    perform public.invoke_edge_function('refresh-prices', '{}'::jsonb);
+  exception when others then
+    null;
+  end;
+  return new;
+end;
+$$;
+
+
+-- >>> 0021_account_owner_hierarchy.sql
+-- Parent/child home filters: 소유 > 금융기관.
+-- Existing accounts belong to 정명 (mine). New accounts default to 정명.
+-- Safe if 0017 already added ownership (default joint): we re-tag and change default.
+
+alter table public.accounts
+  add column if not exists ownership text not null default 'mine';
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'accounts_ownership_check'
+  ) then
+    alter table public.accounts
+      add constraint accounts_ownership_check
+      check (ownership in ('joint', 'mine', 'spouse'));
+  end if;
+end $$;
+
+update public.accounts
+set ownership = 'mine'
+where ownership is distinct from 'mine';
+
+alter table public.accounts
+  alter column ownership set default 'mine';
+
+alter table public.accounts
+  add column if not exists cash_balance numeric not null default 0;
+
+comment on column public.accounts.ownership is 'joint | mine | spouse';
+comment on column public.accounts.cash_balance is 'Cash/예수금 in account.currency';
+
+
+-- >>> 0022_other_assets.sql
+-- other_assets: 부동산·연금·보험 등 (계좌가 아님)
+-- 0017 already defines this; create if missing so 기록하기 → 순자산 추가가 동작한다.
+
+create table if not exists public.other_assets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  name text not null,
+  asset_kind text not null
+    check (asset_kind in (
+      'real_estate', 'pension', 'insurance', 'deposit', 'crypto', 'other'
+    )),
+  value_krw numeric not null default 0,
+  ownership text not null default 'joint'
+    check (ownership in ('joint', 'mine', 'spouse')),
+  memo text,
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_other_assets_user on public.other_assets(user_id);
+
+alter table public.other_assets enable row level security;
+
+drop policy if exists couple_all_other_assets on public.other_assets;
+create policy couple_all_other_assets on public.other_assets
+  for all to authenticated
+  using (public.is_couple_member())
+  with check (
+    public.is_couple_member()
+    and user_id in (select id from public.users)
+  );
+
+grant select, insert, update, delete on public.other_assets to authenticated;
+grant select, insert, update, delete on public.other_assets to service_role;
+
+
+-- >>> 0023_account_memo.sql
+-- Optional memo on brokerage/bank/loan accounts (same idea as other_assets.memo).
+
+alter table public.accounts
+  add column if not exists memo text;
+
+comment on column public.accounts.memo is 'Optional free-text note (account number last digits, ISA, etc.)';
+
+
+-- >>> 0024_other_asset_cost.sql
+-- Purchase cost so 부동산·기타자산 can show return vs current 시세 (value_krw).
+
+alter table public.other_assets
+  add column if not exists cost_krw numeric;
+
+comment on column public.other_assets.cost_krw is '매수가(원). Null = unknown; 시세는 value_krw';
+comment on column public.other_assets.value_krw is '현재 시세/평가액(원)';
+
+
+-- >>> 0025_ocr_trades_adjust_holdings.sql
+-- OCR 매수·매도 체결을 보유 수량·평균단가·실현손익에 반영한다.
+-- 같은 승인에 holdings_snapshot 이 있으면 스냅샷이 수량의 기준이라 체결은 원장만 남긴다.
+-- 체결만 올린 경우(예: 퇴직연금 체결내역)는 보유를 가감하고, 매도 시 realized_pnl 을 계산한다.
+
+create or replace function public.commit_ocr_staging()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_account_id uuid;
+  v_trade jsonb;
+  v_holding jsonb;
+  v_dividend jsonb;
+  v_debt jsonb;
+  v_pay jsonb;
+  v_created_by uuid;
+  v_has_portfolio boolean;
+  v_has_debt boolean;
+  v_debt_id uuid;
+  v_lender text;
+  v_balance numeric;
+  v_orig numeric;
+  v_rate numeric;
+  v_old_rate numeric;
+  v_pay_amt numeric;
+  v_interest numeric;
+  v_principal numeric;
+  v_bal_before numeric;
+  v_bal_after numeric;
+  v_rate_used numeric;
+  v_px numeric;
+  v_has_holdings_snap boolean;
+begin
+  if tg_op <> 'UPDATE' then
+    return new;
+  end if;
+
+  if new.status is distinct from 'approved' then
+    return new;
+  end if;
+
+  if old.status is not distinct from 'approved' then
+    return new;
+  end if;
+
+  v_created_by := coalesce(new.reviewed_by, new.uploaded_by);
+
+  v_has_holdings_snap :=
+    jsonb_typeof(coalesce(new.parsed_json->'holdings_snapshot', '[]'::jsonb)) = 'array'
+    and jsonb_array_length(coalesce(new.parsed_json->'holdings_snapshot', '[]'::jsonb)) > 0;
+
+  v_has_portfolio :=
+    jsonb_typeof(coalesce(new.parsed_json->'trades', '[]'::jsonb)) = 'array'
+      and jsonb_array_length(coalesce(new.parsed_json->'trades', '[]'::jsonb)) > 0
+    or jsonb_typeof(coalesce(new.parsed_json->'dividends', '[]'::jsonb)) = 'array'
+      and jsonb_array_length(coalesce(new.parsed_json->'dividends', '[]'::jsonb)) > 0
+    or jsonb_typeof(coalesce(new.parsed_json->'holdings_snapshot', '[]'::jsonb)) = 'array'
+      and jsonb_array_length(coalesce(new.parsed_json->'holdings_snapshot', '[]'::jsonb)) > 0;
+
+  v_has_debt :=
+    jsonb_typeof(coalesce(new.parsed_json->'debts', '[]'::jsonb)) = 'array'
+      and jsonb_array_length(coalesce(new.parsed_json->'debts', '[]'::jsonb)) > 0
+    or jsonb_typeof(coalesce(new.parsed_json->'debt_payments', '[]'::jsonb)) = 'array'
+      and jsonb_array_length(coalesce(new.parsed_json->'debt_payments', '[]'::jsonb)) > 0;
+
+  v_account_id := nullif(new.parsed_json->>'account_id', '')::uuid;
+
+  if v_has_portfolio then
+    if v_account_id is null then
+      raise exception 'ocr_staging.parsed_json.account_id is required for portfolio items';
+    end if;
+    if not exists (select 1 from public.accounts a where a.id = v_account_id) then
+      raise exception 'account_id % not found', v_account_id;
+    end if;
+  elsif not v_has_debt then
+    raise exception 'nothing to commit: empty trades/dividends/holdings/debts/debt_payments';
+  end if;
+
+  -- Trades
+  if v_account_id is not null
+     and jsonb_typeof(coalesce(new.parsed_json->'trades', '[]'::jsonb)) = 'array' then
+    for v_trade in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'trades', '[]'::jsonb))
+    loop
+      insert into public.trades (
+        account_id, trade_date, ticker, trade_type, price, quantity,
+        fee, currency, reason, created_by, adjust_holdings
+      ) values (
+        v_account_id,
+        coalesce((v_trade->>'trade_date')::date, current_date),
+        v_trade->>'ticker',
+        v_trade->>'trade_type',
+        coalesce((v_trade->>'price')::numeric, 0),
+        coalesce((v_trade->>'quantity')::numeric, 0),
+        coalesce((v_trade->>'fee')::numeric, 0),
+        coalesce(nullif(v_trade->>'currency', ''), 'USD'),
+        nullif(v_trade->>'reason', ''),
+        v_created_by,
+        not v_has_holdings_snap
+      );
+    end loop;
+  end if;
+
+  -- Dividends
+  if v_account_id is not null
+     and jsonb_typeof(coalesce(new.parsed_json->'dividends', '[]'::jsonb)) = 'array' then
+    for v_dividend in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'dividends', '[]'::jsonb))
+    loop
+      insert into public.dividends (
+        user_id, account_id, ticker, name, pay_date, amount, currency, memo
+      ) values (
+        v_created_by,
+        v_account_id,
+        v_dividend->>'ticker',
+        coalesce(nullif(v_dividend->>'name', ''), v_dividend->>'ticker'),
+        coalesce((v_dividend->>'pay_date')::date, current_date),
+        coalesce((v_dividend->>'amount')::numeric, 0),
+        coalesce(nullif(v_dividend->>'currency', ''), 'USD'),
+        nullif(v_dividend->>'memo', '')
+      );
+    end loop;
+  end if;
+
+  -- Holdings snapshot upsert
+  if v_account_id is not null
+     and jsonb_typeof(coalesce(new.parsed_json->'holdings_snapshot', '[]'::jsonb)) = 'array' then
+    for v_holding in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'holdings_snapshot', '[]'::jsonb))
+    loop
+      insert into public.holdings (
+        account_id, ticker, name, quantity, avg_price, currency, updated_at
+      ) values (
+        v_account_id,
+        v_holding->>'ticker',
+        v_holding->>'name',
+        coalesce((v_holding->>'quantity')::numeric, 0),
+        coalesce((v_holding->>'avg_price')::numeric, 0),
+        coalesce(v_holding->>'currency', 'KRW'),
+        now()
+      )
+      on conflict (account_id, ticker) do update
+      set
+        name = excluded.name,
+        quantity = excluded.quantity,
+        avg_price = excluded.avg_price,
+        currency = excluded.currency,
+        updated_at = now();
+
+      v_px := coalesce(
+        nullif(v_holding->>'last_price', '')::numeric,
+        nullif(v_holding->>'current_price', '')::numeric,
+        nullif(v_holding->>'avg_price', '')::numeric
+      );
+      if nullif(v_holding->>'ticker', '') is not null
+         and v_px is not null and v_px > 0 then
+        insert into public.market_prices (ticker, price, currency, updated_at)
+        values (
+          v_holding->>'ticker',
+          v_px,
+          coalesce(nullif(v_holding->>'currency', ''), 'KRW'),
+          now()
+        )
+        on conflict (ticker) do update
+        set
+          price = excluded.price,
+          currency = excluded.currency,
+          updated_at = now();
+      end if;
+    end loop;
+  end if;
+
+  -- Debt payments first (history + 잔금 via trigger)
+  if jsonb_typeof(coalesce(new.parsed_json->'debt_payments', '[]'::jsonb)) = 'array' then
+    for v_pay in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'debt_payments', '[]'::jsonb))
+    loop
+      v_lender := nullif(trim(coalesce(v_pay->>'lender', '')), '');
+      v_debt_id := nullif(v_pay->>'debt_id', '')::uuid;
+
+      if v_debt_id is null and v_lender is not null then
+        select d.id into v_debt_id
+        from public.debts d
+        where d.lender ilike v_lender
+           or v_lender ilike '%' || d.lender || '%'
+           or d.lender ilike '%' || v_lender || '%'
+        order by
+          case when d.lender = v_lender then 0 else 1 end,
+          d.created_at desc
+        limit 1;
+      end if;
+
+      if v_debt_id is null then
+        raise exception 'debt_payment lender/debt_id not matched: %', coalesce(v_lender, '(empty)');
+      end if;
+
+      select d.principal, d.interest_rate
+        into v_bal_before, v_rate_used
+      from public.debts d
+      where d.id = v_debt_id;
+
+      v_pay_amt := coalesce((v_pay->>'amount')::numeric, 0);
+      if v_pay_amt <= 0 then
+        continue;
+      end if;
+
+      v_rate_used := coalesce(nullif(v_pay->>'rate', '')::numeric, v_rate_used, 0);
+      v_interest := nullif(v_pay->>'interest_portion', '')::numeric;
+      v_principal := nullif(v_pay->>'principal_portion', '')::numeric;
+
+      if v_interest is null or v_principal is null then
+        v_interest := round(greatest(v_bal_before, 0) * (v_rate_used / 100.0) / 12.0);
+        if v_pay_amt <= v_interest then
+          v_interest := v_pay_amt;
+          v_principal := 0;
+        else
+          v_principal := v_pay_amt - v_interest;
+          if v_principal > v_bal_before then
+            v_principal := v_bal_before;
+            v_interest := v_pay_amt - v_principal;
+          end if;
+        end if;
+      end if;
+
+      v_bal_after := coalesce(
+        nullif(v_pay->>'balance_after', '')::numeric,
+        greatest(v_bal_before - coalesce(v_principal, 0), 0)
+      );
+
+      insert into public.debt_transactions (
+        debt_id, user_id, tx_date, tx_type, amount,
+        interest_portion, principal_portion,
+        balance_before, balance_after, rate_used, memo
+      ) values (
+        v_debt_id,
+        v_created_by,
+        coalesce((v_pay->>'pay_date')::date, current_date),
+        'payment',
+        v_pay_amt,
+        v_interest,
+        v_principal,
+        v_bal_before,
+        v_bal_after,
+        v_rate_used,
+        coalesce(nullif(v_pay->>'memo', ''), 'OCR 원리금 납부')
+      );
+
+      -- If statement shows ending balance, sync 잔금 to it (authoritative)
+      if nullif(v_pay->>'balance_after', '') is not null then
+        update public.debts
+          set principal = greatest((v_pay->>'balance_after')::numeric, 0)
+          where id = v_debt_id;
+      end if;
+    end loop;
+  end if;
+
+  -- Debt balance / rate snapshot (authoritative 잔금 when provided)
+  if jsonb_typeof(coalesce(new.parsed_json->'debts', '[]'::jsonb)) = 'array' then
+    for v_debt in
+      select value from jsonb_array_elements(coalesce(new.parsed_json->'debts', '[]'::jsonb))
+    loop
+      v_lender := nullif(trim(coalesce(v_debt->>'lender', '')), '');
+      if v_lender is null then
+        continue;
+      end if;
+
+      v_balance := coalesce((v_debt->>'balance')::numeric, (v_debt->>'principal')::numeric);
+      if v_balance is null then
+        continue;
+      end if;
+
+      v_orig := coalesce(
+        nullif(v_debt->>'original_principal', '')::numeric,
+        v_balance
+      );
+      v_rate := coalesce(nullif(v_debt->>'interest_rate', '')::numeric, 0);
+
+      select d.id, d.interest_rate into v_debt_id, v_old_rate
+      from public.debts d
+      where d.lender ilike v_lender
+         or v_lender ilike '%' || d.lender || '%'
+         or d.lender ilike '%' || v_lender || '%'
+      order by
+        case when d.lender = v_lender then 0 else 1 end,
+        d.created_at desc
+      limit 1;
+
+      if v_debt_id is null then
+        insert into public.debts (
+          user_id, lender, debt_kind, principal, original_principal,
+          interest_rate, due_date, memo
+        ) values (
+          v_created_by,
+          v_lender,
+          coalesce(nullif(v_debt->>'debt_kind', ''), 'other'),
+          greatest(v_balance, 0),
+          greatest(v_orig, 0),
+          v_rate,
+          nullif(v_debt->>'due_date', '')::date,
+          coalesce(nullif(v_debt->>'memo', ''), 'OCR 등록')
+        )
+        returning id into v_debt_id;
+
+        insert into public.debt_rate_history (
+          debt_id, user_id, effective_date, interest_rate, memo
+        ) values (
+          v_debt_id, v_created_by, current_date, v_rate, 'OCR 등록 이자율'
+        );
+      else
+        update public.debts
+        set
+          principal = greatest(v_balance, 0),
+          interest_rate = case
+            when nullif(v_debt->>'interest_rate', '') is not null then v_rate
+            else interest_rate
+          end,
+          debt_kind = coalesce(nullif(v_debt->>'debt_kind', ''), debt_kind),
+          due_date = coalesce(nullif(v_debt->>'due_date', '')::date, due_date),
+          original_principal = coalesce(original_principal, greatest(v_orig, 0)),
+          memo = coalesce(nullif(v_debt->>'memo', ''), memo)
+        where id = v_debt_id;
+
+        if nullif(v_debt->>'interest_rate', '') is not null
+           and v_old_rate is distinct from v_rate then
+          insert into public.debt_rate_history (
+            debt_id, user_id, effective_date, interest_rate, memo
+          ) values (
+            v_debt_id, v_created_by, current_date, v_rate, 'OCR 이자율 갱신'
+          );
+        end if;
+      end if;
+    end loop;
+  end if;
+
+  new.reviewed_at := coalesce(new.reviewed_at, now());
+  begin
+    perform public.invoke_edge_function('refresh-prices', '{}'::jsonb);
+  exception when others then
+    null;
+  end;
+  return new;
+end;
+$$;
+
+-- 이미 넣은 체결(adjust_holdings=false)을 보유에 반영
+do $$
+declare
+  t record;
+  h public.holdings%rowtype;
+  new_qty numeric;
+  new_avg numeric;
+  pnl numeric;
+begin
+  for t in
+    select *
+    from public.trades
+    where coalesce(adjust_holdings, true) is not true
+    order by trade_date, created_at, id
+  loop
+    select * into h
+    from public.holdings
+    where account_id = t.account_id and ticker = t.ticker
+    for update;
+
+    if t.trade_type = 'buy' then
+      if not found then
+        insert into public.holdings (
+          account_id, ticker, name, quantity, avg_price, currency, updated_at
+        ) values (
+          t.account_id, t.ticker, t.ticker, t.quantity, t.price,
+          coalesce(t.currency, 'KRW'), now()
+        );
+        pnl := 0;
+      else
+        new_qty := h.quantity + t.quantity;
+        if new_qty > 0 then
+          new_avg := (h.quantity * h.avg_price + t.quantity * t.price) / new_qty;
+        else
+          new_avg := t.price;
+        end if;
+        update public.holdings
+          set quantity = new_qty,
+              avg_price = new_avg,
+              currency = coalesce(t.currency, h.currency),
+              updated_at = now()
+          where id = h.id;
+        pnl := coalesce(t.realized_pnl, 0);
+      end if;
+
+    elsif t.trade_type = 'sell' then
+      if not found then
+        raise exception 'Cannot apply sell %: no holding in account', t.ticker;
+      end if;
+      if h.quantity < t.quantity then
+        raise exception 'Cannot apply sell %: qty % > holding %',
+          t.ticker, t.quantity, h.quantity;
+      end if;
+      pnl := (t.price - h.avg_price) * t.quantity - coalesce(t.fee, 0);
+      new_qty := h.quantity - t.quantity;
+      if new_qty = 0 then
+        delete from public.holdings where id = h.id;
+      else
+        update public.holdings
+          set quantity = new_qty, updated_at = now()
+          where id = h.id;
+      end if;
+    else
+      pnl := t.realized_pnl;
+    end if;
+
+    update public.trades
+      set adjust_holdings = true,
+          realized_pnl = pnl
+      where id = t.id;
+  end loop;
+end $$;
+
+
+-- >>> 0026_toss_trade_external_id.sql
+-- Toss 체결을 trades.external_id 로 중복 없이 저장한다.
+
+alter table public.trades
+  add column if not exists external_id text;
+
+create unique index if not exists idx_trades_account_external
+  on public.trades (account_id, external_id)
+  where external_id is not null;
+
+comment on column public.trades.external_id is
+  'Broker order id (Toss orderId). Used to skip already-synced fills.';
+
+
+-- >>> 0027_kis_sync.sql
+-- Queue for Korea Investment (한투) holdings / trades / dividends sync.
+-- Edge Functions only enqueue; the same static-IP cloud worker as Toss
+-- (toss_sync_worker heartbeat) performs the Open API calls.
+
+create table if not exists public.kis_sync_jobs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  status text not null default 'queued'
+    check (status in ('queued', 'running', 'ok', 'error')),
+  error text,
+  result jsonb,
+  created_at timestamptz not null default now(),
+  started_at timestamptz,
+  finished_at timestamptz
+);
+
+create index if not exists kis_sync_jobs_queued_idx
+  on public.kis_sync_jobs (created_at)
+  where status = 'queued';
+
+alter table public.kis_sync_jobs enable row level security;
+
+drop policy if exists couple_select_kis_sync_jobs on public.kis_sync_jobs;
+create policy couple_select_kis_sync_jobs on public.kis_sync_jobs
+  for select to authenticated
+  using (public.is_couple_member());
+
+drop policy if exists couple_insert_kis_sync_jobs on public.kis_sync_jobs;
+create policy couple_insert_kis_sync_jobs on public.kis_sync_jobs
+  for insert to authenticated
+  with check (user_id = auth.uid() and public.is_couple_member());
+
+create or replace function public.claim_kis_sync_job()
+returns public.kis_sync_jobs
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  job public.kis_sync_jobs;
+begin
+  select * into job
+  from public.kis_sync_jobs
+  where status = 'queued'
+  order by created_at
+  for update skip locked
+  limit 1;
+
+  if not found then
+    return null;
+  end if;
+
+  update public.kis_sync_jobs
+  set status = 'running', started_at = now()
+  where id = job.id
+  returning * into job;
+
+  return job;
+end;
+$$;
+
+revoke all on function public.claim_kis_sync_job() from public;
+grant execute on function public.claim_kis_sync_job() to service_role;
+
+-- Broker-sourced dividends: skip duplicates via external_id (한투 권리/거래 키).
+alter table public.dividends
+  add column if not exists external_id text;
+
+create unique index if not exists idx_dividends_account_external
+  on public.dividends (account_id, external_id)
+  where external_id is not null;
+
+comment on column public.dividends.external_id is
+  'Broker event id (KIS right/trans). Used to skip already-synced dividends.';
+
+comment on column public.trades.external_id is
+  'Broker order id (Toss orderId or KIS odno). Used to skip already-synced fills.';
+
+

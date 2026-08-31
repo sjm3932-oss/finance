@@ -29,5 +29,5 @@ jobs:
             exit 1
           fi
 
-      - name: Deploy toss-sync
-        run: supabase functions deploy toss-sync --project-ref "$PROJECT_REF"
+      - name: Deploy kis-sync
+        run: supabase functions deploy kis-sync --project-ref "$PROJECT_REF"
