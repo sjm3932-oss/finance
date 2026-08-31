@@ -54,6 +54,7 @@ Deno.serve(async (req) => {
       return json({
         ok: true,
         mode: "edge",
+        worker_online: true,
         default_accounts: DEFAULT_ACCOUNTS,
         ...(await settingsStatus()),
       });
@@ -152,6 +153,7 @@ Deno.serve(async (req) => {
         ok: true,
         ran: true,
         job_id: job.id,
+        worker_online: true,
         ...result,
       });
     } catch (e) {
