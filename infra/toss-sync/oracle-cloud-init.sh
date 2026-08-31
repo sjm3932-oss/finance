@@ -41,6 +41,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 TOSS_CLIENT_ID=
 TOSS_CLIENT_SECRET=
 TOSS_AUTO_SYNC_SECONDS=21600
+TOSS_TRADE_LOOKBACK_DAYS=365
 ENV
 chmod 600 /opt/toss-sync/env.example
 if [ ! -f /opt/toss-sync/env ]; then

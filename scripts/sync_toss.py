@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Sync Toss Securities holdings into the couple DB (no orders).
+"""Sync Toss Securities holdings and filled orders into the couple DB.
+
+Does not place orders. Account trade history comes from GET /api/v1/orders
+(not GET /api/v1/trades, which is market ticks).
 
 Prereqs:
   1. tossinvest.com WTS → 설정 → Open API → client_id / client_secret 발급
@@ -19,9 +22,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from supabase import create_client
@@ -36,10 +40,13 @@ from toss_client import (  # noqa: E402
     holdings_by_currency,
     humanize_toss_error,
     local_account_key,
+    map_filled_order,
     to_number,
 )
 
 USER_EMAIL = os.getenv("CLEAR_USER_EMAIL", "sjm3932@gmail.com")
+TRADE_LOOKBACK_DAYS = max(1, int(os.getenv("TOSS_TRADE_LOOKBACK_DAYS", "365")))
+KST = ZoneInfo("Asia/Seoul")
 
 
 def supabase():
@@ -194,6 +201,148 @@ def set_cash(c, account_id: str, cash: float) -> None:
         print(f"  cash_balance skip: {exc}")
 
 
+def _kst_today() -> str:
+    return datetime.now(KST).date().isoformat()
+
+
+def _kst_from(days: int) -> str:
+    return (datetime.now(KST).date() - timedelta(days=days)).isoformat()
+
+
+def fetch_closed_orders(
+    token: str,
+    account_seq: int,
+    *,
+    from_date: str,
+    to_date: str,
+) -> list[dict[str, Any]]:
+    """Paginate CLOSED orders. Rate limit group ORDER_HISTORY is 5/sec."""
+    out: list[dict[str, Any]] = []
+    cursor: str | None = None
+    for _ in range(50):
+        query: dict[str, str] = {
+            "status": "CLOSED",
+            "from": from_date,
+            "to": to_date,
+            "limit": "100",
+        }
+        if cursor:
+            query["cursor"] = cursor
+        time.sleep(0.25)
+        status, payload = toss_request(
+            "GET",
+            "/api/v1/orders",
+            token=token,
+            account_seq=account_seq,
+            query=query,
+        )
+        if status == 429:
+            time.sleep(1.5)
+            status, payload = toss_request(
+                "GET",
+                "/api/v1/orders",
+                token=token,
+                account_seq=account_seq,
+                query=query,
+            )
+        if status != 200:
+            raise RuntimeError(humanize_toss_error(status, payload))
+        result = (payload or {}).get("result") or {}
+        orders = result.get("orders") if isinstance(result, dict) else None
+        if isinstance(orders, list):
+            out.extend(orders)
+        has_next = bool(result.get("hasNext")) if isinstance(result, dict) else False
+        cursor = result.get("nextCursor") if isinstance(result, dict) else None
+        if not has_next or not cursor:
+            break
+    return out
+
+
+def existing_trade_keys(c, account_ids: list[str]) -> set[str]:
+    keys: set[str] = set()
+    if not account_ids:
+        return keys
+    try:
+        rows = (
+            c.table("trades")
+            .select("external_id,reason")
+            .in_("account_id", account_ids)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        rows = (
+            c.table("trades")
+            .select("reason")
+            .in_("account_id", account_ids)
+            .execute()
+            .data
+            or []
+        )
+    for row in rows:
+        ext = str(row.get("external_id") or "").strip()
+        if ext:
+            keys.add(ext)
+        reason = str(row.get("reason") or "")
+        if reason.startswith("toss:"):
+            keys.add(reason[5:])
+    return keys
+
+
+def insert_toss_trades(
+    c,
+    *,
+    user_id: str,
+    account_ids: dict[str, str],
+    orders: list[dict[str, Any]],
+) -> tuple[int, dict[str, int]]:
+    """Insert new filled orders. Holdings stay snapshot-authoritative."""
+    mapped = [m for o in orders if (m := map_filled_order(o))]
+    if not mapped:
+        return 0, {}
+    known = existing_trade_keys(c, list(account_ids.values()))
+    inserted = 0
+    per_ccy: dict[str, int] = {}
+    for row in mapped:
+        ext = row["external_id"]
+        if ext in known:
+            continue
+        ccy = row["currency"]
+        account_id = account_ids.get(ccy)
+        if not account_id:
+            continue
+        payload: dict[str, Any] = {
+            "account_id": account_id,
+            "trade_date": row["trade_date"],
+            "ticker": row["ticker"],
+            "trade_type": row["trade_type"],
+            "price": row["price"],
+            "quantity": row["quantity"],
+            "fee": row["fee"],
+            "currency": ccy,
+            "reason": row["reason"],
+            "created_by": user_id,
+            "adjust_holdings": False,
+            "external_id": ext,
+        }
+        try:
+            res = c.table("trades").insert(payload).execute()
+        except Exception:
+            payload.pop("external_id", None)
+            payload["reason"] = f"toss:{ext}"
+            try:
+                res = c.table("trades").insert(payload).execute()
+            except Exception as exc:
+                print(f"  trade skip {row['ticker']} {ext[:8]}: {exc}")
+                continue
+        if res.data:
+            inserted += 1
+            known.add(ext)
+            per_ccy[ccy] = per_ccy.get(ccy, 0) + 1
+    return inserted, per_ccy
+
+
 def run_sync(*, user_id: str | None = None) -> dict:
     client_id = os.getenv("TOSS_CLIENT_ID", "").strip()
     client_secret = os.getenv("TOSS_CLIENT_SECRET", "").strip()
@@ -274,15 +423,52 @@ def run_sync(*, user_id: str | None = None) -> dict:
             else:
                 print(f"  buying-power {ccy} skip: {humanize_toss_error(cs, cp)}")
 
-        for ccy, rows in by_ccy.items():
-            if not rows and cash[ccy] <= 0:
+        trades_n = 0
+        try:
+            raw_orders = fetch_closed_orders(
+                token,
+                int(seq),
+                from_date=_kst_from(TRADE_LOOKBACK_DAYS),
+                to_date=_kst_today(),
+            )
+        except Exception as exc:
+            print(f"  orders skip: {exc}")
+            raw_orders = []
+
+        filled = [m for o in raw_orders if (m := map_filled_order(o))]
+        trade_ccy = {m["currency"] for m in filled}
+
+        account_ids: dict[str, str] = {}
+        for ccy in ("KRW", "USD"):
+            rows = by_ccy.get(ccy) or []
+            if not rows and cash[ccy] <= 0 and ccy not in trade_ccy:
                 continue
             aid = ensure_account(c, uid, ccy)
+            account_ids[ccy] = aid
             upsert_holdings(c, aid, rows)
             set_cash(c, aid, cash[ccy])
             total_rows += len(rows)
-            summary.append({"currency": ccy, "holdings": len(rows), "cash": cash[ccy]})
+
+        inserted_by_ccy: dict[str, int] = {}
+        if account_ids and raw_orders:
+            trades_n, inserted_by_ccy = insert_toss_trades(
+                c, user_id=uid, account_ids=account_ids, orders=raw_orders
+            )
+
+        for ccy, _aid in account_ids.items():
+            rows = by_ccy.get(ccy) or []
+            summary.append(
+                {
+                    "currency": ccy,
+                    "holdings": len(rows),
+                    "cash": cash[ccy],
+                    "trades": inserted_by_ccy.get(ccy, 0),
+                }
+            )
             print(f"  {INSTITUTION} {ccy}: {len(rows)} holdings, cash={cash[ccy]}")
+
+        if trades_n:
+            print(f"  {INSTITUTION} filled orders inserted: {trades_n}")
 
     print(f"Done. Synced {total_rows} holdings into {INSTITUTION}.")
     return {"ok": True, "institution": INSTITUTION, "accounts": summary, "egress_ip": ip}

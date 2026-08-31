@@ -8,7 +8,14 @@ type Job = {
   id: string;
   status: string;
   error?: string | null;
-  result?: { accounts?: Array<{ currency: string; holdings: number; cash: number }> } | null;
+  result?: {
+    accounts?: Array<{
+      currency: string;
+      holdings: number;
+      cash: number;
+      trades?: number;
+    }>;
+  } | null;
 };
 
 export function TossSyncPanel() {
@@ -41,9 +48,11 @@ export function TossSyncPanel() {
       const job = res.job;
       if (!job) return;
       if (job.status === "ok") {
-        const parts = (job.result?.accounts || []).map(
-          (a) => `${a.currency} ${a.holdings}종목 · 현금 ${a.cash}`
-        );
+        const parts = (job.result?.accounts || []).map((a) => {
+          const trades = Number(a.trades || 0);
+          const extra = trades ? ` · 체결 ${trades}건` : "";
+          return `${a.currency} ${a.holdings}종목 · 현금 ${a.cash}${extra}`;
+        });
         setMsg(
           parts.length
             ? `동기화 완료. ${parts.join(" / ")}`
@@ -66,7 +75,7 @@ export function TossSyncPanel() {
       }
       setMsg(
         job.status === "running"
-          ? "클라우드 워커가 토스 잔고를 가져오는 중…"
+          ? "클라우드 워커가 토스 잔고·체결을 가져오는 중…"
           : "클라우드 워커 대기 중…"
       );
       window.setTimeout(() => void tick(), 2000);
@@ -106,8 +115,8 @@ export function TossSyncPanel() {
     <div className="rounded-2xl border border-line bg-surface px-4 py-4 shadow-soft">
       <div className="font-extrabold tracking-tight">토스증권 동기화</div>
       <p className="mt-1 text-sm text-muted">
-        워커가 켜져 있으면 몇 시간마다 잔고를 자동으로 가져옵니다. 지금 당장
-        반영하려면 아래 버튼을 누르세요. 노트북에서 실행하지 않습니다.
+        워커가 켜져 있으면 몇 시간마다 잔고와 체결 내역을 가져옵니다. 지금
+        당장 반영하려면 아래 버튼을 누르세요. 노트북에서 실행하지 않습니다.
       </p>
       {workerIp ? (
         <p className="mt-2 rounded-xl bg-canvas px-3 py-2 font-mono text-sm font-extrabold">

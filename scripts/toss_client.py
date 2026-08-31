@@ -1,4 +1,7 @@
-"""Toss Securities Open API helpers (holdings sync, no orders).
+"""Toss Securities Open API helpers (holdings + filled-order history).
+
+Does not place orders. `GET /api/v1/trades` is market ticks, not account history;
+account fills come from `GET /api/v1/orders`.
 
 Official docs: https://developers.tossinvest.com/llms.txt
 Base: https://openapi.tossinvest.com
@@ -67,6 +70,58 @@ def holdings_by_currency(items: list[dict[str, Any]]) -> dict[str, list[dict[str
 
 def local_account_key(currency: str) -> tuple[str, str, str]:
     return (INSTITUTION, ACCOUNT_TYPE, currency)
+
+
+def _date_prefix(raw: Any) -> str | None:
+    s = str(raw or "").strip()
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    return None
+
+
+def map_filled_order(order: dict[str, Any]) -> dict[str, Any] | None:
+    """Map a Toss order with fills to a local trades row. Skip unfilled orders."""
+    execution = order.get("execution") if isinstance(order.get("execution"), dict) else {}
+    qty = to_number(execution.get("filledQuantity"))
+    if qty <= 0:
+        return None
+    price = to_number(execution.get("averageFilledPrice"))
+    if price <= 0:
+        return None
+    side = str(order.get("side") or "").upper()
+    if side == "BUY":
+        trade_type = "buy"
+    elif side == "SELL":
+        trade_type = "sell"
+    else:
+        return None
+    order_id = str(order.get("orderId") or "").strip()
+    if not order_id:
+        return None
+    symbol = str(order.get("symbol") or "").strip()
+    if not symbol:
+        return None
+    currency = str(order.get("currency") or "KRW").upper()
+    if currency not in {"KRW", "USD"}:
+        currency = "USD" if not symbol.isdigit() else "KRW"
+    ticker = normalize_ticker(symbol, "KR" if currency == "KRW" else "US")
+    fee = to_number(execution.get("commission")) + to_number(execution.get("tax"))
+    trade_date = _date_prefix(execution.get("filledAt")) or _date_prefix(
+        order.get("orderedAt")
+    )
+    if not trade_date:
+        return None
+    return {
+        "external_id": order_id,
+        "ticker": ticker,
+        "trade_type": trade_type,
+        "price": price,
+        "quantity": qty,
+        "fee": fee,
+        "currency": currency,
+        "trade_date": trade_date,
+        "reason": "토스 체결",
+    }
 
 
 def humanize_toss_error(status: int, payload: Any) -> str:
