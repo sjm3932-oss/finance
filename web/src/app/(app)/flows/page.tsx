@@ -1,11 +1,10 @@
 import { Suspense } from "react";
 import { PortfolioFilters } from "@/components/PortfolioFilters";
-import { SimpleBarChart } from "@/components/Charts";
+import { FlowAmount, MonthlyFlowChart } from "@/components/Charts";
 import { loadPortfolioSnapshot } from "@/lib/data";
 import { loadAssetFlows } from "@/lib/data-insights";
 import { accountIdsForInstitution } from "@/lib/portfolio";
 import { FLOW_KIND_KO, aggregateByMonth } from "@/lib/insights";
-import { fmtKrw } from "@/lib/money";
 import { flowDisplayName, isTickerLike, normalizeKrTicker } from "@/lib/tickers";
 
 export const dynamic = "force-dynamic";
@@ -54,10 +53,15 @@ export default async function FlowsPage({
   ]
     .sort()
     .slice(-12);
-  const netBars = months.map((month) => {
+  const monthFlows = months.map((month) => {
     const inn = byMonthIn.find((m) => m.month === month)?.value || 0;
     const out = byMonthOut.find((m) => m.month === month)?.value || 0;
-    return { label: month.slice(5), value: inn - out };
+    return {
+      id: month,
+      label: `${Number(month.slice(5))}월`,
+      inflow: inn,
+      outflow: out,
+    };
   });
 
   return (
@@ -72,27 +76,31 @@ export default async function FlowsPage({
       </Suspense>
 
       <div className="grid grid-cols-2 gap-2">
-        {(
-          [
-            ["유입", inflow],
-            ["유출", outflow],
-            ["순이동", inflow - outflow],
-            ["매매 건수", trades],
-          ] as const
-        ).map(([label, v]) => (
-          <div
-            key={label}
-            className="rounded-2xl border border-line bg-surface px-3 py-3 shadow-soft"
-          >
-            <div className="text-[11px] font-semibold text-muted">{label}</div>
-            <div className="mt-1 text-sm font-extrabold tracking-tight">
-              {label === "매매 건수" ? `${v}건` : fmtKrw(v, { signed: label === "순이동" })}
-            </div>
+        <div className="rounded-2xl border border-line bg-surface px-3 py-3 shadow-soft">
+          <div className="text-[11px] font-semibold text-muted">유입</div>
+          <div className="mt-1">
+            <FlowAmount amount={inflow} />
           </div>
-        ))}
+        </div>
+        <div className="rounded-2xl border border-line bg-surface px-3 py-3 shadow-soft">
+          <div className="text-[11px] font-semibold text-muted">유출</div>
+          <div className="mt-1">
+            <FlowAmount amount={-outflow} />
+          </div>
+        </div>
+        <div className="rounded-2xl border border-line bg-surface px-3 py-3 shadow-soft">
+          <div className="text-[11px] font-semibold text-muted">순이동</div>
+          <div className="mt-1">
+            <FlowAmount amount={inflow - outflow} signedNet />
+          </div>
+        </div>
+        <div className="rounded-2xl border border-line bg-surface px-3 py-3 shadow-soft">
+          <div className="text-[11px] font-semibold text-muted">매매 건수</div>
+          <div className="mt-1 text-sm font-extrabold tracking-tight">{trades}건</div>
+        </div>
       </div>
 
-      <SimpleBarChart title="월별 순 자금 이동" bars={netBars} signed />
+      <MonthlyFlowChart title="월별 자금 이동" months={monthFlows} />
 
       <section className="overflow-hidden rounded-2xl border border-line bg-surface">
         <div className="border-b border-line px-4 py-3 text-sm font-extrabold">
@@ -100,7 +108,6 @@ export default async function FlowsPage({
         </div>
         {flows.slice(0, 50).map((f, i) => {
           const amount = Number(f.amount) || 0;
-          const dir = amount >= 0 ? "유입" : "유출";
           const title = flowDisplayName(f, FLOW_KIND_KO);
           const ticker =
             f.asset_ref &&
@@ -119,13 +126,13 @@ export default async function FlowsPage({
                 </div>
                 <div className="text-xs text-muted">
                   {String(f.event_date).slice(0, 10)} ·{" "}
-                  {FLOW_KIND_KO[f.flow_kind] || f.flow_kind} · {dir}
+                  {FLOW_KIND_KO[f.flow_kind] || f.flow_kind}
                   {ticker ? ` · ${ticker}` : ""}
                   {f.memo ? ` · ${f.memo}` : ""}
                 </div>
               </div>
-              <div className="shrink-0 text-sm font-extrabold">
-                {fmtKrw(Math.abs(amount))}
+              <div className="shrink-0">
+                <FlowAmount amount={amount} />
               </div>
             </div>
           );
