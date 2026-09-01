@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function NetWorthPage({
   searchParams,
 }: {
-  searchParams: Promise<{ own?: string; inst?: string }>;
+  searchParams: Promise<{ own?: string; inst?: string; sub?: string }>;
 }) {
   const sp = await searchParams;
   const {
@@ -23,6 +23,7 @@ export default async function NetWorthPage({
   } = await loadPortfolioSnapshot({
     ownership: sp.own,
     institution: sp.inst,
+    sub: sp.sub,
   });
 
   return (

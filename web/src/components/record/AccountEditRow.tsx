@@ -16,7 +16,13 @@ export type EditableAccount = {
   memo?: string | null;
 };
 
-export function AccountEditRow({ account }: { account: EditableAccount }) {
+export function AccountEditRow({
+  account,
+  heading,
+}: {
+  account: EditableAccount;
+  heading?: string;
+}) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const [delMsg, setDelMsg] = useState<string | null>(null);
@@ -35,12 +41,12 @@ export function AccountEditRow({ account }: { account: EditableAccount }) {
       <div className="flex items-center justify-between gap-3 text-sm">
         <div className="min-w-0">
           <div className="font-extrabold tracking-tight">
-            {account.institution || "계좌"}
+            {heading || account.institution || "계좌"}
           </div>
           <div className="mt-0.5 text-xs font-semibold text-muted">
             {typeLabel} · {account.currency || "KRW"} · {ownLabel}
           </div>
-          {account.memo ? (
+          {account.memo && account.memo !== heading ? (
             <p className="mt-1 text-xs text-muted">{account.memo}</p>
           ) : null}
         </div>

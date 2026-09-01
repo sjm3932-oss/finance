@@ -47,7 +47,7 @@ function formatResult(
     return `${a.currency} ${a.holdings}종목 · 현금 ${a.cash}${extra ? ` · ${extra}` : ""}`;
   });
   const merged = parts.length
-    ? `동기화 완료. ${parts.join(" / ")} (화면의 한투 계좌는 하나로 합쳐 보입니다)`
+    ? `동기화 완료. ${parts.join(" / ")}`
     : "한투 계좌는 연결됐지만 보유 종목이 없습니다.";
   return productBits.length ? `${merged}. ${productBits.join(" · ")}` : merged;
 }
@@ -170,10 +170,9 @@ export function HankookSyncPanel() {
       </p>
       <p className="mt-2 text-xs text-muted">
         계좌는 <span className="font-mono">8자리-상품코드</span> 입니다. 위탁 01,
-        ISA 21, 개인연금 22, 퇴직연금 29를 모두 가져옵니다. 화면의 한국투자증권은
-        네 좌를 합친 한 줄입니다. ISA 펀드는 종목 목록이 아니라{" "}
-        <span className="font-semibold">기록하기 → 부동산·기타</span>에 연금으로
-        들어갑니다.
+        ISA 21, 개인연금 22, 퇴직연금 29를 각각 따로 가져옵니다. 홈 필터는{" "}
+        <span className="font-semibold">정명 → 한국투자증권 → 01/21/22/29</span>
+        로 고를 수 있습니다. ISA 펀드는 21 계좌 보유로 들어갑니다.
       </p>
 
       <div className="mt-3 space-y-3">

@@ -12,16 +12,18 @@ export const dynamic = "force-dynamic";
 export default async function FlowsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ own?: string; inst?: string }>;
+  searchParams: Promise<{ own?: string; inst?: string; sub?: string }>;
 }) {
   const sp = await searchParams;
   const { accounts } = await loadPortfolioSnapshot({
     ownership: sp.own,
     institution: sp.inst,
+    sub: sp.sub,
   });
   const accountIds = accountIdsForInstitution(
     accounts,
-    sp.inst && sp.inst !== "전체" ? sp.inst : null
+    sp.inst && sp.inst !== "전체" ? sp.inst : null,
+    sp.sub && sp.sub !== "전체" ? sp.sub : null
   );
   const flows = await loadAssetFlows(accountIds);
 

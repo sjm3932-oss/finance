@@ -163,7 +163,11 @@ export function buildLiveHoldings(
       ticker: h.ticker,
       name,
       account_id: h.account_id,
-      institution: acct?.institution || "계좌",
+      institution: accountDisplayName({
+        institution: acct?.institution || "계좌",
+        memo: acct?.memo,
+        currency: acct?.currency,
+      }),
       qty,
       avg,
       price,
@@ -220,14 +224,89 @@ export function aggregateByTicker(rows: LiveHolding[]) {
   });
 }
 
+export function accountProductCode(memo?: string | null): string | null {
+  const s = String(memo || "").trim();
+  if (!s || s.includes("합산") || s.includes("·")) return null;
+  if (/^\d{2}\b/.test(s)) return s.slice(0, 2);
+  return null;
+}
+
+export function accountSubLabel(a: Pick<AccountRow, "memo" | "currency">): string {
+  const code = accountProductCode(a.memo);
+  if (code) {
+    const rest = String(a.memo || "")
+      .trim()
+      .slice(2)
+      .trim();
+    return rest ? `${code} ${rest}` : code;
+  }
+  return String(a.currency || "KRW").toUpperCase();
+}
+
+export function accountSubKey(a: Pick<AccountRow, "id" | "memo" | "currency">): string {
+  return accountProductCode(a.memo) || String(a.currency || "KRW").toUpperCase();
+}
+
+export function accountDisplayName(a: Pick<AccountRow, "institution" | "memo" | "currency">): string {
+  const inst = a.institution || "계좌";
+  const code = accountProductCode(a.memo);
+  if (code) return `${inst} · ${accountSubLabel(a)}`;
+  return inst;
+}
+
+export function groupAccountsByInstitution<T extends AccountRow>(
+  accounts: T[]
+): Array<{ institution: string; accounts: T[] }> {
+  const order: string[] = [];
+  const map = new Map<string, T[]>();
+  for (const a of accounts) {
+    const inst = a.institution || "계좌";
+    if (!map.has(inst)) {
+      order.push(inst);
+      map.set(inst, []);
+    }
+    map.get(inst)!.push(a);
+  }
+  return order.map((institution) => ({
+    institution,
+    accounts: (map.get(institution) || []).slice().sort((a, b) =>
+      accountSubKey(a).localeCompare(accountSubKey(b), "ko")
+    ),
+  }));
+}
+
+export function subsForInstitution(
+  accounts: AccountRow[],
+  institution: string,
+  ownership?: string | null
+): Array<{ key: string; label: string }> {
+  const own =
+    ownership && ["joint", "mine", "spouse"].includes(ownership)
+      ? ownership
+      : null;
+  const seen = new Map<string, string>();
+  for (const a of accounts) {
+    if ((a.institution || "계좌") !== institution) continue;
+    if (own && (a.ownership || "joint") !== own) continue;
+    const key = accountSubKey(a);
+    if (!seen.has(key)) seen.set(key, accountSubLabel(a));
+  }
+  return [...seen.entries()]
+    .map(([key, label]) => ({ key, label }))
+    .sort((a, b) => a.key.localeCompare(b.key, "ko"));
+}
+
 export function accountIdsForInstitution(
   accounts: AccountRow[],
-  institution: string | null | undefined
+  institution: string | null | undefined,
+  sub?: string | null
 ): string[] | null {
   if (!institution || institution === "전체") return null;
-  return accounts
-    .filter((a) => (a.institution || "계좌") === institution)
-    .map((a) => a.id);
+  let rows = accounts.filter((a) => (a.institution || "계좌") === institution);
+  if (sub && sub !== "전체") {
+    rows = rows.filter((a) => accountSubKey(a) === sub || a.id === sub);
+  }
+  return rows.map((a) => a.id);
 }
 
 export function computeNetWorth(args: {
@@ -447,4 +526,18 @@ export function institutionsForOwnership(
 
 export function institutionsFromAccounts(accounts: AccountRow[]): string[] {
   return institutionsForOwnership(accounts, null);
+}
+
+export function filterQuery(sp: {
+  own?: string | null;
+  inst?: string | null;
+  sub?: string | null;
+}): string {
+  return [
+    sp.own ? `own=${encodeURIComponent(sp.own)}` : "",
+    sp.inst ? `inst=${encodeURIComponent(sp.inst)}` : "",
+    sp.sub ? `sub=${encodeURIComponent(sp.sub)}` : "",
+  ]
+    .filter(Boolean)
+    .join("&");
 }

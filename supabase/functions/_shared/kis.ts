@@ -13,8 +13,24 @@ const PRODUCT_LABELS: Record<string, string> = {
 };
 
 export function productLabel(code: string): string {
-  return PRODUCT_LABELS[code] || code;
+  const name = PRODUCT_LABELS[code];
+  return name ? `${code} ${name}` : code;
 }
+
+export function productMemo(code: string): string {
+  return productLabel(code);
+}
+
+export function memoProductCode(memo: unknown): string | null {
+  const s = String(memo || "").trim();
+  if (!s || s.includes("합산") || s.includes("·")) return null;
+  if (s.length >= 2 && /^\d{2}/.test(s)) return s.slice(0, 2);
+  return null;
+}
+
+const ISA_FUND_TICKER = "ISA-FUND";
+const ISA_FUND_HOLDING_NAME = "ISA 펀드";
+const ISA_OTHER_ASSET_NAME = "한국투자증권 ISA(21) 펀드";
 
 const DIVIDEND_NAME_HINTS = ["배당", "분배"];
 const DIVIDEND_RIGHT_CODES = new Set(["03", "04", "17", "18"]);
@@ -41,6 +57,7 @@ type Fill = {
   currency: string;
   trade_date: string;
   reason: string;
+  product?: string;
 };
 
 type Dividend = {
@@ -51,6 +68,7 @@ type Dividend = {
   amount: number;
   currency: string;
   memo: string;
+  product?: string;
 };
 
 export function kisBase(env: string): string {
@@ -696,8 +714,6 @@ async function fetchDomesticBalance(ctx: KisCtx, cano: string, prod: string): Pr
   }
 }
 
-const ISA_FUND_NAME = "한국투자증권 ISA(21) 펀드";
-
 async function fetchAccountOverview(
   ctx: KisCtx,
   cano: string,
@@ -727,31 +743,14 @@ async function fetchAccountOverview(
   }
 }
 
-async function upsertIsaFundAsset(admin: SupabaseClient, userId: string, value: number): Promise<void> {
+async function deleteIsaOtherAsset(admin: SupabaseClient, userId: string): Promise<void> {
   const { data: existing } = await admin
     .from("other_assets")
     .select("id")
     .eq("user_id", userId)
-    .eq("name", ISA_FUND_NAME)
+    .eq("name", ISA_OTHER_ASSET_NAME)
     .limit(1);
-  if (value <= 0) {
-    if (existing?.[0]?.id) await admin.from("other_assets").delete().eq("id", existing[0].id);
-    return;
-  }
-  const payload = {
-    user_id: userId,
-    name: ISA_FUND_NAME,
-    asset_kind: "pension",
-    value_krw: value,
-    ownership: "mine",
-    memo: "KIS 21. 펀드는 종목 API가 없어 평가액만 가져옵니다. CMA는 한투 현금으로 들어갑니다.",
-    updated_at: new Date().toISOString(),
-  };
-  if (existing?.[0]?.id) {
-    await admin.from("other_assets").update(payload).eq("id", existing[0].id);
-  } else {
-    await admin.from("other_assets").insert(payload);
-  }
+  if (existing?.[0]?.id) await admin.from("other_assets").delete().eq("id", existing[0].id);
 }
 
 async function fetchOverseasBalance(ctx: KisCtx, cano: string, prod: string): Promise<Holding[]> {
@@ -958,15 +957,21 @@ async function fetchOverseasDividends(ctx: KisCtx, cano: string, prod: string, s
   return mapped;
 }
 
-async function ensureAccount(admin: SupabaseClient, userId: string, currency: string): Promise<string> {
+async function ensureAccount(admin: SupabaseClient, userId: string, currency: string, prod: string): Promise<string> {
   const { data: rows } = await admin
     .from("accounts")
-    .select("id")
+    .select("id,memo")
     .eq("user_id", userId)
     .eq("institution", INSTITUTION)
-    .eq("currency", currency)
-    .limit(1);
-  if (rows?.[0]?.id) return rows[0].id as string;
+    .eq("currency", currency);
+  for (const row of rows || []) {
+    if (memoProductCode(row.memo) === prod) return row.id as string;
+  }
+  const leftover = (rows || []).find((row) => memoProductCode(row.memo) == null);
+  if (leftover?.id) {
+    await setProductAccountMemo(admin, leftover.id as string, prod);
+    return leftover.id as string;
+  }
   const { data, error } = await admin
     .from("accounts")
     .insert({
@@ -976,30 +981,32 @@ async function ensureAccount(admin: SupabaseClient, userId: string, currency: st
       currency,
       ownership: "mine",
       cash_balance: 0,
+      memo: productMemo(prod),
     })
     .select("id")
     .single();
   if (error || !data?.id) {
     const fallback = await admin
       .from("accounts")
-      .insert({ user_id: userId, institution: INSTITUTION, account_type: "brokerage", currency })
+      .insert({
+        user_id: userId,
+        institution: INSTITUTION,
+        account_type: "brokerage",
+        currency,
+        memo: productMemo(prod),
+      })
       .select("id")
       .single();
     if (fallback.error || !fallback.data?.id) {
-      throw new Error(`failed to create ${INSTITUTION} ${currency} account`);
+      throw new Error(`failed to create ${INSTITUTION} ${prod} ${currency} account`);
     }
     return fallback.data.id as string;
   }
   return data.id as string;
 }
 
-async function setMergedAccountMemo(
-  admin: SupabaseClient,
-  accountId: string,
-  productCodes: string[]
-): Promise<void> {
-  const codes = productCodes.length ? productCodes.join("·") : "01·21·22·29";
-  await admin.from("accounts").update({ memo: `${codes} 합산` }).eq("id", accountId);
+async function setProductAccountMemo(admin: SupabaseClient, accountId: string, prod: string): Promise<void> {
+  await admin.from("accounts").update({ memo: productMemo(prod) }).eq("id", accountId);
 }
 
 async function upsertHoldings(admin: SupabaseClient, accountId: string, rows: Holding[]): Promise<void> {
@@ -1067,7 +1074,8 @@ async function insertTrades(
   const per: Record<string, number> = {};
   for (const row of rows) {
     if (known.has(row.external_id)) continue;
-    const accountId = accountIds[row.currency];
+    const accountId =
+      (row.product && accountIds[`${row.product}:${row.currency}`]) || accountIds[row.currency];
     if (!accountId) continue;
     const payload: Json = {
       account_id: accountId,
@@ -1101,7 +1109,8 @@ async function insertDividends(
   const per: Record<string, number> = {};
   for (const row of rows) {
     if (known.has(row.external_id)) continue;
-    const accountId = accountIds[row.currency];
+    const accountId =
+      (row.product && accountIds[`${row.product}:${row.currency}`]) || accountIds[row.currency];
     if (!accountId) continue;
     const { data, error } = await admin.from("dividends").insert({
       user_id: userId,
@@ -1167,13 +1176,18 @@ export async function runKisSync(
   };
   const [start, end] = lookbackRange(opts.lookbackDays ?? 90);
 
-  const holdings: Holding[] = [];
-  const cash = { KRW: 0, USD: 0 };
   const fills: Fill[] = [];
   const dividends: Dividend[] = [];
-  let isaFund = 0;
   let isaSeen = false;
   const products: Array<Record<string, unknown>> = [];
+  const accountIds: Record<string, string> = {};
+
+  function tagFills(rows: Fill[], prod: string): Fill[] {
+    return rows.map((r) => ({ ...r, product: prod }));
+  }
+  function tagDivs(rows: Dividend[], prod: string): Dividend[] {
+    return rows.map((r) => ({ ...r, product: prod }));
+  }
 
   for (let i = 0; i < settings.accounts.length; i++) {
     const [cano, prod] = settings.accounts[i];
@@ -1181,14 +1195,14 @@ export async function runKisSync(
     let krHold: Holding[] = [];
     let krCash = 0;
     let ovCash = 0;
+    let usdCash = 0;
+    let usHold: Holding[] = [];
     let fund = 0;
     let note = "";
     try {
       const kr = await fetchDomesticBalance(ctx, cano, prod);
       krHold = kr.holdings;
       krCash = kr.cash;
-      holdings.push(...kr.holdings);
-      cash.KRW += kr.cash;
     } catch (e) {
       note = e instanceof Error ? e.message : String(e);
       console.log("domestic balance skip", cano, prod, e);
@@ -1199,13 +1213,17 @@ export async function runKisSync(
         if (ov.ok) {
           isaSeen = true;
           ovCash = ov.cash;
-          cash.KRW += ov.cash;
           if (!krHold.length && ov.nass > 0) {
             fund = ov.nass;
-            isaFund = fund;
-            if (!note) note = "펀드는 종목 API가 없어 기타자산으로 반영";
-          } else if (!krHold.length) {
-            isaFund = 0;
+            krHold.push({
+              ticker: ISA_FUND_TICKER,
+              name: ISA_FUND_HOLDING_NAME,
+              quantity: 1,
+              avg_price: fund,
+              currency: "KRW",
+              last_price: fund,
+            });
+            if (!note) note = "펀드는 종목 API가 없어 이 계좌 보유로 반영";
           }
         }
       } catch (e) {
@@ -1213,84 +1231,82 @@ export async function runKisSync(
         note = note || (e instanceof Error ? e.message : String(e));
       }
     }
-    products.push({
-      code: prod,
-      label: productLabel(prod),
-      holdings: krHold.length,
-      cash: krCash + ovCash,
-      fund,
-      note,
-    });
     try {
-      holdings.push(...(await fetchOverseasBalance(ctx, cano, prod)));
+      usHold = await fetchOverseasBalance(ctx, cano, prod);
     } catch (e) {
       console.log("overseas balance skip", cano, prod, e);
     }
     try {
-      cash.USD += await fetchOverseasCash(ctx, cano, prod);
+      usdCash = await fetchOverseasCash(ctx, cano, prod);
     } catch (e) {
       console.log("usd cash skip", cano, prod, e);
     }
+    const prodFills: Fill[] = [];
+    const prodDivs: Dividend[] = [];
     try {
-      fills.push(...(await fetchDomesticFills(ctx, cano, prod, start, end)));
+      prodFills.push(...tagFills(await fetchDomesticFills(ctx, cano, prod, start, end), prod));
     } catch (e) {
       console.log("domestic fills skip", cano, prod, e);
     }
     try {
-      fills.push(...(await fetchOverseasFills(ctx, cano, prod, start, end)));
+      prodFills.push(...tagFills(await fetchOverseasFills(ctx, cano, prod, start, end), prod));
     } catch (e) {
       console.log("overseas fills skip", cano, prod, e);
     }
     try {
-      dividends.push(...(await fetchDomesticDividends(ctx, cano, prod, start, end)));
+      prodDivs.push(...tagDivs(await fetchDomesticDividends(ctx, cano, prod, start, end), prod));
     } catch (e) {
       console.log("domestic dividends skip", cano, prod, e);
     }
     try {
-      dividends.push(...(await fetchOverseasDividends(ctx, cano, prod, start, end)));
+      prodDivs.push(...tagDivs(await fetchOverseasDividends(ctx, cano, prod, start, end), prod));
     } catch (e) {
       console.log("overseas dividends skip", cano, prod, e);
     }
-  }
+    fills.push(...prodFills);
+    dividends.push(...prodDivs);
 
-  const byCcy = holdingsByCurrency(holdings);
-  const tradeCcy = new Set(fills.map((m) => m.currency));
-  const divCcy = new Set(dividends.map((m) => m.currency));
-  const accountIds: Record<string, string> = {};
-  for (const ccy of ["KRW", "USD"] as const) {
-    const rows = byCcy[ccy] || [];
-    if (!rows.length && cash[ccy] <= 0 && !tradeCcy.has(ccy) && !divCcy.has(ccy)) continue;
-    const aid = await ensureAccount(admin, opts.userId, ccy);
-    accountIds[ccy] = aid;
-    await upsertHoldings(admin, aid, rows);
-    await admin.from("accounts").update({ cash_balance: cash[ccy] }).eq("id", aid);
-    if (ccy === "KRW") {
-      await setMergedAccountMemo(
-        admin,
-        aid,
-        settings.accounts.map(([, p]) => p)
-      );
+    const prodHoldings = [...krHold, ...usHold];
+    const byCcy = holdingsByCurrency(prodHoldings);
+    const cashBy = { KRW: krCash + ovCash, USD: usdCash };
+    const tradeCcy = new Set(prodFills.map((m) => m.currency));
+    const divCcy = new Set(prodDivs.map((m) => m.currency));
+    for (const ccy of ["KRW", "USD"] as const) {
+      const rows = byCcy[ccy] || [];
+      if (!rows.length && cashBy[ccy] <= 0 && !tradeCcy.has(ccy) && !divCcy.has(ccy)) continue;
+      const aid = await ensureAccount(admin, opts.userId, ccy, prod);
+      accountIds[`${prod}:${ccy}`] = aid;
+      await upsertHoldings(admin, aid, rows);
+      await admin.from("accounts").update({ cash_balance: cashBy[ccy] }).eq("id", aid);
+      await setProductAccountMemo(admin, aid, prod);
     }
+
+    products.push({
+      code: prod,
+      label: productLabel(prod),
+      holdings: krHold.length + usHold.length,
+      cash: krCash + ovCash,
+      fund,
+      note,
+    });
   }
 
-  const insertedTrades = Object.keys(accountIds).length
-    ? await insertTrades(admin, opts.userId, accountIds, fills)
-    : {};
-  const insertedDivs = Object.keys(accountIds).length
-    ? await insertDividends(admin, opts.userId, accountIds, dividends)
-    : {};
+  if (Object.keys(accountIds).length) {
+    await insertTrades(admin, opts.userId, accountIds, fills);
+    await insertDividends(admin, opts.userId, accountIds, dividends);
+  }
   try {
-    if (isaSeen) await upsertIsaFundAsset(admin, opts.userId, isaFund);
+    if (isaSeen) await deleteIsaOtherAsset(admin, opts.userId);
   } catch (e) {
-    console.log("isa fund asset skip", e);
+    console.log("isa other asset skip", e);
   }
 
-  const summary = Object.entries(accountIds).map(([ccy, _aid]) => ({
-    currency: ccy,
-    holdings: (byCcy[ccy] || []).length,
-    cash: cash[ccy as "KRW" | "USD"],
-    trades: insertedTrades[ccy] || 0,
-    dividends: insertedDivs[ccy] || 0,
+  const summary = products.map((p) => ({
+    currency: "KRW",
+    product: p.code,
+    label: p.label,
+    holdings: p.holdings,
+    cash: p.cash,
   }));
 
   return { ok: true, institution: INSTITUTION, accounts: summary, products };

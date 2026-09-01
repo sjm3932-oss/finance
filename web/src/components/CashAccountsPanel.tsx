@@ -1,5 +1,5 @@
 import { fmtKrw } from "@/lib/money";
-import { OWNERSHIP_KO } from "@/lib/portfolio";
+import { accountProductCode, accountSubLabel, OWNERSHIP_KO } from "@/lib/portfolio";
 
 type CashAccount = {
   id: string;
@@ -32,12 +32,12 @@ export function CashAccountsPanel({ rows }: { rows: CashAccount[] }) {
               {a.institution}
             </div>
             <div className="text-xs text-muted">
+              {accountProductCode(a.memo)
+                ? `${accountSubLabel(a)} · `
+                : ""}
               {a.account_type} · {OWNERSHIP_KO[a.ownership] || a.ownership} ·{" "}
               {a.currency}
             </div>
-            {a.memo ? (
-              <p className="mt-1 text-xs text-muted">{a.memo}</p>
-            ) : null}
           </div>
           <div className="shrink-0 text-right text-[15px] font-extrabold tracking-tight">
             {a.currency === "USD"

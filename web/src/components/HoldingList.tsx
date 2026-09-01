@@ -68,7 +68,9 @@ export function HoldingList({
               </div>
               <div className="truncate text-xs text-muted">
                 {it.ticker} · {it.institution}
-                {it.qty ? ` · ${Number(it.qty).toLocaleString("ko-KR")}주` : ""}
+                {it.qty && it.ticker !== "ISA-FUND"
+                  ? ` · ${Number(it.qty).toLocaleString("ko-KR")}주`
+                  : ""}
               </div>
             </div>
             <div className="shrink-0 text-right">

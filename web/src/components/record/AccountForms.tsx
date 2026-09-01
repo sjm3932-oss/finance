@@ -7,8 +7,15 @@ import {
   type EditableAccount,
 } from "@/components/record/AccountEditRow";
 import { Panel } from "@/components/record/FormUI";
+import {
+  accountSubLabel,
+  groupAccountsByInstitution,
+  type AccountRow,
+} from "@/lib/portfolio";
 
 export function AccountForms({ accounts }: { accounts: EditableAccount[] }) {
+  const groups = groupAccountsByInstitution(accounts as AccountRow[]);
+
   return (
     <div className="space-y-4">
       <Panel title="새 계좌 추가">
@@ -26,11 +33,35 @@ export function AccountForms({ accounts }: { accounts: EditableAccount[] }) {
         {!accounts.length ? (
           <p className="text-sm text-muted">아직 계좌가 없습니다.</p>
         ) : (
-          <ul className="divide-y divide-line">
-            {accounts.map((a) => (
-              <AccountEditRow key={a.id} account={a} />
-            ))}
-          </ul>
+          <div className="space-y-4">
+            {groups.map((g) => {
+              const nested = g.accounts.length > 1;
+              return (
+                <div key={g.institution}>
+                  {nested ? (
+                    <div className="mb-1 font-extrabold tracking-tight">
+                      {g.institution}
+                    </div>
+                  ) : null}
+                  <ul
+                    className={
+                      nested
+                        ? "ml-1 divide-y divide-line border-l-2 border-line pl-3"
+                        : "divide-y divide-line"
+                    }
+                  >
+                    {g.accounts.map((a) => (
+                      <AccountEditRow
+                        key={a.id}
+                        account={a}
+                        heading={nested ? accountSubLabel(a) : undefined}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
         )}
       </Panel>
     </div>
