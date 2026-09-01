@@ -1,5 +1,37 @@
 import { fmtKrw } from "@/lib/money";
 
+export function FlowAmount({
+  amount,
+  className = "text-sm",
+  signedNet = false,
+}: {
+  amount: number;
+  className?: string;
+  /** When true, 0 is unlabeled; otherwise treat >= 0 as inflow. */
+  signedNet?: boolean;
+}) {
+  const n = Number(amount) || 0;
+  if (signedNet && n === 0) {
+    return (
+      <span className={`font-extrabold tracking-tight tabular-nums text-ink ${className}`}>
+        {fmtKrw(0)}
+      </span>
+    );
+  }
+  const inflow = n >= 0;
+  return (
+    <span
+      className={`inline-flex items-baseline gap-0.5 font-extrabold tracking-tight tabular-nums ${
+        inflow ? "text-up" : "text-down"
+      } ${className}`}
+      aria-label={`${inflow ? "유입" : "유출"} ${fmtKrw(Math.abs(n))}`}
+    >
+      <span aria-hidden>{inflow ? "↑" : "↓"}</span>
+      {fmtKrw(Math.abs(n))}
+    </span>
+  );
+}
+
 export function SimpleBarChart({
   title,
   subtitle,
@@ -45,6 +77,77 @@ export function SimpleBarChart({
                   className="h-full rounded-full"
                   style={{ width: `${pct}%`, background: color }}
                 />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+export function MonthlyFlowChart({
+  title,
+  months,
+}: {
+  title: string;
+  months: { id?: string; label: string; inflow: number; outflow: number }[];
+}) {
+  if (!months.length) {
+    return (
+      <section className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
+        <h2 className="text-base font-extrabold tracking-tight">{title}</h2>
+        <p className="mt-2 text-sm text-muted">표시할 데이터가 없습니다.</p>
+      </section>
+    );
+  }
+
+  const max = Math.max(...months.map((m) => m.inflow + m.outflow), 1);
+
+  return (
+    <section className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-base font-extrabold tracking-tight">{title}</h2>
+        <div className="flex shrink-0 items-center gap-2 text-[11px] font-bold">
+          <span className="inline-flex items-center gap-1 text-up">
+            <span className="h-2 w-2 rounded-full bg-up" />
+            유입
+          </span>
+          <span className="inline-flex items-center gap-1 text-down">
+            <span className="h-2 w-2 rounded-full bg-down" />
+            유출
+          </span>
+        </div>
+      </div>
+      <div className="mt-3 space-y-3">
+        {months.map((m) => {
+          const total = m.inflow + m.outflow;
+          const inPct = total ? (m.inflow / max) * 100 : 0;
+          const outPct = total ? (m.outflow / max) * 100 : 0;
+          const net = m.inflow - m.outflow;
+          return (
+            <div key={m.id || m.label}>
+              <div className="mb-1 flex items-center justify-between text-xs">
+                <span className="font-bold text-muted">{m.label}</span>
+                <FlowAmount amount={net} signedNet className="text-xs" />
+              </div>
+              <div
+                className="flex h-2.5 overflow-hidden rounded-full bg-canvas"
+                role="img"
+                aria-label={`${m.label} 유입 ${fmtKrw(m.inflow)}, 유출 ${fmtKrw(m.outflow)}`}
+              >
+                <div
+                  className="h-full bg-up"
+                  style={{ width: `${inPct}%` }}
+                />
+                <div
+                  className="h-full bg-down"
+                  style={{ width: `${outPct}%` }}
+                />
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[10px] font-bold">
+                <span className="text-up">↑ {fmtKrw(m.inflow)}</span>
+                <span className="text-down">↓ {fmtKrw(m.outflow)}</span>
               </div>
             </div>
           );
