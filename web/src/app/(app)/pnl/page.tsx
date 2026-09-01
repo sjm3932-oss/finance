@@ -16,17 +16,19 @@ export const dynamic = "force-dynamic";
 export default async function PnlPage({
   searchParams,
 }: {
-  searchParams: Promise<{ own?: string; inst?: string; tab?: string }>;
+  searchParams: Promise<{ own?: string; inst?: string; tab?: string; sub?: string }>;
 }) {
   const sp = await searchParams;
   const tab = sp.tab === "dividend" ? "dividend" : "realized";
   const { accounts, usdkrw } = await loadPortfolioSnapshot({
     ownership: sp.own,
     institution: sp.inst,
+    sub: sp.sub,
   });
   const accountIds = accountIdsForInstitution(
     accounts,
-    sp.inst && sp.inst !== "전체" ? sp.inst : null
+    sp.inst && sp.inst !== "전체" ? sp.inst : null,
+    sp.sub && sp.sub !== "전체" ? sp.sub : null
   );
 
   const [realized, div] = await Promise.all([
@@ -63,6 +65,7 @@ export default async function PnlPage({
   const q = new URLSearchParams();
   if (sp.own) q.set("own", sp.own);
   if (sp.inst) q.set("inst", sp.inst);
+  if (sp.sub) q.set("sub", sp.sub);
 
   return (
     <div className="space-y-5">

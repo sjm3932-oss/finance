@@ -502,9 +502,28 @@ PRODUCT_LABELS = {
     "29": "퇴직연금",
 }
 
+ISA_FUND_TICKER = "ISA-FUND"
+ISA_FUND_HOLDING_NAME = "ISA 펀드"
+
 
 def product_label(code: str) -> str:
-    return PRODUCT_LABELS.get(str(code), str(code))
+    code = str(code)
+    name = PRODUCT_LABELS.get(code)
+    return f"{code} {name}" if name else code
+
+
+def product_memo(code: str) -> str:
+    return product_label(code)
+
+
+def memo_product_code(memo: Any) -> str | None:
+    """Parse '01 위탁' → '01'. Merged '01·21·22·29 합산' is not a single product."""
+    s = str(memo or "").strip()
+    if not s or "합산" in s or "·" in s:
+        return None
+    if len(s) >= 2 and s[:2].isdigit():
+        return s[:2]
+    return None
 
 
 def kis_msg_cd(payload: Any) -> str:

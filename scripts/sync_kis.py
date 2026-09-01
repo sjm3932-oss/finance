@@ -49,7 +49,11 @@ from kis_client import (  # noqa: E402
     is_rate_limited,
     kis_base,
     lookback_range,
+    memo_product_code,
     product_label,
+    product_memo,
+    ISA_FUND_HOLDING_NAME,
+    ISA_FUND_TICKER,
     map_domestic_dividend,
     map_domestic_fill,
     map_domestic_holding,
@@ -325,10 +329,10 @@ def paged_get(
     return rows, summary
 
 
-def ensure_account(c, user_id: str, currency: str) -> str:
+def ensure_account(c, user_id: str, currency: str, prod: str) -> str:
     rows = (
         c.table("accounts")
-        .select("id,institution,account_type,currency")
+        .select("id,institution,account_type,currency,memo")
         .eq("user_id", user_id)
         .eq("institution", INSTITUTION)
         .eq("currency", currency)
@@ -336,8 +340,15 @@ def ensure_account(c, user_id: str, currency: str) -> str:
         .data
         or []
     )
-    if rows:
-        return rows[0]["id"]
+    for row in rows:
+        if memo_product_code(row.get("memo")) == prod:
+            return row["id"]
+    leftover = next((row for row in rows if memo_product_code(row.get("memo")) is None), None)
+    if leftover:
+        aid = leftover["id"]
+        set_product_account_memo(c, aid, prod)
+        print(f"  reuse {INSTITUTION} {currency} as {prod}")
+        return aid
     payload = {
         "user_id": user_id,
         "institution": INSTITUTION,
@@ -345,11 +356,12 @@ def ensure_account(c, user_id: str, currency: str) -> str:
         "currency": currency,
         "ownership": "mine",
         "cash_balance": 0,
+        "memo": product_memo(prod),
     }
     try:
         res = c.table("accounts").insert(payload).execute()
         if res.data:
-            print(f"  + account {INSTITUTION} {currency}")
+            print(f"  + account {INSTITUTION} {prod} {currency}")
             return res.data[0]["id"]
     except Exception:
         pass
@@ -359,19 +371,18 @@ def ensure_account(c, user_id: str, currency: str) -> str:
             "institution": INSTITUTION,
             "account_type": "brokerage",
             "currency": currency,
+            "memo": product_memo(prod),
         }
     ).execute()
     if not res.data:
-        raise SystemExit(f"failed to create {INSTITUTION} {currency} account")
-    print(f"  + account {INSTITUTION} {currency}")
+        raise SystemExit(f"failed to create {INSTITUTION} {prod} {currency} account")
+    print(f"  + account {INSTITUTION} {prod} {currency}")
     return res.data[0]["id"]
 
 
-def set_merged_account_memo(c, account_id: str, product_codes: list[str]) -> None:
-    codes = "·".join(product_codes) if product_codes else "01·21·22·29"
-    memo = f"{codes} 합산"
+def set_product_account_memo(c, account_id: str, prod: str) -> None:
     try:
-        c.table("accounts").update({"memo": memo}).eq("id", account_id).execute()
+        c.table("accounts").update({"memo": product_memo(prod)}).eq("id", account_id).execute()
     except Exception as exc:
         print(f"  account memo skip: {exc}")
 
@@ -480,7 +491,9 @@ def insert_trades(c, *, user_id: str, account_ids: dict[str, str], rows: list[di
         if ext in known:
             continue
         ccy = row["currency"]
-        account_id = account_ids.get(ccy)
+        prod = str(row.get("product") or "")
+        account_id = account_ids.get(f"{prod}:{ccy}") if prod else None
+        account_id = account_id or account_ids.get(ccy)
         if not account_id:
             continue
         payload: dict[str, Any] = {
@@ -521,7 +534,9 @@ def insert_dividends(c, *, user_id: str, account_ids: dict[str, str], rows: list
         if ext in known:
             continue
         ccy = row["currency"]
-        account_id = account_ids.get(ccy)
+        prod = str(row.get("product") or "")
+        account_id = account_ids.get(f"{prod}:{ccy}") if prod else None
+        account_id = account_id or account_ids.get(ccy)
         if not account_id:
             continue
         payload: dict[str, Any] = {
@@ -659,36 +674,22 @@ def fetch_account_overview(ctx: dict, cano: str, prod: str) -> dict[str, float]:
     return {"nass": nass, "cash": cash, "ok": 1.0}
 
 
-ISA_FUND_NAME = "한국투자증권 ISA(21) 펀드"
+ISA_OTHER_ASSET_NAME = "한국투자증권 ISA(21) 펀드"
 
 
-def upsert_isa_fund_asset(c, user_id: str, value: float) -> None:
+def delete_isa_other_asset(c, user_id: str) -> None:
+    """ISA fund now lives on the 21 brokerage account; drop the old 기타자산 row."""
     rows = (
         c.table("other_assets")
         .select("id")
         .eq("user_id", user_id)
-        .eq("name", ISA_FUND_NAME)
+        .eq("name", ISA_OTHER_ASSET_NAME)
         .execute()
         .data
         or []
     )
-    payload = {
-        "user_id": user_id,
-        "name": ISA_FUND_NAME,
-        "asset_kind": "pension",
-        "value_krw": value,
-        "ownership": "mine",
-        "memo": "KIS 21. 펀드는 종목 API가 없어 평가액만 가져옵니다. CMA는 한투 현금으로 들어갑니다.",
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    if value <= 0:
-        if rows:
-            c.table("other_assets").delete().eq("id", rows[0]["id"]).execute()
-        return
     if rows:
-        c.table("other_assets").update(payload).eq("id", rows[0]["id"]).execute()
-    else:
-        c.table("other_assets").insert(payload).execute()
+        c.table("other_assets").delete().eq("id", rows[0]["id"]).execute()
 
 
 def fetch_overseas_balance(ctx: dict, cano: str, prod: str) -> list[dict]:
@@ -978,14 +979,20 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
     }
     start, end = lookback_range(TRADE_LOOKBACK_DAYS)
 
-    holdings: list[dict] = []
-    cash = {"KRW": 0.0, "USD": 0.0}
     fills: list[dict] = []
     dividends: list[dict] = []
-
-    isa_fund = 0.0
-    isa_seen = False
     products: list[dict] = []
+    account_ids: dict[str, str] = {}
+    summary: list[dict] = []
+    isa_seen = False
+
+    def tag_rows(rows: list[dict], prod: str) -> list[dict]:
+        out = []
+        for row in rows:
+            item = dict(row)
+            item["product"] = prod
+            out.append(item)
+        return out
 
     for i, (cano, prod) in enumerate(accounts):
         if i:
@@ -994,12 +1001,12 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
         kr_hold: list[dict] = []
         kr_cash = 0.0
         ov_cash = 0.0
+        usd_cash = 0.0
+        us_hold: list[dict] = []
         fund = 0.0
         note = ""
         try:
             kr_hold, kr_cash = fetch_domestic_balance(ctx, cano, prod)
-            holdings.extend(kr_hold)
-            cash["KRW"] += kr_cash
         except Exception as exc:
             note = str(exc)
             print(f"  domestic balance skip: {exc}", flush=True)
@@ -1009,99 +1016,101 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
                 if ov.get("ok"):
                     isa_seen = True
                     ov_cash = ov["cash"]
-                    cash["KRW"] += ov_cash
                     if not kr_hold and ov["nass"] > 0:
                         fund = ov["nass"]
-                        isa_fund = fund
-                        note = note or "펀드는 종목 API가 없어 기타자산으로 반영"
-                    elif not kr_hold:
-                        isa_fund = 0.0
+                        kr_hold.append(
+                            {
+                                "ticker": ISA_FUND_TICKER,
+                                "name": ISA_FUND_HOLDING_NAME,
+                                "quantity": 1.0,
+                                "avg_price": fund,
+                                "currency": "KRW",
+                                "last_price": fund,
+                            }
+                        )
+                        note = note or "펀드는 종목 API가 없어 이 계좌 보유로 반영"
             except Exception as exc:
                 print(f"  21 overview skip: {exc}", flush=True)
                 note = note or str(exc)
+        try:
+            us_hold = fetch_overseas_balance(ctx, cano, prod)
+        except Exception as exc:
+            print(f"  overseas balance skip: {exc}")
+        try:
+            usd_cash = fetch_overseas_cash(ctx, cano, prod)
+        except Exception as exc:
+            print(f"  usd cash skip: {exc}")
+        prod_fills: list[dict] = []
+        prod_divs: list[dict] = []
+        try:
+            prod_fills.extend(tag_rows(fetch_domestic_fills(ctx, cano, prod, start, end), prod))
+        except Exception as exc:
+            print(f"  domestic fills skip: {exc}")
+        try:
+            prod_fills.extend(tag_rows(fetch_overseas_fills(ctx, cano, prod, start, end), prod))
+        except Exception as exc:
+            print(f"  overseas fills skip: {exc}")
+        try:
+            prod_divs.extend(tag_rows(fetch_domestic_dividends(ctx, cano, prod, start, end), prod))
+        except Exception as exc:
+            print(f"  domestic dividends skip: {exc}")
+        try:
+            prod_divs.extend(tag_rows(fetch_overseas_dividends(ctx, cano, prod, start, end), prod))
+        except Exception as exc:
+            print(f"  overseas dividends skip: {exc}")
+        fills.extend(prod_fills)
+        dividends.extend(prod_divs)
+
+        prod_holdings = kr_hold + us_hold
+        by_ccy = holdings_by_currency(prod_holdings)
+        cash_by = {"KRW": kr_cash + ov_cash, "USD": usd_cash}
+        trade_ccy = {m["currency"] for m in prod_fills}
+        div_ccy = {m["currency"] for m in prod_divs}
+        for ccy in ("KRW", "USD"):
+            rows = by_ccy.get(ccy) or []
+            if not rows and cash_by[ccy] <= 0 and ccy not in trade_ccy and ccy not in div_ccy:
+                continue
+            aid = ensure_account(c, uid, ccy, prod)
+            account_ids[f"{prod}:{ccy}"] = aid
+            upsert_holdings(c, aid, rows)
+            set_cash(c, aid, cash_by[ccy])
+            set_product_account_memo(c, aid, prod)
+
         products.append(
             {
                 "code": prod,
                 "label": product_label(prod),
-                "holdings": len(kr_hold),
+                "holdings": len(kr_hold) + len(us_hold),
                 "cash": kr_cash + ov_cash,
                 "fund": fund,
                 "note": note,
             }
         )
-        try:
-            holdings.extend(fetch_overseas_balance(ctx, cano, prod))
-        except Exception as exc:
-            print(f"  overseas balance skip: {exc}")
-        try:
-            cash["USD"] += fetch_overseas_cash(ctx, cano, prod)
-        except Exception as exc:
-            print(f"  usd cash skip: {exc}")
-        try:
-            fills.extend(fetch_domestic_fills(ctx, cano, prod, start, end))
-        except Exception as exc:
-            print(f"  domestic fills skip: {exc}")
-        try:
-            fills.extend(fetch_overseas_fills(ctx, cano, prod, start, end))
-        except Exception as exc:
-            print(f"  overseas fills skip: {exc}")
-        try:
-            dividends.extend(fetch_domestic_dividends(ctx, cano, prod, start, end))
-        except Exception as exc:
-            print(f"  domestic dividends skip: {exc}")
-        try:
-            dividends.extend(fetch_overseas_dividends(ctx, cano, prod, start, end))
-        except Exception as exc:
-            print(f"  overseas dividends skip: {exc}")
 
-    by_ccy = holdings_by_currency(holdings)
-    trade_ccy = {m["currency"] for m in fills}
-    div_ccy = {m["currency"] for m in dividends}
+    insert_trades(c, user_id=uid, account_ids=account_ids, rows=fills) if account_ids else {}
+    insert_dividends(c, user_id=uid, account_ids=account_ids, rows=dividends) if account_ids else {}
+    if isa_seen:
+        try:
+            delete_isa_other_asset(c, uid)
+        except Exception as exc:
+            print(f"  isa other_asset skip: {exc}")
 
-    account_ids: dict[str, str] = {}
-    for ccy in ("KRW", "USD"):
-        rows = by_ccy.get(ccy) or []
-        if not rows and cash[ccy] <= 0 and ccy not in trade_ccy and ccy not in div_ccy:
-            continue
-        aid = ensure_account(c, uid, ccy)
-        account_ids[ccy] = aid
-        upsert_holdings(c, aid, rows)
-        set_cash(c, aid, cash[ccy])
-        if ccy == "KRW":
-            set_merged_account_memo(c, aid, [p[1] for p in accounts])
-
-    inserted_trades = insert_trades(c, user_id=uid, account_ids=account_ids, rows=fills) if account_ids else {}
-    inserted_divs = insert_dividends(c, user_id=uid, account_ids=account_ids, rows=dividends) if account_ids else {}
-    try:
-        if isa_seen:
-            upsert_isa_fund_asset(c, uid, isa_fund)
-    except Exception as exc:
-        print(f"  isa fund asset skip: {exc}")
-
-    summary: list[dict] = []
-    for ccy, aid in account_ids.items():
-        rows = by_ccy.get(ccy) or []
+    for p in products:
         summary.append(
             {
-                "currency": ccy,
-                "holdings": len(rows),
-                "cash": cash[ccy],
-                "trades": inserted_trades.get(ccy, 0),
-                "dividends": inserted_divs.get(ccy, 0),
+                "currency": "KRW",
+                "product": p["code"],
+                "label": p["label"],
+                "holdings": p["holdings"],
+                "cash": p["cash"],
             }
         )
         print(
-            f"  {INSTITUTION} {ccy}: {len(rows)} holdings, cash={cash[ccy]}, "
-            f"trades+{inserted_trades.get(ccy, 0)}, div+{inserted_divs.get(ccy, 0)}"
+            f"  {INSTITUTION} {p['label']}: {p['holdings']} holdings, cash={p['cash']}"
+            + (f" ({p['note']})" if p.get("note") else "")
         )
 
     print(f"Done. Synced {INSTITUTION}.")
-    for p in products:
-        print(
-            f"  product {p['code']} {p['label']}: {p['holdings']} holdings, "
-            f"cash={p['cash']}, fund={p['fund']}"
-            + (f" ({p['note']})" if p.get("note") else "")
-        )
     return {
         "ok": True,
         "institution": INSTITUTION,

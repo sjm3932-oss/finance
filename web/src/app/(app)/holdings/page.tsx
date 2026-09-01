@@ -3,18 +3,20 @@ import { PortfolioFilters } from "@/components/PortfolioFilters";
 import { Suspense } from "react";
 import { fmtKrw, fmtPct } from "@/lib/money";
 import { loadPortfolioSnapshot } from "@/lib/data";
+import { filterQuery } from "@/lib/portfolio";
 
 export const dynamic = "force-dynamic";
 
 export default async function HoldingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ own?: string; inst?: string }>;
+  searchParams: Promise<{ own?: string; inst?: string; sub?: string }>;
 }) {
   const sp = await searchParams;
   const { byTicker, nw, returnPct, accounts } = await loadPortfolioSnapshot({
     ownership: sp.own,
     institution: sp.inst,
+    sub: sp.sub,
   });
 
   return (
@@ -32,14 +34,7 @@ export default async function HoldingsPage({
       <HoldingList
         items={byTicker}
         linkable
-        query={
-          [
-            sp.own ? `own=${encodeURIComponent(sp.own)}` : "",
-            sp.inst ? `inst=${encodeURIComponent(sp.inst)}` : "",
-          ]
-            .filter(Boolean)
-            .join("&")
-        }
+        query={filterQuery(sp)}
       />
     </div>
   );

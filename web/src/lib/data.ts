@@ -21,6 +21,7 @@ import { monthStartKst } from "@/lib/dates";
 export type PortfolioFilters = {
   ownership?: string | null;
   institution?: string | null;
+  sub?: string | null;
 };
 
 export class DataLoadError extends Error {
@@ -63,6 +64,7 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
     filters.institution && filters.institution !== "전체"
       ? filters.institution
       : null;
+  const sub = filters.sub && filters.sub !== "전체" ? filters.sub : null;
 
   let accountRows = await safeSelect<AccountRow>(
     () =>
@@ -213,7 +215,7 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
   const usdkrw = usd ? Number(usd.price) : null;
 
   const liveAll = buildLiveHoldings(holdings, accountRows, priceRows, usdkrw);
-  const accountIds = accountIdsForInstitution(accountRows, institution);
+  const accountIds = accountIdsForInstitution(accountRows, institution, sub);
 
   let totalDebt = debts.reduce((s, d) => s + Number(d.principal || 0), 0);
   if (ownership) {

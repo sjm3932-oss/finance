@@ -21,7 +21,7 @@ export default async function HoldingDetailPage({
   searchParams,
 }: {
   params: Promise<{ ticker: string }>;
-  searchParams: Promise<{ inst?: string; own?: string }>;
+  searchParams: Promise<{ inst?: string; own?: string; sub?: string }>;
 }) {
   const { ticker: raw } = await params;
   const ticker = safeTicker(raw).trim();
@@ -31,10 +31,12 @@ export default async function HoldingDetailPage({
   const { byTicker, accounts, live } = await loadPortfolioSnapshot({
     institution: sp.inst,
     ownership: sp.own,
+    sub: sp.sub,
   });
   const accountIds = accountIdsForInstitution(
     accounts,
-    sp.inst && sp.inst !== "전체" ? sp.inst : null
+    sp.inst && sp.inst !== "전체" ? sp.inst : null,
+    sp.sub && sp.sub !== "전체" ? sp.sub : null
   );
   const agg = byTicker.find((t) => t.ticker === ticker);
   const rows = live.filter((r) => r.ticker === ticker);
@@ -48,6 +50,7 @@ export default async function HoldingDetailPage({
   const backQ = new URLSearchParams();
   if (sp.own) backQ.set("own", sp.own);
   if (sp.inst) backQ.set("inst", sp.inst);
+  if (sp.sub) backQ.set("sub", sp.sub);
   const backHref = backQ.toString()
     ? `/holdings?${backQ.toString()}`
     : "/holdings";

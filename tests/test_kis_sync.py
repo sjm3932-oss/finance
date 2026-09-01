@@ -251,7 +251,17 @@ def test_date_windows():
     assert windows[-1][1] == date(2026, 2, 10)
 
 
-def test_ip_and_auth_messages():
+def test_product_memo_and_code():
+    from kis_client import memo_product_code, product_label, product_memo
+
+    assert product_label("01") == "01 위탁"
+    assert product_label("21") == "21 ISA"
+    assert product_memo("29") == "29 퇴직연금"
+    assert memo_product_code("01 위탁") == "01"
+    assert memo_product_code("21 ISA") == "21"
+    assert memo_product_code("01·21·22·29 합산") is None
+    assert memo_product_code("") is None
+    assert memo_product_code(None) is None
     rate = humanize_kis_error(500, {"msg_cd": "EGW00201", "msg1": "초당 거래건수를 초과하였습니다."})
     assert "한도" in rate
     ip = humanize_kis_error(403, {"msg_cd": "EGW00204", "msg1": "blocked"})
