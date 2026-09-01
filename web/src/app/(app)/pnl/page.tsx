@@ -52,10 +52,8 @@ export default async function PnlPage({
 
   const byTickerMap = new Map<string, number>();
   for (const r of realized) {
-    byTickerMap.set(
-      r.asset_ref,
-      (byTickerMap.get(r.asset_ref) || 0) + r.pnl_krw
-    );
+    const label = r.asset_name || r.asset_ref;
+    byTickerMap.set(label, (byTickerMap.get(label) || 0) + r.pnl_krw);
   }
   const byTicker = [...byTickerMap.entries()]
     .map(([label, value]) => ({ label, value }))

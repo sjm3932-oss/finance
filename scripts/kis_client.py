@@ -65,12 +65,17 @@ def yyyymmdd(raw: Any) -> str | None:
 
 def normalize_kr_ticker(raw: Any) -> str:
     t = str(raw or "").strip().upper()
-    if t.startswith("A") and t[1:].isdigit():
-        t = t[1:]
     if t.endswith(".KS") or t.endswith(".KQ"):
         t = t[:-3]
+    # KIS sometimes pads an A-prefix: 00000A458730 → 458730, A005930 → 005930
+    a_idx = t.find("A")
+    prefix = t[:a_idx]
+    if a_idx >= 0 and (not prefix or prefix.isdigit()) and t[a_idx + 1 :].isdigit():
+        t = t[a_idx + 1 :]
     if t.isdigit() and len(t) <= 6:
         return t.zfill(6)
+    if t.isdigit() and len(t) > 6:
+        return t[-6:]
     return t
 
 

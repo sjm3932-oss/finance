@@ -15,6 +15,12 @@ import {
 } from "@/lib/insights";
 import type { DailySnap, DebtRow } from "@/lib/portfolio";
 import { fmtUnitPrice } from "@/lib/money";
+import {
+  buildNameIndex,
+  isTickerLike,
+  lookupAssetName,
+  normalizeKrTicker,
+} from "@/lib/tickers";
 
 async function safeSelect<T>(
   run: () => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
@@ -111,7 +117,7 @@ export async function loadRealizedRows(
   const supabase = await createClient();
   const rows: RealizedRow[] = [];
 
-  const [tradesAll, dividendsAll, cash] = await Promise.all([
+  const [tradesAll, dividendsAll, cash, holdingNames] = await Promise.all([
     safeSelect<{
       trade_date: string;
       ticker: string;
@@ -160,7 +166,13 @@ export async function loadRealizedRows(
         .eq("flow_type", "income")
         .limit(300)
     ),
+    safeSelect<{ ticker: string; name: string | null }>(
+      () => supabase.from("holdings").select("ticker,name"),
+      { label: "holdings-names" }
+    ),
   ]);
+
+  const names = buildNameIndex([...holdingNames, ...dividendsAll]);
 
   let trades = tradesAll;
   if (accountIds) {
@@ -174,7 +186,7 @@ export async function loadRealizedRows(
       pnl_kind: "trade_realized",
       pnl_kind_ko: PNL_KIND_KO.trade_realized,
       asset_ref: t.ticker,
-      asset_name: t.ticker,
+      asset_name: lookupAssetName(t.ticker, names) || t.ticker,
       pnl,
       currency: ccy,
       pnl_krw: toKrwAmount(pnl, ccy, usdkrw),
@@ -197,7 +209,7 @@ export async function loadRealizedRows(
       pnl_kind: "dividend",
       pnl_kind_ko: PNL_KIND_KO.dividend,
       asset_ref: d.ticker,
-      asset_name: d.name || d.ticker,
+      asset_name: lookupAssetName(d.ticker, names) || d.name || d.ticker,
       pnl: amount,
       currency: ccy,
       pnl_krw: toKrwAmount(amount, ccy, usdkrw),
@@ -256,29 +268,60 @@ export async function loadDividendInsights(
   return { rows, stats: dividendStats(rows, usdkrw) };
 }
 
+async function loadNameIndex(
+  supabase: Awaited<ReturnType<typeof createClient>>
+) {
+  const [holdings, dividends] = await Promise.all([
+    safeSelect<{ ticker: string; name: string | null }>(
+      () => supabase.from("holdings").select("ticker,name"),
+      { label: "holdings-names" }
+    ),
+    safeSelect<{ ticker: string; name: string | null }>(
+      () => supabase.from("dividends").select("ticker,name").limit(2000),
+      { label: "dividend-names" }
+    ),
+  ]);
+  return buildNameIndex([...holdings, ...dividends]);
+}
+
+function attachFlowNames(rows: FlowRow[], names: Map<string, string>): FlowRow[] {
+  return rows.map((r) => {
+    const kind = r.flow_kind;
+    if (kind !== "trade" && kind !== "dividend") {
+      return { ...r, asset_name: r.asset_ref || null };
+    }
+    const named = lookupAssetName(r.asset_ref, names);
+    if (named) return { ...r, asset_name: named };
+    const ref = r.asset_ref || null;
+    const cleaned =
+      ref && isTickerLike(ref) ? normalizeKrTicker(ref) || ref : ref;
+    return { ...r, asset_name: cleaned };
+  });
+}
+
 export async function loadAssetFlows(
   accountIds: string[] | null
 ): Promise<FlowRow[]> {
   const supabase = await createClient();
-  let rows = await safeSelect<FlowRow>(() =>
-    supabase
-      .from("v_asset_flows")
-      .select(
-        "event_date,flow_kind,flow_subtype,asset_ref,amount,currency,memo,account_id"
-      )
-      .order("event_date", { ascending: false })
-      .limit(500)
-  );
+  const [rows, names] = await Promise.all([
+    safeSelect<FlowRow>(() =>
+      supabase
+        .from("v_asset_flows")
+        .select(
+          "event_date,flow_kind,flow_subtype,asset_ref,amount,currency,memo,account_id"
+        )
+        .order("event_date", { ascending: false })
+        .limit(500)
+    ),
+    loadNameIndex(supabase),
+  ]);
   if (!rows.length) {
-    // Fallback without view
     return [];
   }
-  if (accountIds) {
-    rows = rows.filter(
-      (r) => r.account_id && accountIds.includes(r.account_id)
-    );
-  }
-  return rows;
+  const scoped = accountIds
+    ? rows.filter((r) => r.account_id && accountIds.includes(r.account_id))
+    : rows;
+  return attachFlowNames(scoped, names);
 }
 
 export async function loadTickerHistory(ticker: string, accountIds: string[] | null) {

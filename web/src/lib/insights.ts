@@ -53,6 +53,7 @@ export type FlowRow = {
   flow_kind: string;
   flow_subtype?: string | null;
   asset_ref?: string | null;
+  asset_name?: string | null;
   amount: number;
   currency?: string | null;
   memo?: string | null;

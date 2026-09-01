@@ -52,6 +52,9 @@ def test_normalize_kr_ticker():
     assert normalize_kr_ticker("A005930") == "005930"
     assert normalize_kr_ticker("5930") == "005930"
     assert normalize_kr_ticker("005930.KS") == "005930"
+    assert normalize_kr_ticker("00000A458730") == "458730"
+    assert normalize_kr_ticker("AAPL") == "AAPL"
+    assert normalize_kr_ticker("0180V0") == "0180V0"
 
 
 def test_map_domestic_holding():
@@ -166,6 +169,19 @@ def test_map_domestic_fill():
         )
         is None
     )
+    padded = map_domestic_fill(
+        {
+            "odno": "000099",
+            "pdno": "00000A458730",
+            "sll_buy_dvsn_cd": "02",
+            "tot_ccld_qty": "1",
+            "avg_prvs": "10000",
+            "ord_dt": "20260831",
+        },
+        cano="12345678",
+    )
+    assert padded is not None
+    assert padded["ticker"] == "458730"
 
 
 def test_map_overseas_fill_sell():

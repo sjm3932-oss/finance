@@ -6,6 +6,7 @@ import { loadAssetFlows } from "@/lib/data-insights";
 import { accountIdsForInstitution } from "@/lib/portfolio";
 import { FLOW_KIND_KO, aggregateByMonth } from "@/lib/insights";
 import { fmtKrw } from "@/lib/money";
+import { flowDisplayName, isTickerLike, normalizeKrTicker } from "@/lib/tickers";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +101,13 @@ export default async function FlowsPage({
         {flows.slice(0, 50).map((f, i) => {
           const amount = Number(f.amount) || 0;
           const dir = amount >= 0 ? "유입" : "유출";
+          const title = flowDisplayName(f, FLOW_KIND_KO);
+          const ticker =
+            f.asset_ref &&
+            !isTickerLike(title) &&
+            isTickerLike(f.asset_ref)
+              ? normalizeKrTicker(f.asset_ref)
+              : null;
           return (
             <div
               key={`${f.event_date}-${f.asset_ref}-${i}`}
@@ -107,11 +115,12 @@ export default async function FlowsPage({
             >
               <div className="min-w-0">
                 <div className="text-sm font-extrabold tracking-tight">
-                  {f.asset_ref || FLOW_KIND_KO[f.flow_kind] || f.flow_kind}
+                  {title}
                 </div>
                 <div className="text-xs text-muted">
                   {String(f.event_date).slice(0, 10)} ·{" "}
                   {FLOW_KIND_KO[f.flow_kind] || f.flow_kind} · {dir}
+                  {ticker ? ` · ${ticker}` : ""}
                   {f.memo ? ` · ${f.memo}` : ""}
                 </div>
               </div>
