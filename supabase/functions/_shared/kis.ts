@@ -113,9 +113,18 @@ export function yyyymmdd(raw: unknown): string | null {
 
 export function normalizeKrTicker(raw: unknown): string {
   let t = String(raw || "").trim().toUpperCase();
-  if (t.startsWith("A") && /^\d+$/.test(t.slice(1))) t = t.slice(1);
   if (t.endsWith(".KS") || t.endsWith(".KQ")) t = t.slice(0, -3);
+  // KIS sometimes pads an A-prefix: 00000A458730 → 458730
+  const aIdx = t.indexOf("A");
+  if (
+    aIdx >= 0 &&
+    /^\d*$/.test(t.slice(0, aIdx)) &&
+    /^\d+$/.test(t.slice(aIdx + 1))
+  ) {
+    t = t.slice(aIdx + 1);
+  }
   if (/^\d+$/.test(t) && t.length <= 6) return t.padStart(6, "0");
+  if (/^\d+$/.test(t) && t.length > 6) return t.slice(-6);
   return t;
 }
 

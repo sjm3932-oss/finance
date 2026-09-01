@@ -13,6 +13,7 @@ from lib.chart_period import filter_by_period, period_radio
 from lib.export_csv import download_csv_button
 from lib.theme import PRIMARY, chart_layout, show_plotly
 from lib.ui_ko import FLOW_KIND_KO, FLOW_TYPE_KO, TRADE_TYPE_KO
+from lib.ticker_names import flow_display_name, load_name_index, lookup_asset_name
 
 CASH_INCOME_CATS = ["월급", "사업소득", "이자", "증권입금", "예수금이자", "기타수입"]
 CASH_EXPENSE_CATS = [
@@ -56,6 +57,17 @@ def _load_flows(client, limit: int = 500) -> pd.DataFrame:
     )
     if not rows:
         return pd.DataFrame()
+    names = load_name_index(client)
+    for r in rows:
+        kind = r.get("flow_kind")
+        ref = r.get("asset_ref")
+        if kind in ("trade", "dividend"):
+            r["asset_name"] = lookup_asset_name(ref, names) or ref
+        else:
+            r["asset_name"] = ref
+        r["display_name"] = flow_display_name(
+            kind, ref, r.get("asset_name"), kind_ko=FLOW_KIND_KO
+        )
     df = pd.DataFrame(rows)
     df["event_date"] = pd.to_datetime(df["event_date"], errors="coerce")
     df["amount"] = pd.to_numeric(df.get("amount"), errors="coerce")
@@ -134,13 +146,20 @@ def render_flow_charts(
     if q and q.strip():
         qq = q.strip().lower()
         ref = view.get("asset_ref", pd.Series([""] * len(view))).fillna("").astype(str)
+        named = (
+            view.get("display_name", pd.Series([""] * len(view))).fillna("").astype(str)
+            if "display_name" in view.columns
+            else pd.Series([""] * len(view))
+        )
         memo = (
             view.get("memo", pd.Series([""] * len(view))).fillna("").astype(str)
             if "memo" in view.columns
             else pd.Series([""] * len(view))
         )
-        mask = ref.str.lower().str.contains(qq, regex=False) | memo.str.lower().str.contains(
-            qq, regex=False
+        mask = (
+            ref.str.lower().str.contains(qq, regex=False)
+            | named.str.lower().str.contains(qq, regex=False)
+            | memo.str.lower().str.contains(qq, regex=False)
         )
         view = view[mask]
 
@@ -212,7 +231,11 @@ def render_flow_charts(
         {
             "일자": rows["event_date"].dt.strftime("%Y-%m-%d"),
             "종류": rows["flow_kind_ko"],
-            "종목/항목": rows.get("asset_ref", pd.Series([""] * len(rows))).fillna(""),
+            "종목/항목": (
+                rows["display_name"]
+                if "display_name" in rows.columns
+                else rows.get("asset_ref", pd.Series([""] * len(rows)))
+            ).fillna(""),
             "금액": rows["amount"].abs(),
             "방향": rows["amount"].map(
                 lambda x: "유입" if x > 0 else ("유출" if x < 0 else "—")
