@@ -165,8 +165,8 @@ export function buildLiveHoldings(
       account_id: h.account_id,
       institution: accountDisplayName({
         institution: acct?.institution || "계좌",
-        memo: acct?.memo,
-        currency: acct?.currency,
+        memo: acct?.memo ?? null,
+        currency: acct?.currency ?? null,
       }),
       qty,
       avg,
