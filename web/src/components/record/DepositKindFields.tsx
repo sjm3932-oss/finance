@@ -14,9 +14,11 @@ import {
 export function DepositKindFields({ deposit }: { deposit?: DepositRow }) {
   const [kind, setKind] = useState(deposit?.deposit_kind || "time");
   const [monthly, setMonthly] = useState(
-    Number(deposit?.monthly_amount || 0) > 0
-      ? String(Number(deposit?.monthly_amount))
-      : ""
+    deposit && isMonthlyDeposit(deposit.deposit_kind)
+      ? String(Number(deposit.monthly_amount || 0))
+      : Number(deposit?.monthly_amount || 0) > 0
+        ? String(Number(deposit.monthly_amount))
+        : ""
   );
   const [current, setCurrent] = useState(
     Number(deposit?.current_value || 0) > 0
