@@ -183,6 +183,19 @@ def test_installment_monthly_auto_calc():
     assert matured["maturity_interest"] == 23_400
     assert matured["maturity_value"] == 1_200_000 + 23_400
 
+    existing = {
+        **row,
+        "current_value": 2_000_000,
+        "balance_as_of": "2026-04-15",
+    }
+    seeded = installment_progress(existing, as_of="2026-04-15")
+    assert seeded is not None
+    assert seeded["value"] == 2_000_000
+    nxt = installment_progress(existing, as_of="2026-05-15")
+    assert nxt is not None
+    assert nxt["extra_payments"] == 1
+    assert nxt["value"] == 2_100_000
+
     nw = compute_net_worth(
         [],
         accounts=[],

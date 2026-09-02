@@ -318,9 +318,10 @@ export async function deleteOtherAsset(formData: FormData): Promise<ActionResult
   }
 }
 
-function omitMonthlyAmount(data: Record<string, unknown>): Record<string, unknown> {
+function omitLegacyDepositCols(data: Record<string, unknown>): Record<string, unknown> {
   const next = { ...data };
   delete next.monthly_amount;
+  delete next.balance_as_of;
   return next;
 }
 
@@ -336,20 +337,20 @@ function readDepositPayload(
   const name = str(formData.get("name"));
   const deposit_kind = str(formData.get("deposit_kind")) || "time";
   const principal = num(formData.get("principal"));
+  const monthlyKind =
+    deposit_kind === "installment" || deposit_kind === "subscription";
   const currentRaw = str(formData.get("current_value"));
   const current_value =
-    currentRaw === "" ? principal : num(formData.get("current_value"));
+    currentRaw === "" ? (monthlyKind ? 0 : principal) : num(formData.get("current_value"));
   const rateRaw = str(formData.get("interest_rate"));
   const interest_rate = rateRaw === "" ? 0 : num(formData.get("interest_rate"));
   const ownership = str(formData.get("ownership")) || "joint";
   const memo = str(formData.get("memo")) || null;
   const start_date = optionalDate(formData.get("start_date"));
   const maturity_date = optionalDate(formData.get("maturity_date"));
-
   const monthlyRaw = str(formData.get("monthly_amount"));
   const monthly_amount = monthlyRaw === "" ? 0 : num(formData.get("monthly_amount"));
-  const monthlyKind =
-    deposit_kind === "installment" || deposit_kind === "subscription";
+  let balance_as_of = optionalDate(formData.get("balance_as_of"));
 
   if (!institution) return { ok: false, message: "금융기관을 입력하세요." };
   if (!name) return { ok: false, message: "상품 이름을 입력하세요." };
@@ -361,6 +362,11 @@ function readDepositPayload(
     }
     if (!start_date) return { ok: false, message: "적금 가입일(첫 납입일)을 입력하세요." };
     if (!maturity_date) return { ok: false, message: "만기일을 입력하세요." };
+    if (!Number.isFinite(current_value) || current_value < 0) {
+      return { ok: false, message: "현재 잔액을 확인하세요." };
+    }
+    if (current_value > 0 && !balance_as_of) balance_as_of = todayKst();
+    if (!(current_value > 0)) balance_as_of = null;
   } else if (!Number.isFinite(principal) || principal < 0) {
     return { ok: false, message: "원금을 확인하세요." };
   }
@@ -384,11 +390,16 @@ function readDepositPayload(
       name,
       deposit_kind,
       principal: monthlyKind ? 0 : principal,
-      current_value: monthlyKind ? 0 : Number.isFinite(current_value) ? current_value : principal,
+      current_value: monthlyKind
+        ? current_value
+        : Number.isFinite(current_value)
+          ? current_value
+          : principal,
       monthly_amount: monthlyKind ? monthly_amount : 0,
       interest_rate,
       start_date,
       maturity_date,
+      balance_as_of: monthlyKind ? balance_as_of : null,
       ownership,
       memo,
       updated_at: new Date().toISOString(),
@@ -405,9 +416,12 @@ export async function createDeposit(formData: FormData): Promise<ActionResult> {
       ...parsed.data,
       user_id: user.id,
     });
-    if (error?.message?.includes("monthly_amount")) {
+    if (
+      error?.message?.includes("monthly_amount") ||
+      error?.message?.includes("balance_as_of")
+    ) {
       const retry = await supabase.from("deposits").insert({
-        ...omitMonthlyAmount(parsed.data),
+        ...omitLegacyDepositCols(parsed.data),
         user_id: user.id,
       });
       if (retry.error) return dbFail(retry.error);
@@ -429,10 +443,13 @@ export async function updateDeposit(formData: FormData): Promise<ActionResult> {
     const parsed = readDepositPayload(formData);
     if (!parsed.ok) return fail(parsed.message);
     const { error } = await supabase.from("deposits").update(parsed.data).eq("id", id);
-    if (error?.message?.includes("monthly_amount")) {
+    if (
+      error?.message?.includes("monthly_amount") ||
+      error?.message?.includes("balance_as_of")
+    ) {
       const retry = await supabase
         .from("deposits")
-        .update(omitMonthlyAmount(parsed.data))
+        .update(omitLegacyDepositCols(parsed.data))
         .eq("id", id);
       if (retry.error) return dbFail(retry.error);
     } else if (error) {

@@ -66,6 +66,7 @@ export type DepositRow = {
   interest_rate: number | null;
   start_date: string | null;
   maturity_date: string | null;
+  balance_as_of?: string | null;
   ownership: string | null;
   memo?: string | null;
 };
@@ -80,6 +81,9 @@ export type InstallmentProgress = {
   maturityPrincipal: number;
   maturityInterest: number;
   maturityValue: number;
+  seeded: boolean;
+  seedValue: number;
+  extraPayments: number;
 };
 
 export type NetWorth = {
@@ -162,11 +166,24 @@ export function isMonthlyDeposit(kind?: string | null): boolean {
   return kind === "installment" || kind === "subscription";
 }
 
+function installmentPaymentsMade(
+  start: string,
+  maturity: string,
+  hasMaturity: boolean,
+  cap: number,
+  asOf: string
+): number {
+  if (asOf < start) return 0;
+  const until = hasMaturity && maturity < asOf ? maturity : asOf;
+  return Math.min(cap, calendarMonthsBetween(start, until) + 1);
+}
+
 /**
  * 적금/청약 단리.
  * 가입일부터 매월 같은 날 납입, 오늘까지 횟수만큼 원금.
  * 경과이자 = 월납 × (연이율/12) × m(m-1)/2 (말입).
  * 만기이자 = 월납 × 연이율 × n(n+1)/24 (은행 초입 공식).
+ * current_value > 0 이면 그 금액을 balance_as_of 기준으로 쓰고, 이후 회차만 가산.
  */
 export function installmentProgress(
   d: Pick<
@@ -176,6 +193,8 @@ export function installmentProgress(
     | "start_date"
     | "maturity_date"
     | "deposit_kind"
+    | "current_value"
+    | "balance_as_of"
   >,
   asOf = todayKst()
 ): InstallmentProgress | null {
@@ -188,28 +207,56 @@ export function installmentProgress(
   const hasMaturity = /^\d{4}-\d{2}-\d{2}$/.test(maturity);
   const total = hasMaturity ? Math.max(1, calendarMonthsBetween(start, maturity)) : 0;
   const cap = total > 0 ? total : 1200;
-  let made = 0;
-  if (asOf >= start) {
-    const until = hasMaturity && maturity < asOf ? maturity : asOf;
-    made = Math.min(cap, calendarMonthsBetween(start, until) + 1);
-  }
+  const made = installmentPaymentsMade(start, maturity, hasMaturity, cap, asOf);
   const rate = Number(d.interest_rate || 0) / 100;
-  const interest = Math.round(
-    monthly * (rate / 12) * (made * Math.max(made - 1, 0)) / 2
+  const formulaInterest = Math.round(
+    (monthly * (rate / 12) * (made * Math.max(made - 1, 0))) / 2
   );
   const n = total > 0 ? total : made;
-  const maturityInterest = Math.round((monthly * rate * n * (n + 1)) / 24);
+  const formulaMaturityInterest = Math.round((monthly * rate * n * (n + 1)) / 24);
   const principal = monthly * made;
+  const formulaValue = principal + formulaInterest;
+  const remaining = Math.max(0, n - made);
+
+  const seed = Number(d.current_value || 0);
+  const seedOnRaw = d.balance_as_of ? String(d.balance_as_of).slice(0, 10) : "";
+  const seedOn = /^\d{4}-\d{2}-\d{2}$/.test(seedOnRaw) ? seedOnRaw : asOf;
+  const useSeed = seed > 0 && asOf >= seedOn;
+  let extraPayments = 0;
+  let value = formulaValue;
+  let interest = formulaInterest;
+  if (useSeed) {
+    const madeThen = installmentPaymentsMade(start, maturity, hasMaturity, cap, seedOn);
+    extraPayments = Math.max(0, made - madeThen);
+    const extraInterest = Math.round(
+      (monthly * (rate / 12) * (extraPayments * Math.max(extraPayments - 1, 0))) / 2
+    );
+    value = seed + monthly * extraPayments + extraInterest;
+    interest = extraInterest;
+  }
+  const remainingInterest = Math.round(
+    (monthly * (rate / 12) * (remaining * Math.max(remaining - 1, 0))) / 2
+  );
+  const maturityValue = useSeed
+    ? value + monthly * remaining + remainingInterest
+    : monthly * n + formulaMaturityInterest;
+  const maturityInterest = useSeed
+    ? remainingInterest
+    : formulaMaturityInterest;
+
   return {
     monthly,
     paymentsMade: made,
     paymentsTotal: n,
-    principal,
+    principal: useSeed ? seed + monthly * extraPayments : principal,
     interest,
-    value: principal + interest,
-    maturityPrincipal: monthly * n,
+    value,
+    maturityPrincipal: useSeed ? seed + monthly * remaining : monthly * n,
     maturityInterest,
-    maturityValue: monthly * n + maturityInterest,
+    maturityValue,
+    seeded: useSeed,
+    seedValue: useSeed ? seed : 0,
+    extraPayments,
   };
 }
 
@@ -224,6 +271,7 @@ export function depositBalance(
     | "start_date"
     | "maturity_date"
     | "deposit_kind"
+    | "balance_as_of"
   > & { value_krw?: number | null },
   asOf = todayKst()
 ): number {

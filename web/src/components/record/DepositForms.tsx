@@ -20,8 +20,9 @@ export function DepositForms({ deposits }: { deposits: DepositRow[] }) {
     <div className="space-y-4">
       <Panel title="예적금 추가">
         <p className="mb-3 text-xs text-muted">
-          적금·청약은 월 납입액만 넣으면 매달 자동으로 원금이 쌓입니다.
-          증권 예수금은 토스·한투 동기화, 부동산·연금은{" "}
+          적금·청약은 실제 가입일과 월 납입액만 넣으면 지금까지 낸 횟수가 자동입니다.
+          이미 쌓인 은행 잔액이 다르면 현재 잔액을 같이 넣으세요. 증권 예수금은 토스·한투
+          동기화, 부동산·연금은{" "}
           <Link href="/record?tab=wealth" className="font-semibold text-brand">
             부동산·기타
           </Link>

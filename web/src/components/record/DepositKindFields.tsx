@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { DEPOSIT_KIND_OPTIONS } from "@/lib/record";
 import { Field, inputClass } from "@/components/record/FormUI";
 import { fmtKrw } from "@/lib/money";
+import { todayKst } from "@/lib/dates";
 import {
   installmentProgress,
   isMonthlyDeposit,
@@ -16,6 +17,14 @@ export function DepositKindFields({ deposit }: { deposit?: DepositRow }) {
     Number(deposit?.monthly_amount || 0) > 0
       ? String(Number(deposit?.monthly_amount))
       : ""
+  );
+  const [current, setCurrent] = useState(
+    Number(deposit?.current_value || 0) > 0
+      ? String(Number(deposit?.current_value))
+      : ""
+  );
+  const [balanceAsOf, setBalanceAsOf] = useState(
+    deposit?.balance_as_of ? String(deposit.balance_as_of).slice(0, 10) : ""
   );
   const [rate, setRate] = useState(String(Number(deposit?.interest_rate || 0)));
   const [start, setStart] = useState(
@@ -33,8 +42,10 @@ export function DepositKindFields({ deposit }: { deposit?: DepositRow }) {
         interest_rate: Number(rate) || 0,
         start_date: start || null,
         maturity_date: maturity || null,
+        current_value: Number(current) || 0,
+        balance_as_of: balanceAsOf || (Number(current) > 0 ? todayKst() : null),
       }),
-    [kind, monthly, rate, start, maturity]
+    [kind, monthly, rate, start, maturity, current, balanceAsOf]
   );
 
   return (
@@ -56,7 +67,6 @@ export function DepositKindFields({ deposit }: { deposit?: DepositRow }) {
       {monthlyKind ? (
         <>
           <input type="hidden" name="principal" value={0} />
-          <input type="hidden" name="current_value" value={0} />
           <Field label="월 납입액(원)">
             <input
               name="monthly_amount"
@@ -67,13 +77,44 @@ export function DepositKindFields({ deposit }: { deposit?: DepositRow }) {
               className={inputClass}
               value={monthly}
               onChange={(e) => setMonthly(e.target.value)}
-              placeholder="매월 넣는 금액"
+              placeholder="앞으로 매월 넣는 금액"
             />
           </Field>
+          <p className="text-xs text-muted">
+            이미 넣고 있는 적금·청약은 <span className="text-ink">실제 가입일</span>을
+            넣으면 지금까지 회차가 자동으로 잡힙니다. 은행 잔액이 다르면 아래{" "}
+            <span className="text-ink">현재 잔액</span>을 넣으세요. 그 날짜 이후 월납은
+            계속 자동으로 더합니다.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="현재 잔액(원, 선택)">
+              <input
+                name="current_value"
+                type="number"
+                min={0}
+                step={10000}
+                className={inputClass}
+                value={current}
+                onChange={(e) => setCurrent(e.target.value)}
+                placeholder="비우면 가입일부터 자동"
+              />
+            </Field>
+            <Field label="잔액 기준일">
+              <input
+                name="balance_as_of"
+                type="date"
+                className={inputClass}
+                value={balanceAsOf}
+                onChange={(e) => setBalanceAsOf(e.target.value)}
+                disabled={!current}
+              />
+            </Field>
+          </div>
         </>
       ) : (
         <>
           <input type="hidden" name="monthly_amount" value={0} />
+          <input type="hidden" name="balance_as_of" value="" />
           <div className="grid grid-cols-2 gap-3">
             <Field label="원금(원)">
               <input
@@ -138,25 +179,29 @@ export function DepositKindFields({ deposit }: { deposit?: DepositRow }) {
       </div>
       {prog ? (
         <div className="rounded-xl bg-canvas px-3 py-2.5 text-xs font-semibold text-muted">
-          {prog.paymentsMade}/{prog.paymentsTotal}회 납입 · 누적원금{" "}
-          {fmtKrw(prog.principal)}
-          {prog.interest > 0 ? ` · 경과이자 ${fmtKrw(prog.interest)}` : ""}
+          {prog.paymentsMade}/{prog.paymentsTotal}회
+          {prog.seeded
+            ? ` · 은행잔액 ${fmtKrw(prog.seedValue)}${
+                prog.extraPayments > 0
+                  ? ` + 이후 ${prog.extraPayments}회`
+                  : ""
+              }`
+            : ` · 누적원금 ${fmtKrw(prog.principal)}`}
+          {prog.interest > 0 && !prog.seeded
+            ? ` · 경과이자 ${fmtKrw(prog.interest)}`
+            : ""}
           {" → 오늘 "}
           <span className="text-ink">{fmtKrw(prog.value)}</span>
           {prog.maturityValue > 0 ? (
             <>
               {" · 만기약 "}
               {fmtKrw(prog.maturityValue)}
-              {prog.maturityInterest > 0
-                ? ` (이자 ${fmtKrw(prog.maturityInterest)})`
-                : ""}
             </>
           ) : null}
         </div>
       ) : monthlyKind ? (
         <p className="text-xs text-muted">
-          월 납입액·가입일·만기를 넣으면 오늘까지 낸 횟수와 단리 이자가 자동으로
-          계산됩니다.
+          월 납입액·가입일·만기를 넣으면 오늘까지 낸 횟수가 자동으로 계산됩니다.
         </p>
       ) : null}
     </>

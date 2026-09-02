@@ -576,6 +576,18 @@ function calendarMonthsBetween(fromIso: string, toIso: string): number {
   return Math.max(0, months);
 }
 
+function installmentPaymentsMade(
+  start: string,
+  maturity: string,
+  hasMaturity: boolean,
+  cap: number,
+  asOf: string
+): number {
+  if (asOf < start) return 0;
+  const until = hasMaturity && maturity < asOf ? maturity : asOf;
+  return Math.min(cap, calendarMonthsBetween(start, until) + 1);
+}
+
 function installmentProgress(
   r: Record<string, unknown>,
   asOf = todayKst()
@@ -596,22 +608,32 @@ function installmentProgress(
   const hasMaturity = /^\d{4}-\d{2}-\d{2}$/.test(maturity);
   const total = hasMaturity ? Math.max(1, calendarMonthsBetween(start, maturity)) : 0;
   const cap = total > 0 ? total : 1200;
-  let made = 0;
-  if (asOf >= start) {
-    const until = hasMaturity && maturity < asOf ? maturity : asOf;
-    made = Math.min(cap, calendarMonthsBetween(start, until) + 1);
-  }
+  const made = installmentPaymentsMade(start, maturity, hasMaturity, cap, asOf);
   const rate = Number(r.interest_rate || 0) / 100;
-  const interest = Math.round(
+  const formulaInterest = Math.round(
     (monthly * (rate / 12) * (made * Math.max(made - 1, 0))) / 2
   );
   const n = total > 0 ? total : made;
   const maturityInterest = Math.round((monthly * rate * n * (n + 1)) / 24);
+  const seed = Number(r.current_value || 0);
+  const seedOnRaw = r.balance_as_of ? String(r.balance_as_of).slice(0, 10) : "";
+  const seedOn = /^\d{4}-\d{2}-\d{2}$/.test(seedOnRaw) ? seedOnRaw : asOf;
+  let value = monthly * made + formulaInterest;
+  if (seed > 0 && asOf >= seedOn) {
+    const extra = Math.max(
+      0,
+      made - installmentPaymentsMade(start, maturity, hasMaturity, cap, seedOn)
+    );
+    const extraInterest = Math.round(
+      (monthly * (rate / 12) * (extra * Math.max(extra - 1, 0))) / 2
+    );
+    value = seed + monthly * extra + extraInterest;
+  }
   return {
     monthly,
     paymentsMade: made,
     paymentsTotal: n,
-    value: monthly * made + interest,
+    value,
     maturityValue: monthly * n + maturityInterest,
   };
 }

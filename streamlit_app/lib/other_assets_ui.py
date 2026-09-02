@@ -413,7 +413,10 @@ def _form_deposits(client, user) -> None:
             hide_index=True,
         )
 
-    st.caption("적금·청약은 월 납입액만 넣으면 가입일부터 매월 같은 날 낸 것으로 보고 원금·단리 이자를 자동 계산합니다.")
+    st.caption(
+        "이미 넣고 있는 적금·청약은 실제 가입일을 넣으면 지금까지 회차가 자동입니다. "
+        "은행 잔액이 다르면 현재 잔액과 기준일을 넣으세요. 이후 월납은 계속 가산됩니다."
+    )
     kind = st.selectbox(
         "종류",
         options=list(DEPOSIT_KIND_KO.keys()),
@@ -433,7 +436,16 @@ def _form_deposits(client, user) -> None:
                 "월 납입액(원)", min_value=0.0, step=10_000.0, format="%.0f"
             )
             principal = 0.0
-            current = 0.0
+            current = st.number_input(
+                "현재 잔액(원, 0이면 가입일부터 자동)",
+                min_value=0.0,
+                step=10_000.0,
+                format="%.0f",
+            )
+            balance_as_of = st.text_input(
+                "잔액 기준일 (YYYY-MM-DD, 비우면 오늘)",
+                "",
+            )
         else:
             monthly = 0.0
             principal = st.number_input(
@@ -445,6 +457,7 @@ def _form_deposits(client, user) -> None:
                 step=100_000.0,
                 format="%.0f",
             )
+            balance_as_of = ""
         rate = st.number_input("연 이자율(%)", min_value=0.0, step=0.1, format="%.2f")
         start = st.text_input(
             "가입일 (YYYY-MM-DD, 적금은 첫 납입일)", ""
@@ -470,11 +483,18 @@ def _form_deposits(client, user) -> None:
                     "name": name.strip(),
                     "deposit_kind": kind,
                     "principal": 0 if monthly_kind else principal,
-                    "current_value": 0 if monthly_kind else (current if current > 0 else principal),
+                    "current_value": current
+                    if monthly_kind
+                    else (current if current > 0 else principal),
                     "monthly_amount": monthly if monthly_kind else 0,
                     "interest_rate": rate,
                     "start_date": start.strip() or None,
                     "maturity_date": maturity.strip() or None,
+                    "balance_as_of": (
+                        (balance_as_of.strip() or datetime.now().date().isoformat())
+                        if monthly_kind and current > 0
+                        else None
+                    ),
                     "ownership": ownership,
                     "memo": memo or None,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -484,8 +504,9 @@ def _form_deposits(client, user) -> None:
                     st.success("추가됨")
                     st.rerun()
                 except Exception as e:
-                    if "monthly_amount" in str(e):
+                    if "monthly_amount" in str(e) or "balance_as_of" in str(e):
                         payload.pop("monthly_amount", None)
+                        payload.pop("balance_as_of", None)
                         try:
                             client.table("deposits").insert(payload).execute()
                             st.success("추가됨 (월납 컬럼 없음 — 0030 마이그레이션을 적용하세요)")
@@ -527,7 +548,17 @@ def _form_deposits(client, user) -> None:
                     step=10_000.0,
                     format="%.0f",
                 )
-                new_val = None
+                new_val = st.number_input(
+                    "현재 잔액(원, 0이면 가입일 자동계산)",
+                    min_value=0.0,
+                    value=float(cur.get("current_value") or 0),
+                    step=10_000.0,
+                    format="%.0f",
+                )
+                new_as_of = st.text_input(
+                    "잔액 기준일 (YYYY-MM-DD)",
+                    str(cur.get("balance_as_of") or "")[:10],
+                )
             else:
                 new_monthly = 0.0
                 new_val = st.number_input(
@@ -555,7 +586,12 @@ def _form_deposits(client, user) -> None:
                 if edit_monthly:
                     patch["monthly_amount"] = new_monthly
                     patch["principal"] = 0
-                    patch["current_value"] = 0
+                    patch["current_value"] = new_val
+                    patch["balance_as_of"] = (
+                        (new_as_of.strip() or datetime.now().date().isoformat())
+                        if new_val and new_val > 0
+                        else None
+                    )
                 else:
                     patch["current_value"] = new_val
                     patch["monthly_amount"] = 0

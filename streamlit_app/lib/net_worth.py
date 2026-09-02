@@ -115,7 +115,10 @@ def _calendar_months_between(start: str, end: str) -> int:
 
 
 def installment_progress(row: dict, as_of: str | None = None) -> dict | None:
-    """적금/청약 월납 단리. 없으면 None."""
+    """적금/청약 월납 단리. 없으면 None.
+
+    current_value > 0 이면 그 금액을 balance_as_of 기준으로 쓰고 이후 회차만 가산.
+    """
     kind = str(row.get("deposit_kind") or "")
     if kind not in ("installment", "subscription"):
         return None
@@ -135,28 +138,64 @@ def installment_progress(row: dict, as_of: str | None = None) -> dict | None:
     else:
         total = 0
     cap = total if total > 0 else 1200
-    made = 0
-    if today >= start:
-        until = maturity if len(maturity) == 10 and maturity < today else today
-        made = min(cap, _calendar_months_between(start, until) + 1)
+
+    def _made(asof: str) -> int:
+        if asof < start:
+            return 0
+        until = maturity if len(maturity) == 10 and maturity < asof else asof
+        return min(cap, _calendar_months_between(start, until) + 1)
+
+    made = _made(today)
     try:
         rate = float(row.get("interest_rate") or 0) / 100.0
     except (TypeError, ValueError):
         rate = 0.0
-    interest = round(monthly * (rate / 12.0) * made * max(made - 1, 0) / 2.0)
+    formula_interest = round(monthly * (rate / 12.0) * made * max(made - 1, 0) / 2.0)
     n = total if total > 0 else made
-    maturity_interest = round(monthly * rate * n * (n + 1) / 24.0)
+    formula_maturity_interest = round(monthly * rate * n * (n + 1) / 24.0)
     principal = monthly * made
+    remaining = max(0, n - made)
+    try:
+        seed = float(row.get("current_value") or 0)
+    except (TypeError, ValueError):
+        seed = 0.0
+    seed_on = _iso_ymd(row.get("balance_as_of")) or today
+    use_seed = seed > 0 and today >= seed_on
+    extra = 0
+    value = principal + formula_interest
+    interest = formula_interest
+    if use_seed:
+        extra = max(0, made - _made(seed_on))
+        extra_interest = round(
+            monthly * (rate / 12.0) * extra * max(extra - 1, 0) / 2.0
+        )
+        value = seed + monthly * extra + extra_interest
+        interest = extra_interest
+        principal = seed + monthly * extra
+    remaining_interest = round(
+        monthly * (rate / 12.0) * remaining * max(remaining - 1, 0) / 2.0
+    )
+    if use_seed:
+        maturity_value = value + monthly * remaining + remaining_interest
+        maturity_interest = remaining_interest
+        maturity_principal = seed + monthly * remaining
+    else:
+        maturity_value = monthly * n + formula_maturity_interest
+        maturity_interest = formula_maturity_interest
+        maturity_principal = monthly * n
     return {
         "monthly": monthly,
         "payments_made": made,
         "payments_total": n,
         "principal": principal,
         "interest": interest,
-        "value": principal + interest,
-        "maturity_principal": monthly * n,
+        "value": value,
+        "maturity_principal": maturity_principal,
         "maturity_interest": maturity_interest,
-        "maturity_value": monthly * n + maturity_interest,
+        "maturity_value": maturity_value,
+        "seeded": use_seed,
+        "seed_value": seed if use_seed else 0.0,
+        "extra_payments": extra,
     }
 
 

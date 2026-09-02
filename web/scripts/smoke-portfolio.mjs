@@ -77,6 +77,11 @@ function calendarMonthsBetween(fromIso, toIso) {
 function isMonthlyDeposit(kind) {
   return kind === "installment" || kind === "subscription";
 }
+function installmentPaymentsMade(start, maturity, hasMaturity, cap, asOf) {
+  if (asOf < start) return 0;
+  const until = hasMaturity && maturity < asOf ? maturity : asOf;
+  return Math.min(cap, calendarMonthsBetween(start, until) + 1);
+}
 function installmentProgress(d, asOf) {
   if (!isMonthlyDeposit(d.deposit_kind)) return null;
   const monthly = Number(d.monthly_amount || 0);
@@ -87,26 +92,42 @@ function installmentProgress(d, asOf) {
   const hasMaturity = /^\d{4}-\d{2}-\d{2}$/.test(maturity);
   const total = hasMaturity ? Math.max(1, calendarMonthsBetween(start, maturity)) : 0;
   const cap = total > 0 ? total : 1200;
-  let made = 0;
-  if (asOf >= start) {
-    const until = hasMaturity && maturity < asOf ? maturity : asOf;
-    made = Math.min(cap, calendarMonthsBetween(start, until) + 1);
-  }
+  const made = installmentPaymentsMade(start, maturity, hasMaturity, cap, asOf);
   const rate = Number(d.interest_rate || 0) / 100;
-  const interest = Math.round(
+  const formulaInterest = Math.round(
     (monthly * (rate / 12) * (made * Math.max(made - 1, 0))) / 2
   );
   const n = total > 0 ? total : made;
   const maturityInterest = Math.round((monthly * rate * n * (n + 1)) / 24);
-  const principal = monthly * made;
+  const seed = Number(d.current_value || 0);
+  const seedOnRaw = d.balance_as_of ? String(d.balance_as_of).slice(0, 10) : "";
+  const seedOn = /^\d{4}-\d{2}-\d{2}$/.test(seedOnRaw) ? seedOnRaw : asOf;
+  const useSeed = seed > 0 && asOf >= seedOn;
+  let extraPayments = 0;
+  let value = monthly * made + formulaInterest;
+  let interest = formulaInterest;
+  if (useSeed) {
+    extraPayments = Math.max(
+      0,
+      made - installmentPaymentsMade(start, maturity, hasMaturity, cap, seedOn)
+    );
+    const extraInterest = Math.round(
+      (monthly * (rate / 12) * (extraPayments * Math.max(extraPayments - 1, 0))) / 2
+    );
+    value = seed + monthly * extraPayments + extraInterest;
+    interest = extraInterest;
+  }
   return {
     paymentsMade: made,
     paymentsTotal: n,
-    principal,
     interest,
-    value: principal + interest,
-    maturityInterest,
-    maturityValue: monthly * n + maturityInterest,
+    value,
+    maturityInterest: useSeed ? 0 : maturityInterest,
+    maturityValue: useSeed
+      ? value + monthly * Math.max(0, n - made)
+      : monthly * n + maturityInterest,
+    seeded: useSeed,
+    extraPayments,
   };
 }
 function depositBalance(d, asOf) {
@@ -171,4 +192,18 @@ if (depositBalance(sav, "2026-04-15") !== 401_800) {
 }
 if (depositExpectedInterest(sav) !== 23_400) {
   throw new Error("installment expected interest " + depositExpectedInterest(sav));
+}
+
+const existing = {
+  ...sav,
+  current_value: 2_000_000,
+  balance_as_of: "2026-04-15",
+};
+const seededNow = installmentProgress(existing, "2026-04-15");
+if (!seededNow || seededNow.value !== 2_000_000 || !seededNow.seeded) {
+  throw new Error("existing seed today " + JSON.stringify(seededNow));
+}
+const seededNext = installmentProgress(existing, "2026-05-15");
+if (!seededNext || seededNext.extraPayments !== 1 || seededNext.value !== 2_100_000) {
+  throw new Error("existing seed next month " + JSON.stringify(seededNext));
 }

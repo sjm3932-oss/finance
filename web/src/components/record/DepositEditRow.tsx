@@ -87,6 +87,7 @@ export function DepositEditRow({ deposit }: { deposit: DepositRow & { id: string
               deposit.principal,
               deposit.current_value,
               deposit.monthly_amount,
+              deposit.balance_as_of,
               deposit.interest_rate,
               deposit.start_date,
               deposit.maturity_date,
