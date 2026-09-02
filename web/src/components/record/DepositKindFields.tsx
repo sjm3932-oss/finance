@@ -13,13 +13,13 @@ import {
 
 export function DepositKindFields({ deposit }: { deposit?: DepositRow }) {
   const [kind, setKind] = useState(deposit?.deposit_kind || "time");
-  const [monthly, setMonthly] = useState(
-    deposit && isMonthlyDeposit(deposit.deposit_kind)
-      ? String(Number(deposit.monthly_amount || 0))
-      : Number(deposit?.monthly_amount || 0) > 0
-        ? String(Number(deposit.monthly_amount))
-        : ""
-  );
+  const [monthly, setMonthly] = useState(() => {
+    if (deposit && isMonthlyDeposit(deposit.deposit_kind)) {
+      return String(Number(deposit.monthly_amount || 0));
+    }
+    const n = Number(deposit?.monthly_amount || 0);
+    return n > 0 ? String(n) : "";
+  });
   const [current, setCurrent] = useState(
     Number(deposit?.current_value || 0) > 0
       ? String(Number(deposit?.current_value))
