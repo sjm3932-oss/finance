@@ -1,4 +1,4 @@
-import { monthStartKst } from "@/lib/dates";
+import { calendarDaysBetween, calendarMonthsBetween, monthStartKst, todayKst } from "@/lib/dates";
 import { marketRegion } from "@/lib/money";
 
 export type AccountRow = {
@@ -55,9 +55,41 @@ export type LiveHolding = {
   ownership: string;
 };
 
+export type DepositRow = {
+  id?: string;
+  institution: string | null;
+  name: string | null;
+  deposit_kind: string | null;
+  principal: number | null;
+  current_value: number | null;
+  monthly_amount?: number | null;
+  interest_rate: number | null;
+  start_date: string | null;
+  maturity_date: string | null;
+  balance_as_of?: string | null;
+  ownership: string | null;
+  memo?: string | null;
+};
+
+export type InstallmentProgress = {
+  monthly: number;
+  paymentsMade: number;
+  paymentsTotal: number;
+  principal: number;
+  interest: number;
+  value: number;
+  maturityPrincipal: number;
+  maturityInterest: number;
+  maturityValue: number;
+  seeded: boolean;
+  seedValue: number;
+  extraPayments: number;
+};
+
 export type NetWorth = {
   invest: number;
   cash: number;
+  deposits: number;
   other: number;
   debt: number;
   gross: number;
@@ -66,6 +98,7 @@ export type NetWorth = {
   overseas: number;
   cash_ratio: number;
   other_rows: OtherAssetRow[];
+  deposit_rows: DepositRow[];
 };
 
 export type MonthlySummary = {
@@ -102,6 +135,7 @@ export type DailySnap = {
   total_debt?: number | null;
   total_cash?: number | null;
   total_other?: number | null;
+  total_deposits?: number | null;
 };
 
 export const OWNERSHIP_KO: Record<string, string> = {
@@ -118,6 +152,191 @@ export const ASSET_KIND_KO: Record<string, string> = {
   crypto: "암호화폐",
   other: "기타",
 };
+
+export const DEPOSIT_KIND_KO: Record<string, string> = {
+  demand: "입출금",
+  time: "정기예금",
+  installment: "적금",
+  subscription: "청약",
+  cma: "CMA",
+  other: "기타",
+};
+
+export function isMonthlyDeposit(kind?: string | null): boolean {
+  return kind === "installment" || kind === "subscription";
+}
+
+function installmentPaymentsMade(
+  start: string,
+  maturity: string,
+  hasMaturity: boolean,
+  cap: number,
+  asOf: string
+): number {
+  if (asOf < start) return 0;
+  const until = hasMaturity && maturity < asOf ? maturity : asOf;
+  return Math.min(cap, calendarMonthsBetween(start, until) + 1);
+}
+
+/**
+ * 적금/청약 단리.
+ * 가입일부터 매월 같은 날 납입, 오늘까지 횟수만큼 원금.
+ * 경과이자 = 월납 × (연이율/12) × m(m-1)/2 (말입).
+ * 만기이자 = 월납 × 연이율 × n(n+1)/24 (은행 초입 공식).
+ * current_value > 0 이면 그 금액을 balance_as_of 기준으로 쓰고, 이후 회차만 가산.
+ */
+export function installmentProgress(
+  d: Pick<
+    DepositRow,
+    | "monthly_amount"
+    | "interest_rate"
+    | "start_date"
+    | "maturity_date"
+    | "deposit_kind"
+    | "current_value"
+    | "balance_as_of"
+  >,
+  asOf = todayKst()
+): InstallmentProgress | null {
+  if (!isMonthlyDeposit(d.deposit_kind)) return null;
+  const monthly = Number(d.monthly_amount || 0);
+  if (!(monthly > 0)) return null;
+  const start = d.start_date ? String(d.start_date).slice(0, 10) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return null;
+  const maturity = d.maturity_date ? String(d.maturity_date).slice(0, 10) : "";
+  const hasMaturity = /^\d{4}-\d{2}-\d{2}$/.test(maturity);
+  const total = hasMaturity ? Math.max(1, calendarMonthsBetween(start, maturity)) : 0;
+  const cap = total > 0 ? total : 1200;
+  const made = installmentPaymentsMade(start, maturity, hasMaturity, cap, asOf);
+  const rate = Number(d.interest_rate || 0) / 100;
+  const formulaInterest = Math.round(
+    (monthly * (rate / 12) * (made * Math.max(made - 1, 0))) / 2
+  );
+  const n = total > 0 ? total : made;
+  const formulaMaturityInterest = Math.round((monthly * rate * n * (n + 1)) / 24);
+  const principal = monthly * made;
+  const formulaValue = principal + formulaInterest;
+  const remaining = Math.max(0, n - made);
+
+  const seed = Number(d.current_value || 0);
+  const seedOnRaw = d.balance_as_of ? String(d.balance_as_of).slice(0, 10) : "";
+  const seedOn = /^\d{4}-\d{2}-\d{2}$/.test(seedOnRaw) ? seedOnRaw : asOf;
+  const useSeed = seed > 0 && asOf >= seedOn;
+  let extraPayments = 0;
+  let value = formulaValue;
+  let interest = formulaInterest;
+  if (useSeed) {
+    const madeThen = installmentPaymentsMade(start, maturity, hasMaturity, cap, seedOn);
+    extraPayments = Math.max(0, made - madeThen);
+    const extraInterest = Math.round(
+      (monthly * (rate / 12) * (extraPayments * Math.max(extraPayments - 1, 0))) / 2
+    );
+    value = seed + monthly * extraPayments + extraInterest;
+    interest = extraInterest;
+  }
+  const remainingInterest = Math.round(
+    (monthly * (rate / 12) * (remaining * Math.max(remaining - 1, 0))) / 2
+  );
+  const maturityValue = useSeed
+    ? value + monthly * remaining + remainingInterest
+    : monthly * n + formulaMaturityInterest;
+  const maturityInterest = useSeed
+    ? remainingInterest
+    : formulaMaturityInterest;
+
+  return {
+    monthly,
+    paymentsMade: made,
+    paymentsTotal: n,
+    principal: useSeed ? seed + monthly * extraPayments : principal,
+    interest,
+    value,
+    maturityPrincipal: useSeed ? seed + monthly * remaining : monthly * n,
+    maturityInterest,
+    maturityValue,
+    seeded: useSeed,
+    seedValue: useSeed ? seed : 0,
+    extraPayments,
+  };
+}
+
+/** Current 평가액: 적금은 월납 자동, 그 외는 current_value → principal. */
+export function depositBalance(
+  d: Pick<
+    DepositRow,
+    | "current_value"
+    | "principal"
+    | "monthly_amount"
+    | "interest_rate"
+    | "start_date"
+    | "maturity_date"
+    | "deposit_kind"
+    | "balance_as_of"
+  > & { value_krw?: number | null },
+  asOf = todayKst()
+): number {
+  const prog = installmentProgress(d, asOf);
+  if (prog) return prog.value;
+  const cur = Number(d.current_value);
+  if (Number.isFinite(cur) && cur > 0) return cur;
+  const principal = Number(d.principal);
+  if (Number.isFinite(principal) && principal > 0) return principal;
+  return Number(d.value_krw || 0);
+}
+
+/** 만기 예상 이자. 적금은 월납 공식, 예금은 원금 × 이율 × 기간. */
+export function depositExpectedInterest(d: DepositRow, asOf = todayKst()): number | null {
+  const prog = installmentProgress(d, asOf);
+  if (prog) return prog.maturityInterest;
+  const principal = Number(d.principal || 0);
+  const rate = Number(d.interest_rate || 0);
+  if (!(principal > 0) || !(rate > 0)) return null;
+  const start = d.start_date ? String(d.start_date).slice(0, 10) : null;
+  const maturity = d.maturity_date ? String(d.maturity_date).slice(0, 10) : null;
+  const days =
+    start && maturity ? Math.max(0, calendarDaysBetween(start, maturity)) : 365;
+  return Math.round(principal * (rate / 100) * (days / 365));
+}
+
+export function depositsDueSoon(
+  rows: DepositRow[],
+  withinDays = 45,
+  asOf = todayKst()
+): Array<DepositRow & { days: number; due: string }> {
+  const end = (() => {
+    const [y, m, d] = asOf.split("-").map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d + withinDays));
+    const yy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getUTCDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+  })();
+  const out: Array<DepositRow & { days: number; due: string }> = [];
+  for (const r of rows) {
+    if (!r.maturity_date) continue;
+    const due = String(r.maturity_date).slice(0, 10);
+    if (due < asOf || due > end) continue;
+    out.push({ ...r, days: calendarDaysBetween(asOf, due), due });
+  }
+  return out.sort((a, b) => a.due.localeCompare(b.due));
+}
+
+export function otherAssetAsDeposit(o: OtherAssetRow): DepositRow {
+  const value = Number(o.value_krw || 0);
+  return {
+    id: o.id,
+    institution: "기타",
+    name: o.name,
+    deposit_kind: "time",
+    principal: value,
+    current_value: value,
+    interest_rate: 0,
+    start_date: null,
+    maturity_date: null,
+    ownership: o.ownership,
+    memo: o.memo ?? null,
+  };
+}
 
 function toKrw(amount: number, ccy: string, usdkrw: number | null): number {
   if ((ccy || "KRW").toUpperCase() === "USD") {
@@ -317,6 +536,7 @@ export function computeNetWorth(args: {
   usdkrw: number | null;
   accountIds?: string[] | null;
   ownership?: string | null;
+  deposits?: DepositRow[];
 }): NetWorth {
   const {
     live,
@@ -326,6 +546,7 @@ export function computeNetWorth(args: {
     usdkrw,
     accountIds = null,
     ownership = null,
+    deposits: depositInput = [],
   } = args;
   const allow = accountIds ? new Set(accountIds.map(String)) : null;
   const own =
@@ -365,23 +586,36 @@ export function computeNetWorth(args: {
 
   let other = 0;
   const other_rows: OtherAssetRow[] = [];
-  // Account filter = account lens → omit household other assets
+  let deposits = 0;
+  const deposit_rows: DepositRow[] = [];
+  // Account filter = account lens → omit household other assets / deposits
   if (!allow) {
     for (const o of otherAssets) {
       if (own && (o.ownership || "joint") !== own) continue;
       const val = Number(o.value_krw || 0);
+      if ((o.asset_kind || "") === "deposit") {
+        deposits += val;
+        deposit_rows.push(otherAssetAsDeposit(o));
+        continue;
+      }
       other += val;
       other_rows.push(o);
+    }
+    for (const d of depositInput) {
+      if (own && (d.ownership || "joint") !== own) continue;
+      deposits += depositBalance(d);
+      deposit_rows.push(d);
     }
   }
 
   let debt = Number(totalDebt || 0);
   if (allow) debt = 0;
 
-  const gross = invest + cash + other;
+  const gross = invest + cash + deposits + other;
   return {
     invest,
     cash,
+    deposits,
     other,
     debt,
     gross,
@@ -390,6 +624,7 @@ export function computeNetWorth(args: {
     overseas,
     cash_ratio: gross > 0 ? cash / gross : 0,
     other_rows,
+    deposit_rows,
   };
 }
 

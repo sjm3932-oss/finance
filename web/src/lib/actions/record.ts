@@ -57,6 +57,7 @@ function revalidateRecord() {
   revalidatePath("/more/net-worth");
   revalidatePath("/more/other-assets");
   revalidatePath("/more/debts");
+  revalidatePath("/more/deposits");
 }
 
 export async function createAccount(formData: FormData): Promise<ActionResult> {
@@ -66,16 +67,11 @@ export async function createAccount(formData: FormData): Promise<ActionResult> {
     const account_type = str(formData.get("account_type")) || "brokerage";
     const currency = str(formData.get("currency")).toUpperCase() || "KRW";
     const ownership = str(formData.get("ownership")) || "mine";
-    const cashRaw = str(formData.get("cash_balance"));
-    const cash_balance = cashRaw === "" ? 0 : num(formData.get("cash_balance"));
     const memo = str(formData.get("memo")) || null;
 
     if (!institution) return fail("금융기관 이름을 입력하세요.");
     if (!/^[A-Z]{3}$/.test(currency)) {
       return fail("통화는 KRW, USD처럼 3글자 코드로 입력하세요.");
-    }
-    if (!Number.isFinite(cash_balance) || cash_balance < 0) {
-      return fail("현금 잔고를 확인하세요.");
     }
 
     const payload: Record<string, unknown> = {
@@ -84,12 +80,11 @@ export async function createAccount(formData: FormData): Promise<ActionResult> {
       account_type,
       currency,
       ownership,
-      cash_balance,
       memo,
     };
 
     let { error } = await supabase.from("accounts").insert(payload);
-    // Older schemas may lack cash/ownership/memo columns — retry lean insert.
+    // Older schemas may lack ownership/memo columns — retry lean insert.
     if (error) {
       ({ error } = await supabase.from("accounts").insert({
         user_id: user.id,
@@ -97,7 +92,6 @@ export async function createAccount(formData: FormData): Promise<ActionResult> {
         account_type,
         currency,
         ownership,
-        cash_balance,
       }));
     }
     if (error) {
@@ -116,37 +110,21 @@ export async function createAccount(formData: FormData): Promise<ActionResult> {
   }
 }
 
-export async function updateAccountCash(formData: FormData): Promise<ActionResult> {
-  try {
-    const { supabase } = await requireAllowedUser();
-    const id = str(formData.get("account_id"));
-    const cash_balance = num(formData.get("cash_balance"));
-    const ownership = str(formData.get("ownership")) || "mine";
-    if (!id) return fail("계좌를 선택하세요.");
-    if (!Number.isFinite(cash_balance) || cash_balance < 0) {
-      return fail("현금 잔고를 확인하세요.");
-    }
-
-    const { error } = await supabase
-      .from("accounts")
-      .update({ cash_balance, ownership })
-      .eq("id", id);
-    if (error) return dbFail(error);
-    revalidateRecord();
-    return ok("계좌 현금·소유를 저장했습니다.");
-  } catch (e) {
-    return fail(e instanceof Error ? e.message : "실패했습니다.");
-  }
-}
-
 const ACCOUNT_TYPES = new Set(["brokerage", "bank", "loan"]);
 const OWNERSHIPS = new Set(["joint", "mine", "spouse"]);
 const ASSET_KINDS = new Set([
   "real_estate",
   "pension",
   "insurance",
-  "deposit",
   "crypto",
+  "other",
+]);
+const DEPOSIT_KINDS = new Set([
+  "demand",
+  "time",
+  "installment",
+  "subscription",
+  "cma",
   "other",
 ]);
 
@@ -158,8 +136,6 @@ export async function updateAccount(formData: FormData): Promise<ActionResult> {
     const account_type = str(formData.get("account_type")) || "brokerage";
     const currency = str(formData.get("currency")).toUpperCase() || "KRW";
     const ownership = str(formData.get("ownership")) || "mine";
-    const cashRaw = str(formData.get("cash_balance"));
-    const cash_balance = cashRaw === "" ? 0 : num(formData.get("cash_balance"));
     const memo = str(formData.get("memo")) || null;
 
     if (!id) return fail("계좌를 선택하세요.");
@@ -169,23 +145,19 @@ export async function updateAccount(formData: FormData): Promise<ActionResult> {
     if (!/^[A-Z]{3}$/.test(currency)) {
       return fail("통화는 KRW, USD처럼 3글자 코드로 입력하세요.");
     }
-    if (!Number.isFinite(cash_balance) || cash_balance < 0) {
-      return fail("현금 잔고를 확인하세요.");
-    }
 
     const payload: Record<string, unknown> = {
       institution,
       account_type,
       currency,
       ownership,
-      cash_balance,
       memo,
     };
     let { error } = await supabase.from("accounts").update(payload).eq("id", id);
     if (error) {
       ({ error } = await supabase
         .from("accounts")
-        .update({ institution, account_type, currency, ownership, cash_balance })
+        .update({ institution, account_type, currency, ownership })
         .eq("id", id));
     }
     if (error) {
@@ -227,6 +199,10 @@ export async function createOtherAsset(formData: FormData): Promise<ActionResult
     const ownership = str(formData.get("ownership")) || "joint";
     const memo = str(formData.get("memo")) || null;
     if (!name) return fail("이름을 입력하세요.");
+    if (asset_kind === "deposit") {
+      return fail("예적금은 기록 → 예적금 탭에서 추가하세요.");
+    }
+    if (!ASSET_KINDS.has(asset_kind)) return fail("종류를 확인하세요.");
     if (!Number.isFinite(value_krw) || value_krw < 0) {
       return fail("현재 시세를 확인하세요.");
     }
@@ -274,6 +250,9 @@ export async function updateOtherAsset(formData: FormData): Promise<ActionResult
     const memo = str(formData.get("memo")) || null;
     if (!id) return fail("항목을 선택하세요.");
     if (!name) return fail("이름을 입력하세요.");
+    if (asset_kind === "deposit") {
+      return fail("예적금은 기록 → 예적금 탭에서 추가하세요.");
+    }
     if (!ASSET_KINDS.has(asset_kind)) return fail("종류를 확인하세요.");
     if (!OWNERSHIPS.has(ownership)) return fail("소유를 확인하세요.");
     if (!Number.isFinite(value_krw) || value_krw < 0) {
@@ -334,6 +313,174 @@ export async function deleteOtherAsset(formData: FormData): Promise<ActionResult
     if (error) return dbFail(error);
     revalidateRecord();
     return ok("기타자산을 삭제했습니다.");
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "실패했습니다.");
+  }
+}
+
+function omitLegacyDepositCols(data: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...data };
+  delete next.monthly_amount;
+  delete next.balance_as_of;
+  return next;
+}
+
+function optionalDate(v: FormDataEntryValue | null): string | null {
+  const s = str(v);
+  return s || null;
+}
+
+function readDepositPayload(
+  formData: FormData
+): { ok: false; message: string } | { ok: true; data: Record<string, unknown> } {
+  const institution = str(formData.get("institution"));
+  const name = str(formData.get("name"));
+  const deposit_kind = str(formData.get("deposit_kind")) || "time";
+  const principal = num(formData.get("principal"));
+  const monthlyKind =
+    deposit_kind === "installment" || deposit_kind === "subscription";
+  const currentRaw = str(formData.get("current_value"));
+  const current_value =
+    currentRaw === "" ? (monthlyKind ? 0 : principal) : num(formData.get("current_value"));
+  const rateRaw = str(formData.get("interest_rate"));
+  const interest_rate = rateRaw === "" ? 0 : num(formData.get("interest_rate"));
+  const ownership = str(formData.get("ownership")) || "joint";
+  const memo = str(formData.get("memo")) || null;
+  const start_date = optionalDate(formData.get("start_date"));
+  const maturity_date = optionalDate(formData.get("maturity_date"));
+  const monthlyRaw = str(formData.get("monthly_amount"));
+  const monthly_amount = monthlyRaw === "" ? 0 : num(formData.get("monthly_amount"));
+  let balance_as_of = optionalDate(formData.get("balance_as_of"));
+
+  if (!institution) return { ok: false, message: "금융기관을 입력하세요." };
+  if (!name) return { ok: false, message: "상품 이름을 입력하세요." };
+  if (!DEPOSIT_KINDS.has(deposit_kind)) return { ok: false, message: "종류를 확인하세요." };
+  if (!OWNERSHIPS.has(ownership)) return { ok: false, message: "소유를 확인하세요." };
+  if (monthlyKind) {
+    if (!Number.isFinite(monthly_amount) || monthly_amount < 0) {
+      return { ok: false, message: "월 납입액을 확인하세요." };
+    }
+    if (monthly_amount === 0 && !(current_value > 0)) {
+      return {
+        ok: false,
+        message: "납입을 중단한 경우 현재 잔액을 입력하세요.",
+      };
+    }
+    if (monthly_amount > 0 && !start_date) {
+      return { ok: false, message: "적금 가입일(첫 납입일)을 입력하세요." };
+    }
+    if (monthly_amount > 0 && !maturity_date) {
+      return { ok: false, message: "만기일을 입력하세요." };
+    }
+    if (!Number.isFinite(current_value) || current_value < 0) {
+      return { ok: false, message: "현재 잔액을 확인하세요." };
+    }
+    if (current_value > 0 && !balance_as_of) balance_as_of = todayKst();
+    if (!(current_value > 0)) balance_as_of = null;
+  } else if (!Number.isFinite(principal) || principal < 0) {
+    return { ok: false, message: "원금을 확인하세요." };
+  }
+  if (
+    !monthlyKind &&
+    (!Number.isFinite(current_value) || current_value < 0)
+  ) {
+    return { ok: false, message: "현재 잔액을 확인하세요." };
+  }
+  if (!Number.isFinite(interest_rate) || interest_rate < 0) {
+    return { ok: false, message: "이자율을 확인하세요." };
+  }
+  if (start_date && maturity_date && maturity_date < start_date) {
+    return { ok: false, message: "만기일은 가입일 이후여야 합니다." };
+  }
+
+  return {
+    ok: true,
+    data: {
+      institution,
+      name,
+      deposit_kind,
+      principal: monthlyKind ? 0 : principal,
+      current_value: monthlyKind
+        ? current_value
+        : Number.isFinite(current_value)
+          ? current_value
+          : principal,
+      monthly_amount: monthlyKind ? monthly_amount : 0,
+      interest_rate,
+      start_date,
+      maturity_date,
+      balance_as_of: monthlyKind ? balance_as_of : null,
+      ownership,
+      memo,
+      updated_at: new Date().toISOString(),
+    },
+  };
+}
+
+export async function createDeposit(formData: FormData): Promise<ActionResult> {
+  try {
+    const { supabase, user } = await requireAllowedUser();
+    const parsed = readDepositPayload(formData);
+    if (!parsed.ok) return fail(parsed.message);
+    const { error } = await supabase.from("deposits").insert({
+      ...parsed.data,
+      user_id: user.id,
+    });
+    if (
+      error?.message?.includes("monthly_amount") ||
+      error?.message?.includes("balance_as_of")
+    ) {
+      const retry = await supabase.from("deposits").insert({
+        ...omitLegacyDepositCols(parsed.data),
+        user_id: user.id,
+      });
+      if (retry.error) return dbFail(retry.error);
+    } else if (error) {
+      return dbFail(error);
+    }
+    revalidateRecord();
+    return ok("예적금을 추가했습니다.");
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "실패했습니다.");
+  }
+}
+
+export async function updateDeposit(formData: FormData): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireAllowedUser();
+    const id = str(formData.get("id"));
+    if (!id) return fail("항목을 선택하세요.");
+    const parsed = readDepositPayload(formData);
+    if (!parsed.ok) return fail(parsed.message);
+    const { error } = await supabase.from("deposits").update(parsed.data).eq("id", id);
+    if (
+      error?.message?.includes("monthly_amount") ||
+      error?.message?.includes("balance_as_of")
+    ) {
+      const retry = await supabase
+        .from("deposits")
+        .update(omitLegacyDepositCols(parsed.data))
+        .eq("id", id);
+      if (retry.error) return dbFail(retry.error);
+    } else if (error) {
+      return dbFail(error);
+    }
+    revalidateRecord();
+    return ok("예적금을 저장했습니다.");
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "실패했습니다.");
+  }
+}
+
+export async function deleteDeposit(formData: FormData): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireAllowedUser();
+    const id = str(formData.get("id"));
+    if (!id) return fail("항목을 선택하세요.");
+    const { error } = await supabase.from("deposits").delete().eq("id", id);
+    if (error) return dbFail(error);
+    revalidateRecord();
+    return ok("예적금을 삭제했습니다.");
   } catch (e) {
     return fail(e instanceof Error ? e.message : "실패했습니다.");
   }

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { NetWorthHero } from "@/components/NetWorthHero";
 import { PortfolioFilters } from "@/components/PortfolioFilters";
 import { CashAccountsPanel } from "@/components/CashAccountsPanel";
+import { DepositsPanel } from "@/components/DepositsPanel";
 import { OtherAssetsPanel } from "@/components/OtherAssetsPanel";
 import { loadPortfolioSnapshot } from "@/lib/data";
 
@@ -20,6 +21,7 @@ export default async function NetWorthPage({
     accounts,
     cashAccounts,
     otherAssets,
+    deposits,
   } = await loadPortfolioSnapshot({
     ownership: sp.own,
     institution: sp.inst,
@@ -37,7 +39,7 @@ export default async function NetWorthPage({
         </p>
         <h1 className="mt-1 text-xl font-extrabold tracking-tight">순자산 구성</h1>
         <p className="mt-1 text-sm text-muted">
-          투자 · 현금 · 기타 · 부채 상세
+          투자 · 현금(증권 예수금) · 예적금 · 기타 · 부채 상세
         </p>
       </div>
 
@@ -48,8 +50,24 @@ export default async function NetWorthPage({
       <NetWorthHero nw={nw} returnPct={returnPct} />
 
       <section className="space-y-3">
-        <h2 className="text-base font-extrabold tracking-tight">현금 · 계좌</h2>
+        <h2 className="text-base font-extrabold tracking-tight">현금 · 증권 예수금</h2>
+        <p className="-mt-1 text-xs text-muted">
+          토스·한투 동기화로 채워집니다. 수기 입력은 없습니다.
+        </p>
         <CashAccountsPanel rows={cashAccounts} />
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-end justify-between">
+          <h2 className="text-base font-extrabold tracking-tight">예적금</h2>
+          <Link
+            href="/more/deposits"
+            className="text-sm font-semibold text-brand"
+          >
+            전체
+          </Link>
+        </div>
+        <DepositsPanel rows={deposits} />
       </section>
 
       <section className="space-y-3">

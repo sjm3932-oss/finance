@@ -557,6 +557,135 @@ function buildTaxPlain(taxRows: Array<Record<string, unknown>>) {
   });
 }
 
+function todayKst(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function calendarMonthsBetween(fromIso: string, toIso: string): number {
+  const a = /^(\d{4})-(\d{2})-(\d{2})/.exec(fromIso);
+  const b = /^(\d{4})-(\d{2})-(\d{2})/.exec(toIso);
+  if (!a || !b) return 0;
+  let months =
+    (Number(b[1]) - Number(a[1])) * 12 + (Number(b[2]) - Number(a[2]));
+  if (Number(b[3]) < Number(a[3])) months -= 1;
+  return Math.max(0, months);
+}
+
+function installmentPaymentsMade(
+  start: string,
+  maturity: string,
+  hasMaturity: boolean,
+  cap: number,
+  asOf: string
+): number {
+  if (asOf < start) return 0;
+  const until = hasMaturity && maturity < asOf ? maturity : asOf;
+  return Math.min(cap, calendarMonthsBetween(start, until) + 1);
+}
+
+function installmentProgress(
+  r: Record<string, unknown>,
+  asOf = todayKst()
+): {
+  paymentsMade: number;
+  paymentsTotal: number;
+  monthly: number;
+  value: number;
+  maturityValue: number;
+} | null {
+  const kind = String(r.deposit_kind || "");
+  if (kind !== "installment" && kind !== "subscription") return null;
+  const monthly = Number(r.monthly_amount || 0);
+  if (!(monthly > 0)) return null;
+  const start = r.start_date ? String(r.start_date).slice(0, 10) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return null;
+  const maturity = r.maturity_date ? String(r.maturity_date).slice(0, 10) : "";
+  const hasMaturity = /^\d{4}-\d{2}-\d{2}$/.test(maturity);
+  const total = hasMaturity ? Math.max(1, calendarMonthsBetween(start, maturity)) : 0;
+  const cap = total > 0 ? total : 1200;
+  const made = installmentPaymentsMade(start, maturity, hasMaturity, cap, asOf);
+  const rate = Number(r.interest_rate || 0) / 100;
+  const formulaInterest = Math.round(
+    (monthly * (rate / 12) * (made * Math.max(made - 1, 0))) / 2
+  );
+  const n = total > 0 ? total : made;
+  const maturityInterest = Math.round((monthly * rate * n * (n + 1)) / 24);
+  const seed = Number(r.current_value || 0);
+  const seedOnRaw = r.balance_as_of ? String(r.balance_as_of).slice(0, 10) : "";
+  const seedOn = /^\d{4}-\d{2}-\d{2}$/.test(seedOnRaw) ? seedOnRaw : asOf;
+  let value = monthly * made + formulaInterest;
+  if (seed > 0 && asOf >= seedOn) {
+    const extra = Math.max(
+      0,
+      made - installmentPaymentsMade(start, maturity, hasMaturity, cap, seedOn)
+    );
+    const extraInterest = Math.round(
+      (monthly * (rate / 12) * (extra * Math.max(extra - 1, 0))) / 2
+    );
+    value = seed + monthly * extra + extraInterest;
+  }
+  return {
+    monthly,
+    paymentsMade: made,
+    paymentsTotal: n,
+    value,
+    maturityValue: monthly * n + maturityInterest,
+  };
+}
+
+function depositBalance(r: Record<string, unknown>): number {
+  const prog = installmentProgress(r);
+  if (prog) return prog.value;
+  const cur = Number(r.current_value || 0);
+  if (cur > 0) return cur;
+  return Number(r.principal || r.value_krw || 0);
+}
+
+function buildDepositsPlain(rows: Array<Record<string, unknown>>) {
+  const kindKo: Record<string, string> = {
+    demand: "입출금",
+    time: "정기예금",
+    installment: "적금",
+    subscription: "청약",
+    cma: "CMA",
+    other: "기타",
+  };
+  return rows.map((r) => {
+    const bal = depositBalance(r);
+    const rate = Number(r.interest_rate || 0);
+    const maturity = r.maturity_date ? String(r.maturity_date).slice(0, 10) : null;
+    const prog = installmentProgress(r);
+    return {
+      institution: r.institution,
+      name: r.name,
+      kind: r.deposit_kind,
+      kind_ko: kindKo[String(r.deposit_kind || "")] || "예적금",
+      principal: prog ? prog.monthly * prog.paymentsMade : Number(r.principal || 0),
+      monthly_amount: prog ? prog.monthly : Number(r.monthly_amount || 0),
+      current_value: bal,
+      interest_rate: rate,
+      maturity_date: maturity,
+      ownership: r.ownership,
+      memo: r.memo ?? null,
+      payments_made: prog?.paymentsMade ?? null,
+      payments_total: prog?.paymentsTotal ?? null,
+      plain:
+        `${r.institution || ""} ${r.name || "예적금"}(${kindKo[String(r.deposit_kind || "")] || "예적금"}) ` +
+        `잔액 ${bal.toLocaleString("ko-KR")}원` +
+        (prog
+          ? ` · ${prog.paymentsMade}/${prog.paymentsTotal}회 · 월 ${prog.monthly.toLocaleString("ko-KR")}원`
+          : "") +
+        (rate > 0 ? ` · 연 ${rate}%` : "") +
+        (maturity ? ` · 만기 ${maturity}` : ""),
+    };
+  });
+}
+
 function buildOtherAssetsPlain(rows: Array<Record<string, unknown>>) {
   const kindKo: Record<string, string> = {
     real_estate: "부동산",
@@ -603,6 +732,7 @@ async function buildContext(
     portfolio,
     dividends,
     otherAssets,
+    depositAssets,
     debtTxs,
     chatLogs,
     indexSnaps,
@@ -633,6 +763,7 @@ async function buildContext(
       .order("pay_date", { ascending: false })
       .limit(light ? 12 : 24),
     admin.from("other_assets").select("*"),
+    admin.from("deposits").select("*"),
     admin
       .from("debt_transactions")
       .select("tx_date,tx_type,amount,memo,debt_id")
@@ -718,7 +849,22 @@ async function buildContext(
   });
 
   const debtRows = (debts.data || []) as Array<Record<string, unknown>>;
-  const otherRows = (otherAssets.data || []) as Array<Record<string, unknown>>;
+  const otherAll = (otherAssets.data || []) as Array<Record<string, unknown>>;
+  const leftoverDeposits = otherAll.filter((r) => String(r.asset_kind) === "deposit");
+  const otherRows = otherAll.filter((r) => String(r.asset_kind) !== "deposit");
+  const tableDeposits = depositAssets.error
+    ? []
+    : ((depositAssets.data || []) as Array<Record<string, unknown>>);
+  const depositRows = [
+    ...tableDeposits,
+    ...leftoverDeposits.map((r) => ({
+      ...r,
+      institution: r.institution || "기타",
+      principal: Number(r.value_krw || 0),
+      current_value: Number(r.value_krw || 0),
+      deposit_kind: "time",
+    })),
+  ];
   const taxRows = (
     (taxView.data || []).length ? taxView.data : taxRecords.data || []
   ) as Array<Record<string, unknown>>;
@@ -726,6 +872,7 @@ async function buildContext(
   const loan_helpers = buildLoanHelpers(debtRows);
   const tax_plain = buildTaxPlain(taxRows);
   const other_assets_plain = buildOtherAssetsPlain(otherRows);
+  const deposits_plain = buildDepositsPlain(depositRows);
 
   const invest = enriched.reduce((s, h) => s + (h.market_value_krw || 0), 0);
   const cash = (accountRows as Array<Record<string, unknown>>).reduce(
@@ -740,6 +887,7 @@ async function buildContext(
     0
   );
   const otherSum = otherRows.reduce((s, r) => s + Number(r.value_krw || 0), 0);
+  const depositsSum = depositRows.reduce((s, r) => s + depositBalance(r), 0);
   const debtSum = debtRows.reduce((s, d) => s + Number(d.principal || 0), 0);
   const pensionSum = otherRows
     .filter((r) => String(r.asset_kind) === "pension")
@@ -749,13 +897,15 @@ async function buildContext(
     invest_krw_approx: invest,
     cash_krw_approx: cash,
     other_assets_krw: otherSum,
+    deposits_krw: depositsSum,
     pension_krw: pensionSum,
     debt_krw: debtSum,
-    net_worth_approx: invest + cash + otherSum - debtSum,
+    net_worth_approx: invest + cash + otherSum + depositsSum - debtSum,
     plain:
       `대략 투자 ${Math.round(invest).toLocaleString("ko-KR")}원 + 현금 ${Math.round(cash).toLocaleString("ko-KR")}원 ` +
+      `+ 예적금 ${Math.round(depositsSum).toLocaleString("ko-KR")}원 ` +
       `+ 기타(연금 등) ${Math.round(otherSum).toLocaleString("ko-KR")}원 − 부채 ${Math.round(debtSum).toLocaleString("ko-KR")}원 ` +
-      `→ 순자산 약 ${Math.round(invest + cash + otherSum - debtSum).toLocaleString("ko-KR")}원 수준입니다.`,
+      `→ 순자산 약 ${Math.round(invest + cash + otherSum + depositsSum - debtSum).toLocaleString("ko-KR")}원 수준입니다.`,
   };
 
   let holding_moves: MoveRow[] = [];
@@ -786,6 +936,8 @@ async function buildContext(
     loan_helpers,
     other_assets: otherRows,
     other_assets_plain,
+    deposits: depositRows,
+    deposits_plain,
     recent_debt_transactions: debtTxs.data || [],
     recent_trades: trades.data || [],
     recent_snapshots: snaps.data || [],
@@ -804,6 +956,7 @@ async function buildContext(
         "loan_helpers",
         "tax_plain",
         "other_assets_plain",
+        "deposits_plain",
         "macro_indicators",
         "snapshots",
         ...(light ? [] : ["holding_moves", "market_news"]),
@@ -821,6 +974,7 @@ async function buildContext(
       holdings: enriched.length,
       debts: debtRows.length,
       other_assets: otherRows.length,
+      deposits: depositRows.length,
       usdkrw,
       light,
       macros_ok: macros.filter((m) => m.value != null).length,

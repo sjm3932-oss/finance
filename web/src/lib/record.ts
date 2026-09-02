@@ -2,8 +2,16 @@ export const ASSET_KIND_OPTIONS = [
   { value: "real_estate", label: "부동산" },
   { value: "pension", label: "연금" },
   { value: "insurance", label: "보험" },
-  { value: "deposit", label: "예적금" },
   { value: "crypto", label: "암호화폐" },
+  { value: "other", label: "기타" },
+] as const;
+
+export const DEPOSIT_KIND_OPTIONS = [
+  { value: "demand", label: "입출금" },
+  { value: "time", label: "정기예금" },
+  { value: "installment", label: "적금" },
+  { value: "subscription", label: "청약" },
+  { value: "cma", label: "CMA" },
   { value: "other", label: "기타" },
 ] as const;
 

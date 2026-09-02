@@ -28,12 +28,14 @@ from lib.net_worth import (  # noqa: E402
     OWNERSHIP_KO,
     compute_net_worth,
     load_accounts_enriched,
+    load_deposits,
     load_other_assets,
     monthly_summary_stats,
 )
 from lib.other_assets_ui import (  # noqa: E402
     render_allocation_drift,
     render_cash_accounts_panel,
+    render_deposits_dashboard,
     render_other_assets_dashboard,
 )
 from lib.portfolio_insights import (  # noqa: E402
@@ -336,8 +338,14 @@ def _networth_hero_html(
             "",
         ),
         (
-            "현금",
+            "현금·예수금",
             fmt_krw(nw.get("cash")),
+            "flat",
+            "",
+        ),
+        (
+            "예적금",
+            fmt_krw(nw.get("deposits")),
             "flat",
             "",
         ),
@@ -388,7 +396,7 @@ def _networth_hero_html(
         '<div class="np-summary-hero">'
         f'<div class="np-summary-hero-label">{_html_escape(title)}</div>'
         f'<div class="np-summary-hero-ret {tone}">{_html_escape(net_txt)}</div>'
-        '<div class="np-summary-hero-sub">투자 + 현금 + 기타 − 부채</div>'
+        '<div class="np-summary-hero-sub">투자 + 현금 + 예적금 + 기타 − 부채</div>'
         f'<div class="np-summary-hero-grid">{"".join(cell_html)}</div>'
         "</div>"
     )
@@ -587,11 +595,13 @@ def view_home(
     """홈(요약): 순자산 중심 + 배분 드리프트 + 월간 요약."""
     accounts = load_accounts_enriched(client)
     other_assets = load_other_assets(client)
+    deposits = load_deposits(client)
     debt_for_nw = float(total_debt or 0) if account_ids is None else 0.0
     nw = compute_net_worth(
         live_rows,
         accounts=accounts,
         other_assets=other_assets,
+        deposits=deposits,
         total_debt=debt_for_nw,
         usdkrw=usdkrw,
         account_ids=account_ids,
@@ -751,10 +761,12 @@ def view_networth_detail(client, live_rows, total_debt, *, usdkrw, account_ids, 
     """더보기 → 순자산: 기타자산·현금·소유 구성."""
     accounts = load_accounts_enriched(client)
     other_assets = load_other_assets(client)
+    deposits = load_deposits(client)
     nw = compute_net_worth(
         live_rows,
         accounts=accounts,
         other_assets=other_assets,
+        deposits=deposits,
         total_debt=float(total_debt or 0) if account_ids is None else 0.0,
         usdkrw=usdkrw,
         account_ids=account_ids,
@@ -765,6 +777,7 @@ def view_networth_detail(client, live_rows, total_debt, *, usdkrw, account_ids, 
     )
     render_allocation_drift(client, nw)
     render_cash_accounts_panel(client)
+    render_deposits_dashboard(client, nw)
     render_other_assets_dashboard(client, nw)
 
 
@@ -1009,6 +1022,7 @@ def main() -> None:
         filtered,
         accounts=load_accounts_enriched(client),
         other_assets=load_other_assets(client),
+        deposits=load_deposits(client),
         total_debt=float(total_debt or 0) if account_ids is None else 0.0,
         usdkrw=usdkrw,
         account_ids=account_ids,
@@ -1029,7 +1043,7 @@ def main() -> None:
     except Exception:
         pass
 
-    if view in ("홈", "보유", "손익", "배당", "거래", "순자산", "기타자산"):
+    if view in ("홈", "보유", "손익", "배당", "거래", "순자산", "기타자산", "예적금"):
         _status_bar(client, any_stale=any_stale)
 
     if view == "홈":
@@ -1055,6 +1069,10 @@ def main() -> None:
         )
     elif view == "기타자산":
         view_other_assets(client, ownership_filter=ownership_filter)
+    elif view == "예적금":
+        render_deposits_dashboard(
+            client, None, ownership_filter=ownership_filter, standalone=True
+        )
     elif view == "보유":
         view_holdings(
             client,
