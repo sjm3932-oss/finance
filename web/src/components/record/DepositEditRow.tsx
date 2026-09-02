@@ -3,14 +3,16 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { deleteDeposit, updateDeposit } from "@/lib/actions/record";
-import { DEPOSIT_KIND_OPTIONS, OWNERSHIP_OPTIONS } from "@/lib/record";
+import { OWNERSHIP_OPTIONS } from "@/lib/record";
 import { ActionForm, Field, inputClass } from "@/components/record/FormUI";
+import { DepositKindFields } from "@/components/record/DepositKindFields";
 import { fmtKrw } from "@/lib/money";
 import {
   DEPOSIT_KIND_KO,
   OWNERSHIP_KO,
   depositBalance,
   depositExpectedInterest,
+  installmentProgress,
   type DepositRow,
 } from "@/lib/portfolio";
 
@@ -25,6 +27,7 @@ export function DepositEditRow({ deposit }: { deposit: DepositRow & { id: string
   const ownLabel = OWNERSHIP_KO[deposit.ownership || "joint"] || "공동";
   const balance = depositBalance(deposit);
   const expected = depositExpectedInterest(deposit);
+  const prog = installmentProgress(deposit);
   const maturity = deposit.maturity_date
     ? String(deposit.maturity_date).slice(0, 10)
     : null;
@@ -40,6 +43,9 @@ export function DepositEditRow({ deposit }: { deposit: DepositRow & { id: string
           <div className="mt-0.5 text-xs font-semibold text-muted">
             {deposit.institution || "금융기관"} · {kindLabel} · {ownLabel}
             {rate > 0 ? ` · 연 ${rate}%` : ""}
+            {prog
+              ? ` · ${prog.paymentsMade}/${prog.paymentsTotal}회 · 월 ${fmtKrw(prog.monthly)}`
+              : ""}
             {maturity ? ` · 만기 ${maturity}` : ""}
           </div>
           {deposit.memo ? (
@@ -49,7 +55,11 @@ export function DepositEditRow({ deposit }: { deposit: DepositRow & { id: string
         <div className="flex shrink-0 items-center gap-2">
           <div className="text-right">
             <div className="text-sm font-extrabold">{fmtKrw(balance)}</div>
-            {expected != null ? (
+            {prog ? (
+              <div className="text-[11px] text-muted">
+                만기≈{fmtKrw(prog.maturityValue)}
+              </div>
+            ) : expected != null ? (
               <div className="text-[11px] text-muted">만기이자≈{fmtKrw(expected)}</div>
             ) : null}
           </div>
@@ -76,6 +86,7 @@ export function DepositEditRow({ deposit }: { deposit: DepositRow & { id: string
               deposit.deposit_kind,
               deposit.principal,
               deposit.current_value,
+              deposit.monthly_amount,
               deposit.interest_rate,
               deposit.start_date,
               deposit.maturity_date,
@@ -106,91 +117,20 @@ export function DepositEditRow({ deposit }: { deposit: DepositRow & { id: string
                 />
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="종류">
-                <select
-                  name="deposit_kind"
-                  className={inputClass}
-                  defaultValue={deposit.deposit_kind || "time"}
-                >
-                  {DEPOSIT_KIND_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="소유">
-                <select
-                  name="ownership"
-                  className={inputClass}
-                  defaultValue={deposit.ownership || "joint"}
-                >
-                  {OWNERSHIP_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="원금(원)">
-                <input
-                  name="principal"
-                  type="number"
-                  min={0}
-                  step={100000}
-                  required
-                  defaultValue={Number(deposit.principal || 0)}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="현재 잔액(원)">
-                <input
-                  name="current_value"
-                  type="number"
-                  min={0}
-                  step={100000}
-                  defaultValue={Number(deposit.current_value || deposit.principal || 0)}
-                  className={inputClass}
-                />
-              </Field>
-            </div>
-            <Field label="연 이자율(%)">
-              <input
-                name="interest_rate"
-                type="number"
-                min={0}
-                step={0.01}
-                defaultValue={Number(deposit.interest_rate || 0)}
+            <DepositKindFields deposit={deposit} />
+            <Field label="소유">
+              <select
+                name="ownership"
                 className={inputClass}
-              />
+                defaultValue={deposit.ownership || "joint"}
+              >
+                {OWNERSHIP_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
             </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="가입일">
-                <input
-                  name="start_date"
-                  type="date"
-                  className={inputClass}
-                  defaultValue={
-                    deposit.start_date ? String(deposit.start_date).slice(0, 10) : ""
-                  }
-                />
-              </Field>
-              <Field label="만기일">
-                <input
-                  name="maturity_date"
-                  type="date"
-                  className={inputClass}
-                  defaultValue={
-                    deposit.maturity_date
-                      ? String(deposit.maturity_date).slice(0, 10)
-                      : ""
-                  }
-                />
-              </Field>
-            </div>
             <Field label="메모">
               <input
                 name="memo"

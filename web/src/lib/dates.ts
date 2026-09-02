@@ -39,3 +39,19 @@ export function addCalendarDays(iso: string, days: number): string {
 export function daysAgoKst(days: number, date: Date = new Date()): string {
   return addCalendarDays(formatKstDate(date), -days);
 }
+
+export function parseIsoDate(iso: string): [number, number, number] | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || "").trim());
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
+/** Whole calendar months from `fromIso` to `toIso`, waiting until the start day-of-month. */
+export function calendarMonthsBetween(fromIso: string, toIso: string): number {
+  const a = parseIsoDate(fromIso);
+  const b = parseIsoDate(toIso);
+  if (!a || !b) return 0;
+  let months = (b[0] - a[0]) * 12 + (b[1] - a[1]);
+  if (b[2] < a[2]) months -= 1;
+  return Math.max(0, months);
+}

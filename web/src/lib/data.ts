@@ -148,7 +148,7 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
         supabase
           .from("deposits")
           .select(
-            "id,institution,name,deposit_kind,principal,current_value,interest_rate,start_date,maturity_date,ownership,memo"
+            "id,institution,name,deposit_kind,principal,current_value,monthly_amount,interest_rate,start_date,maturity_date,ownership,memo"
           )
           .order("maturity_date"),
       { optional: true, label: "deposits" }
@@ -217,6 +217,22 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
     );
   }
 
+  let depositsLoaded = depositRaw;
+  if (!depositsLoaded.length) {
+    depositsLoaded = (
+      await safeSelect<DepositRow>(
+        () =>
+          supabase
+            .from("deposits")
+            .select(
+              "id,institution,name,deposit_kind,principal,current_value,interest_rate,start_date,maturity_date,ownership,memo"
+            )
+            .order("maturity_date"),
+        { optional: true, label: "deposits-no-monthly" }
+      )
+    ).map((d) => ({ ...d, monthly_amount: 0 }));
+  }
+
   const realizedMonth = realizedRows.length
     ? realizedRows.reduce(
         (s, r) => s + Number(r.pnl_krw ?? r.pnl ?? 0),
@@ -241,7 +257,7 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
     live: liveAll,
     accounts: accountRows,
     otherAssets,
-    deposits: depositRaw,
+    deposits: depositsLoaded,
     totalDebt,
     usdkrw,
     accountIds,

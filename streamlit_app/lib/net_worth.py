@@ -68,7 +68,10 @@ def load_deposits(client) -> list[dict]:
     return _safe_table(client, "deposits", "*")
 
 
-def deposit_balance(row: dict) -> float:
+def deposit_balance(row: dict, as_of: str | None = None) -> float:
+    prog = installment_progress(row, as_of)
+    if prog is not None:
+        return float(prog["value"])
     try:
         cur = float(row.get("current_value") or 0)
     except (TypeError, ValueError):
@@ -85,6 +88,69 @@ def deposit_balance(row: dict) -> float:
         return float(row.get("value_krw") or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _iso_ymd(value) -> str:
+    s = str(value or "").strip()
+    return s[:10] if len(s) >= 10 else ""
+
+
+def _calendar_months_between(start: str, end: str) -> int:
+    try:
+        y1, m1, d1 = (int(x) for x in start.split("-")[:3])
+        y2, m2, d2 = (int(x) for x in end.split("-")[:3])
+    except (TypeError, ValueError):
+        return 0
+    months = (y2 - y1) * 12 + (m2 - m1)
+    if d2 < d1:
+        months -= 1
+    return max(0, months)
+
+
+def installment_progress(row: dict, as_of: str | None = None) -> dict | None:
+    """적금/청약 월납 단리. 없으면 None."""
+    kind = str(row.get("deposit_kind") or "")
+    if kind not in ("installment", "subscription"):
+        return None
+    try:
+        monthly = float(row.get("monthly_amount") or 0)
+    except (TypeError, ValueError):
+        monthly = 0.0
+    if monthly <= 0:
+        return None
+    start = _iso_ymd(row.get("start_date"))
+    if len(start) != 10:
+        return None
+    maturity = _iso_ymd(row.get("maturity_date"))
+    today = as_of or date.today().isoformat()
+    if len(maturity) == 10:
+        total = max(1, _calendar_months_between(start, maturity))
+    else:
+        total = 0
+    cap = total if total > 0 else 1200
+    made = 0
+    if today >= start:
+        until = maturity if len(maturity) == 10 and maturity < today else today
+        made = min(cap, _calendar_months_between(start, until) + 1)
+    try:
+        rate = float(row.get("interest_rate") or 0) / 100.0
+    except (TypeError, ValueError):
+        rate = 0.0
+    interest = round(monthly * (rate / 12.0) * made * max(made - 1, 0) / 2.0)
+    n = total if total > 0 else made
+    maturity_interest = round(monthly * rate * n * (n + 1) / 24.0)
+    principal = monthly * made
+    return {
+        "monthly": monthly,
+        "payments_made": made,
+        "payments_total": n,
+        "principal": principal,
+        "interest": interest,
+        "value": principal + interest,
+        "maturity_principal": monthly * n,
+        "maturity_interest": maturity_interest,
+        "maturity_value": monthly * n + maturity_interest,
+    }
 
 
 def load_allocation_targets(client) -> dict[str, float]:

@@ -340,14 +340,28 @@ function readDepositPayload(
   const start_date = optionalDate(formData.get("start_date"));
   const maturity_date = optionalDate(formData.get("maturity_date"));
 
+  const monthlyRaw = str(formData.get("monthly_amount"));
+  const monthly_amount = monthlyRaw === "" ? 0 : num(formData.get("monthly_amount"));
+  const monthlyKind =
+    deposit_kind === "installment" || deposit_kind === "subscription";
+
   if (!institution) return { ok: false, message: "금융기관을 입력하세요." };
   if (!name) return { ok: false, message: "상품 이름을 입력하세요." };
   if (!DEPOSIT_KINDS.has(deposit_kind)) return { ok: false, message: "종류를 확인하세요." };
   if (!OWNERSHIPS.has(ownership)) return { ok: false, message: "소유를 확인하세요." };
-  if (!Number.isFinite(principal) || principal < 0) {
+  if (monthlyKind) {
+    if (!Number.isFinite(monthly_amount) || monthly_amount <= 0) {
+      return { ok: false, message: "월 납입액을 입력하세요." };
+    }
+    if (!start_date) return { ok: false, message: "적금 가입일(첫 납입일)을 입력하세요." };
+    if (!maturity_date) return { ok: false, message: "만기일을 입력하세요." };
+  } else if (!Number.isFinite(principal) || principal < 0) {
     return { ok: false, message: "원금을 확인하세요." };
   }
-  if (!Number.isFinite(current_value) || current_value < 0) {
+  if (
+    !monthlyKind &&
+    (!Number.isFinite(current_value) || current_value < 0)
+  ) {
     return { ok: false, message: "현재 잔액을 확인하세요." };
   }
   if (!Number.isFinite(interest_rate) || interest_rate < 0) {
@@ -363,8 +377,9 @@ function readDepositPayload(
       institution,
       name,
       deposit_kind,
-      principal,
-      current_value: Number.isFinite(current_value) ? current_value : principal,
+      principal: monthlyKind ? 0 : principal,
+      current_value: monthlyKind ? 0 : Number.isFinite(current_value) ? current_value : principal,
+      monthly_amount: monthlyKind ? monthly_amount : 0,
       interest_rate,
       start_date,
       maturity_date,
@@ -384,7 +399,16 @@ export async function createDeposit(formData: FormData): Promise<ActionResult> {
       ...parsed.data,
       user_id: user.id,
     });
-    if (error) return dbFail(error);
+    if (error?.message?.includes("monthly_amount")) {
+      const { monthly_amount: _monthly, ...legacy } = parsed.data;
+      const retry = await supabase.from("deposits").insert({
+        ...legacy,
+        user_id: user.id,
+      });
+      if (retry.error) return dbFail(retry.error);
+    } else if (error) {
+      return dbFail(error);
+    }
     revalidateRecord();
     return ok("예적금을 추가했습니다.");
   } catch (e) {
@@ -400,7 +424,13 @@ export async function updateDeposit(formData: FormData): Promise<ActionResult> {
     const parsed = readDepositPayload(formData);
     if (!parsed.ok) return fail(parsed.message);
     const { error } = await supabase.from("deposits").update(parsed.data).eq("id", id);
-    if (error) return dbFail(error);
+    if (error?.message?.includes("monthly_amount")) {
+      const { monthly_amount: _monthly, ...legacy } = parsed.data;
+      const retry = await supabase.from("deposits").update(legacy).eq("id", id);
+      if (retry.error) return dbFail(retry.error);
+    } else if (error) {
+      return dbFail(error);
+    }
     revalidateRecord();
     return ok("예적금을 저장했습니다.");
   } catch (e) {

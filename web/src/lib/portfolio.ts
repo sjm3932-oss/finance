@@ -1,4 +1,4 @@
-import { calendarDaysBetween, monthStartKst, todayKst } from "@/lib/dates";
+import { calendarDaysBetween, calendarMonthsBetween, monthStartKst, todayKst } from "@/lib/dates";
 import { marketRegion } from "@/lib/money";
 
 export type AccountRow = {
@@ -62,11 +62,24 @@ export type DepositRow = {
   deposit_kind: string | null;
   principal: number | null;
   current_value: number | null;
+  monthly_amount?: number | null;
   interest_rate: number | null;
   start_date: string | null;
   maturity_date: string | null;
   ownership: string | null;
   memo?: string | null;
+};
+
+export type InstallmentProgress = {
+  monthly: number;
+  paymentsMade: number;
+  paymentsTotal: number;
+  principal: number;
+  interest: number;
+  value: number;
+  maturityPrincipal: number;
+  maturityInterest: number;
+  maturityValue: number;
 };
 
 export type NetWorth = {
@@ -145,8 +158,77 @@ export const DEPOSIT_KIND_KO: Record<string, string> = {
   other: "기타",
 };
 
-/** Current 평가액: current_value if set, else principal (or leftover other_assets.value_krw). */
-export function depositBalance(d: Pick<DepositRow, "current_value" | "principal"> & { value_krw?: number | null }): number {
+export function isMonthlyDeposit(kind?: string | null): boolean {
+  return kind === "installment" || kind === "subscription";
+}
+
+/**
+ * 적금/청약 단리.
+ * 가입일부터 매월 같은 날 납입, 오늘까지 횟수만큼 원금.
+ * 경과이자 = 월납 × (연이율/12) × m(m-1)/2 (말입).
+ * 만기이자 = 월납 × 연이율 × n(n+1)/24 (은행 초입 공식).
+ */
+export function installmentProgress(
+  d: Pick<
+    DepositRow,
+    | "monthly_amount"
+    | "interest_rate"
+    | "start_date"
+    | "maturity_date"
+    | "deposit_kind"
+  >,
+  asOf = todayKst()
+): InstallmentProgress | null {
+  if (!isMonthlyDeposit(d.deposit_kind)) return null;
+  const monthly = Number(d.monthly_amount || 0);
+  if (!(monthly > 0)) return null;
+  const start = d.start_date ? String(d.start_date).slice(0, 10) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return null;
+  const maturity = d.maturity_date ? String(d.maturity_date).slice(0, 10) : "";
+  const hasMaturity = /^\d{4}-\d{2}-\d{2}$/.test(maturity);
+  const total = hasMaturity ? Math.max(1, calendarMonthsBetween(start, maturity)) : 0;
+  const cap = total > 0 ? total : 1200;
+  let made = 0;
+  if (asOf >= start) {
+    const until = hasMaturity && maturity < asOf ? maturity : asOf;
+    made = Math.min(cap, calendarMonthsBetween(start, until) + 1);
+  }
+  const rate = Number(d.interest_rate || 0) / 100;
+  const interest = Math.round(
+    monthly * (rate / 12) * (made * Math.max(made - 1, 0)) / 2
+  );
+  const n = total > 0 ? total : made;
+  const maturityInterest = Math.round((monthly * rate * n * (n + 1)) / 24);
+  const principal = monthly * made;
+  return {
+    monthly,
+    paymentsMade: made,
+    paymentsTotal: n,
+    principal,
+    interest,
+    value: principal + interest,
+    maturityPrincipal: monthly * n,
+    maturityInterest,
+    maturityValue: monthly * n + maturityInterest,
+  };
+}
+
+/** Current 평가액: 적금은 월납 자동, 그 외는 current_value → principal. */
+export function depositBalance(
+  d: Pick<
+    DepositRow,
+    | "current_value"
+    | "principal"
+    | "monthly_amount"
+    | "interest_rate"
+    | "start_date"
+    | "maturity_date"
+    | "deposit_kind"
+  > & { value_krw?: number | null },
+  asOf = todayKst()
+): number {
+  const prog = installmentProgress(d, asOf);
+  if (prog) return prog.value;
   const cur = Number(d.current_value);
   if (Number.isFinite(cur) && cur > 0) return cur;
   const principal = Number(d.principal);
@@ -154,8 +236,10 @@ export function depositBalance(d: Pick<DepositRow, "current_value" | "principal"
   return Number(d.value_krw || 0);
 }
 
-/** 단리 만기 예상 이자. start~maturity 일수, 없으면 1년. */
-export function depositExpectedInterest(d: DepositRow): number | null {
+/** 만기 예상 이자. 적금은 월납 공식, 예금은 원금 × 이율 × 기간. */
+export function depositExpectedInterest(d: DepositRow, asOf = todayKst()): number | null {
+  const prog = installmentProgress(d, asOf);
+  if (prog) return prog.maturityInterest;
   const principal = Number(d.principal || 0);
   const rate = Number(d.interest_rate || 0);
   if (!(principal > 0) || !(rate > 0)) return null;

@@ -11,6 +11,8 @@ from lib.net_worth import (  # noqa: E402
     allocation_actual,
     allocation_drift,
     compute_net_worth,
+    deposit_balance,
+    installment_progress,
 )
 
 
@@ -148,3 +150,45 @@ def test_deposits_are_not_cash_or_other():
     assert nw["other"] == 50_000_000
     assert nw["deposits"] == 13_200_000
     assert nw["net"] == 10_000_000 + 1_000_000 + 13_200_000 + 50_000_000
+
+
+def test_installment_monthly_auto_calc():
+    row = {
+        "deposit_kind": "installment",
+        "monthly_amount": 100_000,
+        "interest_rate": 3.6,
+        "start_date": "2026-01-15",
+        "maturity_date": "2027-01-15",
+        "ownership": "joint",
+    }
+    first = installment_progress(row, as_of="2026-01-15")
+    assert first is not None
+    assert first["payments_made"] == 1
+    assert first["value"] == 100_000
+
+    fourth = installment_progress(row, as_of="2026-04-15")
+    assert fourth is not None
+    assert fourth["payments_made"] == 4
+    assert fourth["interest"] == 1_800
+    assert fourth["value"] == 401_800
+    assert deposit_balance(row, as_of="2026-04-15") == 401_800
+
+    before_pay = installment_progress(row, as_of="2026-04-14")
+    assert before_pay is not None
+    assert before_pay["payments_made"] == 3
+
+    matured = installment_progress(row, as_of="2027-01-15")
+    assert matured is not None
+    assert matured["payments_made"] == 12
+    assert matured["maturity_interest"] == 23_400
+    assert matured["maturity_value"] == 1_200_000 + 23_400
+
+    nw = compute_net_worth(
+        [],
+        accounts=[],
+        other_assets=[],
+        deposits=[row],
+        total_debt=0,
+        usdkrw=None,
+    )
+    assert nw["deposits"] == deposit_balance(row)

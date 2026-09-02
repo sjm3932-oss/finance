@@ -5,6 +5,7 @@ import {
   OWNERSHIP_KO,
   depositBalance,
   depositExpectedInterest,
+  installmentProgress,
   type DepositRow,
 } from "@/lib/portfolio";
 
@@ -18,7 +19,7 @@ export function DepositsPanel({ rows }: { rows: DepositRow[] }) {
         <Link href="/record?tab=deposit" className="font-semibold text-brand">
           기록하기 → 예적금
         </Link>
-        에서 원금·이율·만기를 추가하세요.
+        에서 적금은 월 납입액, 예금은 원금·이율·만기를 추가하세요.
       </div>
     );
   }
@@ -39,6 +40,7 @@ export function DepositsPanel({ rows }: { rows: DepositRow[] }) {
             const maturity = r.maturity_date
               ? String(r.maturity_date).slice(0, 10)
               : null;
+            const prog = installmentProgress(r);
             return (
               <div
                 key={r.id || `${r.name}-${i}`}
@@ -55,6 +57,9 @@ export function DepositsPanel({ rows }: { rows: DepositRow[] }) {
                       {DEPOSIT_KIND_KO[r.deposit_kind || ""] || r.deposit_kind || "예적금"}
                       {" · "}
                       {OWNERSHIP_KO[r.ownership || "joint"] || "공동"}
+                      {prog
+                        ? ` · ${prog.paymentsMade}/${prog.paymentsTotal}회 · 월 ${fmtKrw(prog.monthly)}`
+                        : ""}
                       {rate > 0 ? ` · 연 ${rate}%` : ""}
                       {maturity ? ` · 만기 ${maturity}` : ""}
                     </div>
@@ -66,13 +71,23 @@ export function DepositsPanel({ rows }: { rows: DepositRow[] }) {
                     <div className="text-[15px] font-extrabold tracking-tight">
                       {fmtKrw(depositBalance(r))}
                     </div>
-                    {expected != null ? (
-                      <div className="text-xs font-bold text-muted">
-                        만기이자≈{fmtKrw(expected)}
-                      </div>
-                    ) : (
-                      <div className="text-xs font-bold text-muted">잔액</div>
-                    )}
+                    {(() => {
+                      if (prog) {
+                        return (
+                          <div className="text-xs font-bold text-muted">
+                            만기≈{fmtKrw(prog.maturityValue)}
+                          </div>
+                        );
+                      }
+                      if (expected != null) {
+                        return (
+                          <div className="text-xs font-bold text-muted">
+                            만기이자≈{fmtKrw(expected)}
+                          </div>
+                        );
+                      }
+                      return <div className="text-xs font-bold text-muted">잔액</div>;
+                    })()}
                   </div>
                 </div>
               </div>

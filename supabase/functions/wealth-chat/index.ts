@@ -557,7 +557,68 @@ function buildTaxPlain(taxRows: Array<Record<string, unknown>>) {
   });
 }
 
+function todayKst(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function calendarMonthsBetween(fromIso: string, toIso: string): number {
+  const a = /^(\d{4})-(\d{2})-(\d{2})/.exec(fromIso);
+  const b = /^(\d{4})-(\d{2})-(\d{2})/.exec(toIso);
+  if (!a || !b) return 0;
+  let months =
+    (Number(b[1]) - Number(a[1])) * 12 + (Number(b[2]) - Number(a[2]));
+  if (Number(b[3]) < Number(a[3])) months -= 1;
+  return Math.max(0, months);
+}
+
+function installmentProgress(
+  r: Record<string, unknown>,
+  asOf = todayKst()
+): {
+  paymentsMade: number;
+  paymentsTotal: number;
+  monthly: number;
+  value: number;
+  maturityValue: number;
+} | null {
+  const kind = String(r.deposit_kind || "");
+  if (kind !== "installment" && kind !== "subscription") return null;
+  const monthly = Number(r.monthly_amount || 0);
+  if (!(monthly > 0)) return null;
+  const start = r.start_date ? String(r.start_date).slice(0, 10) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return null;
+  const maturity = r.maturity_date ? String(r.maturity_date).slice(0, 10) : "";
+  const hasMaturity = /^\d{4}-\d{2}-\d{2}$/.test(maturity);
+  const total = hasMaturity ? Math.max(1, calendarMonthsBetween(start, maturity)) : 0;
+  const cap = total > 0 ? total : 1200;
+  let made = 0;
+  if (asOf >= start) {
+    const until = hasMaturity && maturity < asOf ? maturity : asOf;
+    made = Math.min(cap, calendarMonthsBetween(start, until) + 1);
+  }
+  const rate = Number(r.interest_rate || 0) / 100;
+  const interest = Math.round(
+    (monthly * (rate / 12) * (made * Math.max(made - 1, 0))) / 2
+  );
+  const n = total > 0 ? total : made;
+  const maturityInterest = Math.round((monthly * rate * n * (n + 1)) / 24);
+  return {
+    monthly,
+    paymentsMade: made,
+    paymentsTotal: n,
+    value: monthly * made + interest,
+    maturityValue: monthly * n + maturityInterest,
+  };
+}
+
 function depositBalance(r: Record<string, unknown>): number {
+  const prog = installmentProgress(r);
+  if (prog) return prog.value;
   const cur = Number(r.current_value || 0);
   if (cur > 0) return cur;
   return Number(r.principal || r.value_krw || 0);
@@ -576,20 +637,27 @@ function buildDepositsPlain(rows: Array<Record<string, unknown>>) {
     const bal = depositBalance(r);
     const rate = Number(r.interest_rate || 0);
     const maturity = r.maturity_date ? String(r.maturity_date).slice(0, 10) : null;
+    const prog = installmentProgress(r);
     return {
       institution: r.institution,
       name: r.name,
       kind: r.deposit_kind,
       kind_ko: kindKo[String(r.deposit_kind || "")] || "예적금",
-      principal: Number(r.principal || 0),
+      principal: prog ? prog.monthly * prog.paymentsMade : Number(r.principal || 0),
+      monthly_amount: prog ? prog.monthly : Number(r.monthly_amount || 0),
       current_value: bal,
       interest_rate: rate,
       maturity_date: maturity,
       ownership: r.ownership,
       memo: r.memo ?? null,
+      payments_made: prog?.paymentsMade ?? null,
+      payments_total: prog?.paymentsTotal ?? null,
       plain:
         `${r.institution || ""} ${r.name || "예적금"}(${kindKo[String(r.deposit_kind || "")] || "예적금"}) ` +
         `잔액 ${bal.toLocaleString("ko-KR")}원` +
+        (prog
+          ? ` · ${prog.paymentsMade}/${prog.paymentsTotal}회 · 월 ${prog.monthly.toLocaleString("ko-KR")}원`
+          : "") +
         (rate > 0 ? ` · 연 ${rate}%` : "") +
         (maturity ? ` · 만기 ${maturity}` : ""),
     };

@@ -61,7 +61,57 @@ if (re.pnl !== 80_000_000) throw new Error("other pnl");
 if (Math.abs(re.pct - 10) > 1e-9) throw new Error("other pct " + re.pct);
 if (otherAssetReturn({ value_krw: 1 }).pct !== null) throw new Error("no cost");
 
-function depositBalance(d) {
+function parseIsoDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || "").trim());
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+function calendarMonthsBetween(fromIso, toIso) {
+  const a = parseIsoDate(fromIso);
+  const b = parseIsoDate(toIso);
+  if (!a || !b) return 0;
+  let months = (b[0] - a[0]) * 12 + (b[1] - a[1]);
+  if (b[2] < a[2]) months -= 1;
+  return Math.max(0, months);
+}
+function isMonthlyDeposit(kind) {
+  return kind === "installment" || kind === "subscription";
+}
+function installmentProgress(d, asOf) {
+  if (!isMonthlyDeposit(d.deposit_kind)) return null;
+  const monthly = Number(d.monthly_amount || 0);
+  if (!(monthly > 0)) return null;
+  const start = d.start_date ? String(d.start_date).slice(0, 10) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return null;
+  const maturity = d.maturity_date ? String(d.maturity_date).slice(0, 10) : "";
+  const hasMaturity = /^\d{4}-\d{2}-\d{2}$/.test(maturity);
+  const total = hasMaturity ? Math.max(1, calendarMonthsBetween(start, maturity)) : 0;
+  const cap = total > 0 ? total : 1200;
+  let made = 0;
+  if (asOf >= start) {
+    const until = hasMaturity && maturity < asOf ? maturity : asOf;
+    made = Math.min(cap, calendarMonthsBetween(start, until) + 1);
+  }
+  const rate = Number(d.interest_rate || 0) / 100;
+  const interest = Math.round(
+    (monthly * (rate / 12) * (made * Math.max(made - 1, 0))) / 2
+  );
+  const n = total > 0 ? total : made;
+  const maturityInterest = Math.round((monthly * rate * n * (n + 1)) / 24);
+  const principal = monthly * made;
+  return {
+    paymentsMade: made,
+    paymentsTotal: n,
+    principal,
+    interest,
+    value: principal + interest,
+    maturityInterest,
+    maturityValue: monthly * n + maturityInterest,
+  };
+}
+function depositBalance(d, asOf) {
+  const prog = installmentProgress(d, asOf);
+  if (prog) return prog.value;
   const cur = Number(d.current_value);
   if (Number.isFinite(cur) && cur > 0) return cur;
   return Number(d.principal || 0);
@@ -71,7 +121,9 @@ function calendarDaysBetween(fromIso, toIso) {
   const [y2, m2, d2] = toIso.split("-").map(Number);
   return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
 }
-function depositExpectedInterest(d) {
+function depositExpectedInterest(d, asOf = "2026-04-15") {
+  const prog = installmentProgress(d, asOf);
+  if (prog) return prog.maturityInterest;
   const principal = Number(d.principal || 0);
   const rate = Number(d.interest_rate || 0);
   if (!(principal > 0) || !(rate > 0)) return null;
@@ -90,3 +142,33 @@ const interest = depositExpectedInterest({
   maturity_date: "2027-01-01",
 });
 if (interest !== 365_000) throw new Error("deposit interest " + interest);
+
+const sav = {
+  deposit_kind: "installment",
+  monthly_amount: 100_000,
+  interest_rate: 3.6,
+  start_date: "2026-01-15",
+  maturity_date: "2027-01-15",
+};
+const p1 = installmentProgress(sav, "2026-01-15");
+if (!p1 || p1.paymentsMade !== 1 || p1.value !== 100_000) {
+  throw new Error("installment month 1 " + JSON.stringify(p1));
+}
+const p4 = installmentProgress(sav, "2026-04-15");
+if (!p4 || p4.paymentsMade !== 4 || p4.interest !== 1_800 || p4.value !== 401_800) {
+  throw new Error("installment month 4 " + JSON.stringify(p4));
+}
+const pBeforePay = installmentProgress(sav, "2026-04-14");
+if (!pBeforePay || pBeforePay.paymentsMade !== 3) {
+  throw new Error("installment waits for payday " + JSON.stringify(pBeforePay));
+}
+const pMat = installmentProgress(sav, "2027-01-15");
+if (!pMat || pMat.paymentsMade !== 12 || pMat.maturityInterest !== 23_400) {
+  throw new Error("installment maturity " + JSON.stringify(pMat));
+}
+if (depositBalance(sav, "2026-04-15") !== 401_800) {
+  throw new Error("installment live balance");
+}
+if (depositExpectedInterest(sav) !== 23_400) {
+  throw new Error("installment expected interest " + depositExpectedInterest(sav));
+}

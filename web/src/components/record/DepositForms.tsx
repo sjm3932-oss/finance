@@ -1,12 +1,10 @@
 "use client";
 
 import { createDeposit } from "@/lib/actions/record";
-import {
-  DEPOSIT_KIND_OPTIONS,
-  OWNERSHIP_OPTIONS,
-} from "@/lib/record";
+import { OWNERSHIP_OPTIONS } from "@/lib/record";
 import { ActionForm, Field, Panel, inputClass } from "@/components/record/FormUI";
 import { DepositEditRow } from "@/components/record/DepositEditRow";
+import { DepositKindFields } from "@/components/record/DepositKindFields";
 import type { DepositRow } from "@/lib/portfolio";
 import { depositBalance } from "@/lib/portfolio";
 import { fmtKrw } from "@/lib/money";
@@ -22,8 +20,8 @@ export function DepositForms({ deposits }: { deposits: DepositRow[] }) {
     <div className="space-y-4">
       <Panel title="예적금 추가">
         <p className="mb-3 text-xs text-muted">
-          정기예금·적금·청약·입출금은 여기만 입력하세요. 증권 예수금은 토스·한투
-          동기화가 채웁니다. 부동산·연금은{" "}
+          적금·청약은 월 납입액만 넣으면 매달 자동으로 원금이 쌓입니다.
+          증권 예수금은 토스·한투 동기화, 부동산·연금은{" "}
           <Link href="/record?tab=wealth" className="font-semibold text-brand">
             부동산·기타
           </Link>
@@ -45,60 +43,12 @@ export function DepositForms({ deposits }: { deposits: DepositRow[] }) {
                 name="name"
                 required
                 className={inputClass}
-                placeholder="예: 1년 정기예금"
+                placeholder="예: 1년 적금"
                 autoComplete="off"
               />
             </Field>
           </div>
-          <Field label="종류">
-            <select name="deposit_kind" className={inputClass} defaultValue="time">
-              {DEPOSIT_KIND_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="원금(원)">
-              <input
-                name="principal"
-                type="number"
-                min={0}
-                step={100000}
-                required
-                className={inputClass}
-              />
-            </Field>
-            <Field label="현재 잔액(원)">
-              <input
-                name="current_value"
-                type="number"
-                min={0}
-                step={100000}
-                className={inputClass}
-                placeholder="비우면 원금과 동일"
-              />
-            </Field>
-          </div>
-          <Field label="연 이자율(%)">
-            <input
-              name="interest_rate"
-              type="number"
-              min={0}
-              step={0.01}
-              defaultValue={0}
-              className={inputClass}
-            />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="가입일">
-              <input name="start_date" type="date" className={inputClass} />
-            </Field>
-            <Field label="만기일">
-              <input name="maturity_date" type="date" className={inputClass} />
-            </Field>
-          </div>
+          <DepositKindFields />
           <Field label="소유">
             <select name="ownership" className={inputClass} defaultValue="joint">
               {OWNERSHIP_OPTIONS.map((o) => (
@@ -112,7 +62,7 @@ export function DepositForms({ deposits }: { deposits: DepositRow[] }) {
             <input
               name="memo"
               className={inputClass}
-              placeholder="예: 자동연장, 비과세"
+              placeholder="예: 자동이체, 비과세"
             />
           </Field>
         </ActionForm>

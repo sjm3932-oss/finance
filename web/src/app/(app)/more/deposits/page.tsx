@@ -29,7 +29,7 @@ export default async function DepositsPage({
         </p>
         <h1 className="mt-1 text-xl font-extrabold tracking-tight">예적금</h1>
         <p className="mt-1 text-sm text-muted">
-          원금 · 연 이율 · 만기 ·{" "}
+          적금·청약은 월 납입액으로 오늘 잔액을 자동 계산합니다.{" "}
           <Link href="/record?tab=deposit" className="font-semibold text-brand">
             기록에서 편집
           </Link>

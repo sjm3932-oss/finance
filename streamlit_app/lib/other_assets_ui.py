@@ -16,6 +16,7 @@ from lib.net_worth import (
     allocation_actual,
     allocation_drift,
     deposit_balance,
+    installment_progress,
     load_accounts_enriched,
     load_allocation_targets,
     load_deposits,
@@ -213,12 +214,12 @@ def render_deposits_dashboard(
     standalone: bool = False,
 ) -> None:
     if standalone:
-        section_header("예적금", "원금 · 이율 · 만기")
+        section_header("예적금", "월납 자동계산 · 이율 · 만기")
     else:
         section_header("예적금", "독립 카테고리")
 
     if not _deposits_ready(client):
-        st.info("예적금 테이블이 없습니다. `0029_deposits.sql`을 적용하세요.")
+        st.info("예적금 테이블이 없습니다. `0029_deposits.sql`과 `0030_deposit_monthly.sql`을 적용하세요.")
         return
 
     rows = load_deposits(client)
@@ -233,6 +234,7 @@ def render_deposits_dashboard(
         m1, m2 = st.columns(2)
         m1.metric("예적금 합계", fmt_krw(total))
         m2.metric("건수", f"{len(rows)}건")
+    progs = [installment_progress(r) for r in rows]
     disp = pd.DataFrame(
         {
             "기관": [r.get("institution") for r in rows],
@@ -240,6 +242,14 @@ def render_deposits_dashboard(
             "종류": [
                 DEPOSIT_KIND_KO.get(r.get("deposit_kind"), r.get("deposit_kind"))
                 for r in rows
+            ],
+            "월납/원금": [
+                p["monthly"] if p else r.get("principal")
+                for r, p in zip(rows, progs)
+            ],
+            "회차": [
+                f"{int(p['payments_made'])}/{int(p['payments_total'])}" if p else "—"
+                for p in progs
             ],
             "잔액": [deposit_balance(r) for r in rows],
             "이율(%)": [r.get("interest_rate") for r in rows],
@@ -366,10 +376,14 @@ def _form_other_assets(client, user) -> None:
 
 def _form_deposits(client, user) -> None:
     if not _deposits_ready(client):
-        st.info("예적금 테이블이 없습니다. 마이그레이션 `0029_deposits.sql`을 적용하세요.")
+        st.info(
+            "예적금 테이블이 없습니다. 마이그레이션 `0029_deposits.sql`과 "
+            "`0030_deposit_monthly.sql`을 적용하세요."
+        )
         return
     rows = load_deposits(client)
     if rows:
+        progs = [installment_progress(r) for r in rows]
         show_dataframe(
             pd.DataFrame(
                 {
@@ -379,7 +393,14 @@ def _form_deposits(client, user) -> None:
                         DEPOSIT_KIND_KO.get(r.get("deposit_kind"), r.get("deposit_kind"))
                         for r in rows
                     ],
-                    "원금": [r.get("principal") for r in rows],
+                    "월납/원금": [
+                        p["monthly"] if p else r.get("principal")
+                        for r, p in zip(rows, progs)
+                    ],
+                    "회차": [
+                        f"{int(p['payments_made'])}/{int(p['payments_total'])}" if p else "—"
+                        for p in progs
+                    ],
                     "잔액": [deposit_balance(r) for r in rows],
                     "이율(%)": [r.get("interest_rate") for r in rows],
                     "만기": [r.get("maturity_date") for r in rows],
@@ -392,24 +413,42 @@ def _form_deposits(client, user) -> None:
             hide_index=True,
         )
 
+    st.caption("적금·청약은 월 납입액만 넣으면 가입일부터 매월 같은 날 낸 것으로 보고 원금·단리 이자를 자동 계산합니다.")
+    kind = st.selectbox(
+        "종류",
+        options=list(DEPOSIT_KIND_KO.keys()),
+        format_func=lambda k: DEPOSIT_KIND_KO[k],
+        index=list(DEPOSIT_KIND_KO.keys()).index("time"),
+        key="deposit_create_kind",
+    )
+    monthly_kind = kind in ("installment", "subscription")
     with st.form("deposit_create"):
         institution = st.text_input("금융기관", placeholder="신한은행")
-        name = st.text_input("상품 이름", placeholder="1년 정기예금")
-        kind = st.selectbox(
-            "종류",
-            options=list(DEPOSIT_KIND_KO.keys()),
-            format_func=lambda k: DEPOSIT_KIND_KO[k],
-            index=list(DEPOSIT_KIND_KO.keys()).index("time"),
+        name = st.text_input(
+            "상품 이름",
+            placeholder="1년 적금" if monthly_kind else "1년 정기예금",
         )
-        principal = st.number_input("원금(원)", min_value=0.0, step=100_000.0, format="%.0f")
-        current = st.number_input(
-            "현재 잔액(원, 0이면 원금)",
-            min_value=0.0,
-            step=100_000.0,
-            format="%.0f",
-        )
+        if monthly_kind:
+            monthly = st.number_input(
+                "월 납입액(원)", min_value=0.0, step=10_000.0, format="%.0f"
+            )
+            principal = 0.0
+            current = 0.0
+        else:
+            monthly = 0.0
+            principal = st.number_input(
+                "원금(원)", min_value=0.0, step=100_000.0, format="%.0f"
+            )
+            current = st.number_input(
+                "현재 잔액(원, 0이면 원금)",
+                min_value=0.0,
+                step=100_000.0,
+                format="%.0f",
+            )
         rate = st.number_input("연 이자율(%)", min_value=0.0, step=0.1, format="%.2f")
-        start = st.text_input("가입일 (YYYY-MM-DD)", "")
+        start = st.text_input(
+            "가입일 (YYYY-MM-DD, 적금은 첫 납입일)", ""
+        )
         maturity = st.text_input("만기일 (YYYY-MM-DD)", "")
         ownership = st.selectbox(
             "소유",
@@ -420,48 +459,84 @@ def _form_deposits(client, user) -> None:
         if st.form_submit_button("추가", type="primary"):
             if not institution.strip() or not name.strip():
                 st.error("금융기관과 상품 이름을 입력하세요.")
+            elif monthly_kind and monthly <= 0:
+                st.error("월 납입액을 입력하세요.")
+            elif monthly_kind and (not start.strip() or not maturity.strip()):
+                st.error("적금은 가입일(첫 납입일)과 만기일이 필요합니다.")
             else:
+                payload = {
+                    "user_id": str(user.id),
+                    "institution": institution.strip(),
+                    "name": name.strip(),
+                    "deposit_kind": kind,
+                    "principal": 0 if monthly_kind else principal,
+                    "current_value": 0 if monthly_kind else (current if current > 0 else principal),
+                    "monthly_amount": monthly if monthly_kind else 0,
+                    "interest_rate": rate,
+                    "start_date": start.strip() or None,
+                    "maturity_date": maturity.strip() or None,
+                    "ownership": ownership,
+                    "memo": memo or None,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
                 try:
-                    client.table("deposits").insert(
-                        {
-                            "user_id": str(user.id),
-                            "institution": institution.strip(),
-                            "name": name.strip(),
-                            "deposit_kind": kind,
-                            "principal": principal,
-                            "current_value": current if current > 0 else principal,
-                            "interest_rate": rate,
-                            "start_date": start.strip() or None,
-                            "maturity_date": maturity.strip() or None,
-                            "ownership": ownership,
-                            "memo": memo or None,
-                            "updated_at": datetime.now(timezone.utc).isoformat(),
-                        }
-                    ).execute()
+                    client.table("deposits").insert(payload).execute()
                     st.success("추가됨")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"저장 실패: {e}")
+                    if "monthly_amount" in str(e):
+                        payload.pop("monthly_amount", None)
+                        try:
+                            client.table("deposits").insert(payload).execute()
+                            st.success("추가됨 (월납 컬럼 없음 — 0030 마이그레이션을 적용하세요)")
+                            st.rerun()
+                        except Exception as e2:
+                            st.error(f"저장 실패: {e2}")
+                    else:
+                        st.error(f"저장 실패: {e}")
 
     if rows:
+        options = {
+            r["id"]: f"{r.get('institution')} {r.get('name')} ({fmt_krw(deposit_balance(r))})"
+            for r in rows
+        }
+        pick = st.selectbox(
+            "수정/삭제할 항목",
+            options=list(options),
+            format_func=lambda i: options[i],
+            key="deposit_edit_pick",
+        )
+        cur = next(r for r in rows if r["id"] == pick)
+        prog = installment_progress(cur)
+        edit_monthly = bool(prog) or cur.get("deposit_kind") in (
+            "installment",
+            "subscription",
+        )
         with st.form("deposit_update"):
-            options = {
-                r["id"]: f"{r.get('institution')} {r.get('name')} ({fmt_krw(deposit_balance(r))})"
-                for r in rows
-            }
-            pick = st.selectbox(
-                "수정/삭제할 항목",
-                options=list(options),
-                format_func=lambda i: options[i],
-            )
-            cur = next(r for r in rows if r["id"] == pick)
-            new_val = st.number_input(
-                "현재 잔액(원)",
-                min_value=0.0,
-                value=float(deposit_balance(cur)),
-                step=100_000.0,
-                format="%.0f",
-            )
+            if edit_monthly:
+                if prog:
+                    st.caption(
+                        f"오늘 {fmt_krw(deposit_balance(cur))} · "
+                        f"{int(prog['payments_made'])}/{int(prog['payments_total'])}회 · "
+                        f"만기약 {fmt_krw(prog['maturity_value'])}"
+                    )
+                new_monthly = st.number_input(
+                    "월 납입액(원)",
+                    min_value=0.0,
+                    value=float(cur.get("monthly_amount") or 0),
+                    step=10_000.0,
+                    format="%.0f",
+                )
+                new_val = None
+            else:
+                new_monthly = 0.0
+                new_val = st.number_input(
+                    "현재 잔액(원)",
+                    min_value=0.0,
+                    value=float(deposit_balance(cur)),
+                    step=100_000.0,
+                    format="%.0f",
+                )
             new_rate = st.number_input(
                 "연 이자율(%)",
                 min_value=0.0,
@@ -473,15 +548,29 @@ def _form_deposits(client, user) -> None:
             save = c1.form_submit_button("저장", type="primary")
             delete = c2.form_submit_button("삭제")
             if save:
-                client.table("deposits").update(
-                    {
-                        "current_value": new_val,
-                        "interest_rate": new_rate,
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                ).eq("id", pick).execute()
-                st.success("수정됨")
-                st.rerun()
+                patch = {
+                    "interest_rate": new_rate,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                if edit_monthly:
+                    patch["monthly_amount"] = new_monthly
+                    patch["principal"] = 0
+                    patch["current_value"] = 0
+                else:
+                    patch["current_value"] = new_val
+                    patch["monthly_amount"] = 0
+                try:
+                    client.table("deposits").update(patch).eq("id", pick).execute()
+                    st.success("수정됨")
+                    st.rerun()
+                except Exception as e:
+                    if "monthly_amount" in str(e):
+                        patch.pop("monthly_amount", None)
+                        client.table("deposits").update(patch).eq("id", pick).execute()
+                        st.success("수정됨")
+                        st.rerun()
+                    else:
+                        st.error(f"저장 실패: {e}")
             if delete:
                 client.table("deposits").delete().eq("id", pick).execute()
                 st.success("삭제됨")
