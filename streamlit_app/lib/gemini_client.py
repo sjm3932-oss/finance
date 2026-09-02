@@ -60,6 +60,11 @@ Return ONLY valid JSON (no markdown) with this schema:
       "original_principal": number_or_null,
       "interest_rate": number_or_null,
       "due_date": "YYYY-MM-DD or null",
+      "started_on": "YYYY-MM-DD or null",
+      "repay_method": "equal_payment" | "equal_principal" | "interest_only" | null,
+      "monthly_payment": number_or_null,
+      "payment_day": number_or_null,
+      "grace_months": number_or_null,
       "memo": "string or empty"
     }
   ],
@@ -85,6 +90,9 @@ Rules:
 - Prefer debt_payments when the screen shows monthly payment history / 납부내역 / 이자·원금 분해.
 - debt.balance = 잔금 (remaining balance), NOT the original loan amount unless they are the same.
 - debt_kind: 주택담보/주담대→mortgage, 신용→credit, 카드론→card, 학자금→student, 전세→jeonse, else other.
+- started_on = 대출실행일/신규일/약정일 (origination), not 만기일.
+- repay_method: 원리금균등/원리금분할→equal_payment, 원금균등→equal_principal, 만기일시/거치/이자만→interest_only.
+- monthly_payment = 약정 월 납부액 (원리금 합계) when printed on the statement.
 - For debt_payments: amount is total paid (원리금 합계). If interest/principal split is visible, fill both; otherwise leave null.
 - Fill every section that is visible; use empty arrays when not visible.
 - Numbers must be plain JSON numbers (no commas, no currency symbols). Won amounts as integers when possible.
@@ -113,7 +121,8 @@ DOC_TYPE_HINTS = {
         "Every dividend MUST include both ticker and full name."
     ),
     "debt": (
-        "This screenshot is a loan/debt statement: 대출 잔금, 이자율, 월 납부/원리금 내역. "
+        "This screenshot is a loan/debt statement: 대출 잔금, 이자율, 월 납부/원리금 내역, "
+        "상환방법(원리금균등/원금균등/만기일시), 대출실행일. "
         "Focus on debts and debt_payments."
     ),
     "auto": (

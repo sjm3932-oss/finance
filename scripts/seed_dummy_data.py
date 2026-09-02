@@ -377,8 +377,12 @@ def seed(c) -> None:
                 "user_id": uid,
                 "lender": "KB국민은행 주택담보대출",
                 "principal": 180_000_000,  # starting; txs will adjust
+                "original_principal": 200_000_000,
                 "interest_rate": 3.8,
+                "started_on": "2015-06-30",
                 "due_date": "2045-06-30",
+                "repay_method": "equal_payment",
+                "grace_months": 0,
                 "memo": "더미 주담대",
             }
         )

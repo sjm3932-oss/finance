@@ -75,11 +75,13 @@ def test_debt_form_number_inputs_use_fine_steps():
     steps = _number_input_steps(_DEBT_UI.read_text())
     assert steps, "expected number_input calls in debt_ui.py"
     for label, step_node in steps:
-        assert isinstance(step_node, ast.Name), f"{label}: step must be a named constant"
+        assert step_node is not None, f"{label}: missing step"
         if "이자율" in label:
-            assert step_node.id == "RATE_INPUT_STEP"
+            assert isinstance(step_node, ast.Name) and step_node.id == "RATE_INPUT_STEP"
+        elif "원" in label or label == "금액":
+            assert isinstance(step_node, ast.Name) and step_node.id == "WON_INPUT_STEP", label
         else:
-            assert step_node.id == "WON_INPUT_STEP", label
+            assert isinstance(step_node, ast.Constant) and step_node.value == 1, label
 
 
 if __name__ == "__main__":
