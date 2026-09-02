@@ -7,7 +7,14 @@ from typing import Any
 
 import pandas as pd
 
-from lib.portfolio_insights import market_region
+
+def market_region(ticker: str | None, ccy: str | None) -> str:
+    t = str(ticker or "").strip()
+    if t.isdigit() and len(t) == 6:
+        return "국내"
+    if (ccy or "").upper() == "KRW":
+        return "국내"
+    return "해외"
 
 OWNERSHIP_KO = {"joint": "공동", "mine": "정명", "spouse": "지수"}
 ASSET_KIND_KO = {
