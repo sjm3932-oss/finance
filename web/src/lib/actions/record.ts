@@ -318,6 +318,12 @@ export async function deleteOtherAsset(formData: FormData): Promise<ActionResult
   }
 }
 
+function omitMonthlyAmount(data: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...data };
+  delete next.monthly_amount;
+  return next;
+}
+
 function optionalDate(v: FormDataEntryValue | null): string | null {
   const s = str(v);
   return s || null;
@@ -400,9 +406,8 @@ export async function createDeposit(formData: FormData): Promise<ActionResult> {
       user_id: user.id,
     });
     if (error?.message?.includes("monthly_amount")) {
-      const { monthly_amount: _monthly, ...legacy } = parsed.data;
       const retry = await supabase.from("deposits").insert({
-        ...legacy,
+        ...omitMonthlyAmount(parsed.data),
         user_id: user.id,
       });
       if (retry.error) return dbFail(retry.error);
@@ -425,8 +430,10 @@ export async function updateDeposit(formData: FormData): Promise<ActionResult> {
     if (!parsed.ok) return fail(parsed.message);
     const { error } = await supabase.from("deposits").update(parsed.data).eq("id", id);
     if (error?.message?.includes("monthly_amount")) {
-      const { monthly_amount: _monthly, ...legacy } = parsed.data;
-      const retry = await supabase.from("deposits").update(legacy).eq("id", id);
+      const retry = await supabase
+        .from("deposits")
+        .update(omitMonthlyAmount(parsed.data))
+        .eq("id", id);
       if (retry.error) return dbFail(retry.error);
     } else if (error) {
       return dbFail(error);
