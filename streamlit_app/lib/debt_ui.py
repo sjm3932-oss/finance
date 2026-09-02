@@ -20,6 +20,12 @@ DEBT_KIND_KO = {
     "other": "기타",
 }
 
+# Streamlit number_input maps `step` onto HTML <input type="number" step=...>.
+# Browsers then reject values that are not min + n*step, e.g. 잔금 325,047,983
+# with step=100000 → "가장 근접한 유효 값 2개는 325000000 및 325100000입니다."
+WON_INPUT_STEP = 1
+RATE_INPUT_STEP = 0.01
+
 
 def _fmt(n) -> str:
     try:
@@ -259,10 +265,20 @@ def render_debt_forms(client, user) -> None:
                 format_func=lambda k: DEBT_KIND_KO[k],
             )
             c1, c2 = st.columns(2)
-            balance = c1.number_input("현재 잔금(원)", min_value=0.0, step=100000.0, format="%.0f")
-            original = c2.number_input("최초 원금(원)", min_value=0.0, step=100000.0, format="%.0f")
+            balance = c1.number_input(
+                "현재 잔금(원)", min_value=0, step=WON_INPUT_STEP, value=0
+            )
+            original = c2.number_input(
+                "최초 원금(원)", min_value=0, step=WON_INPUT_STEP, value=0
+            )
             c3, c4 = st.columns(2)
-            rate = c3.number_input("연 이자율(%)", min_value=0.0, step=0.1, format="%.2f", value=3.5)
+            rate = c3.number_input(
+                "연 이자율(%)",
+                min_value=0.0,
+                step=RATE_INPUT_STEP,
+                format="%.2f",
+                value=3.5,
+            )
             due = c4.date_input("만기일", value=date.today())
             no_due = st.checkbox("만기일 없음")
             accounts = (
@@ -343,7 +359,7 @@ def render_debt_forms(client, user) -> None:
                 "새 연 이자율(%)",
                 min_value=0.0,
                 value=float(rate),
-                step=0.05,
+                step=RATE_INPUT_STEP,
                 format="%.2f",
             )
             eff = st.date_input("적용일", value=date.today())
@@ -365,7 +381,9 @@ def render_debt_forms(client, user) -> None:
     st.markdown("##### 원리금 납부")
     with st.form("debt_payment_record"):
         c1, c2 = st.columns(2)
-        payment = c1.number_input("납부 금액(원리금 합계, 원)", min_value=0.0, step=10000.0, format="%.0f")
+        payment = c1.number_input(
+            "납부 금액(원리금 합계, 원)", min_value=0, step=WON_INPUT_STEP, value=0
+        )
         pay_date = c2.date_input("납부일", value=date.today())
         memo = st.text_input("메모", "")
         interest_p, principal_p = split_monthly_payment(bal, rate, payment)
@@ -405,7 +423,7 @@ def render_debt_forms(client, user) -> None:
                 format_func=lambda x: DEBT_TX_KO.get(x, x),
             )
             c1, c2 = st.columns(2)
-            amt = c1.number_input("금액", min_value=0.0, step=10000.0, format="%.0f")
+            amt = c1.number_input("금액", min_value=0, step=WON_INPUT_STEP, value=0)
             adj_date = c2.date_input("일자", value=date.today())
             adj_memo = st.text_input("메모", "")
             if st.form_submit_button("조정 기록"):
