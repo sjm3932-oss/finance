@@ -196,6 +196,18 @@ def test_installment_monthly_auto_calc():
     assert nxt["extra_payments"] == 1
     assert nxt["value"] == 2_100_000
 
+    paused = {
+        "deposit_kind": "subscription",
+        "monthly_amount": 0,
+        "current_value": 7_980_000,
+        "interest_rate": 3.1,
+        "start_date": "2018-03-14",
+        "maturity_date": "9999-12-31",
+        "ownership": "joint",
+    }
+    assert installment_progress(paused, as_of="2026-09-02") is None
+    assert deposit_balance(paused, as_of="2026-09-02") == 7_980_000
+
     nw = compute_net_worth(
         [],
         accounts=[],

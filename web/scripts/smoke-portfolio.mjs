@@ -207,3 +207,14 @@ const seededNext = installmentProgress(existing, "2026-05-15");
 if (!seededNext || seededNext.extraPayments !== 1 || seededNext.value !== 2_100_000) {
   throw new Error("existing seed next month " + JSON.stringify(seededNext));
 }
+const paused = {
+  deposit_kind: "subscription",
+  monthly_amount: 0,
+  current_value: 7_980_000,
+  interest_rate: 3.1,
+  start_date: "2018-03-14",
+  maturity_date: "9999-12-31",
+};
+if (depositBalance(paused) !== 7_980_000) {
+  throw new Error("paused subscription should keep bank balance");
+}

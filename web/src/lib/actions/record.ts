@@ -357,11 +357,21 @@ function readDepositPayload(
   if (!DEPOSIT_KINDS.has(deposit_kind)) return { ok: false, message: "종류를 확인하세요." };
   if (!OWNERSHIPS.has(ownership)) return { ok: false, message: "소유를 확인하세요." };
   if (monthlyKind) {
-    if (!Number.isFinite(monthly_amount) || monthly_amount <= 0) {
-      return { ok: false, message: "월 납입액을 입력하세요." };
+    if (!Number.isFinite(monthly_amount) || monthly_amount < 0) {
+      return { ok: false, message: "월 납입액을 확인하세요." };
     }
-    if (!start_date) return { ok: false, message: "적금 가입일(첫 납입일)을 입력하세요." };
-    if (!maturity_date) return { ok: false, message: "만기일을 입력하세요." };
+    if (monthly_amount === 0 && !(current_value > 0)) {
+      return {
+        ok: false,
+        message: "납입을 중단한 경우 현재 잔액을 입력하세요.",
+      };
+    }
+    if (monthly_amount > 0 && !start_date) {
+      return { ok: false, message: "적금 가입일(첫 납입일)을 입력하세요." };
+    }
+    if (monthly_amount > 0 && !maturity_date) {
+      return { ok: false, message: "만기일을 입력하세요." };
+    }
     if (!Number.isFinite(current_value) || current_value < 0) {
       return { ok: false, message: "현재 잔액을 확인하세요." };
     }

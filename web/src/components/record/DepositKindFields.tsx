@@ -73,18 +73,17 @@ export function DepositKindFields({ deposit }: { deposit?: DepositRow }) {
               type="number"
               min={0}
               step={10000}
-              required
               className={inputClass}
               value={monthly}
               onChange={(e) => setMonthly(e.target.value)}
-              placeholder="앞으로 매월 넣는 금액"
+              placeholder="납입 중단이면 0"
             />
           </Field>
           <p className="text-xs text-muted">
             이미 넣고 있는 적금·청약은 <span className="text-ink">실제 가입일</span>을
             넣으면 지금까지 회차가 자동으로 잡힙니다. 은행 잔액이 다르면 아래{" "}
-            <span className="text-ink">현재 잔액</span>을 넣으세요. 그 날짜 이후 월납은
-            계속 자동으로 더합니다.
+            <span className="text-ink">현재 잔액</span>을 넣으세요. 납입을 그만둔 상품은
+            월 납입액 0과 현재 잔액만 넣으면 됩니다.
           </p>
           <div className="grid grid-cols-2 gap-3">
             <Field label="현재 잔액(원, 선택)">
@@ -93,6 +92,7 @@ export function DepositKindFields({ deposit }: { deposit?: DepositRow }) {
                 type="number"
                 min={0}
                 step={10000}
+                required={monthly === "0"}
                 className={inputClass}
                 value={current}
                 onChange={(e) => setCurrent(e.target.value)}
@@ -160,7 +160,7 @@ export function DepositKindFields({ deposit }: { deposit?: DepositRow }) {
           <input
             name="start_date"
             type="date"
-            required={monthlyKind}
+            required={monthlyKind && Number(monthly || 0) > 0}
             className={inputClass}
             value={start}
             onChange={(e) => setStart(e.target.value)}
@@ -170,7 +170,7 @@ export function DepositKindFields({ deposit }: { deposit?: DepositRow }) {
           <input
             name="maturity_date"
             type="date"
-            required={monthlyKind}
+            required={monthlyKind && Number(monthly || 0) > 0}
             className={inputClass}
             value={maturity}
             onChange={(e) => setMaturity(e.target.value)}
@@ -199,9 +199,15 @@ export function DepositKindFields({ deposit }: { deposit?: DepositRow }) {
             </>
           ) : null}
         </div>
+      ) : monthlyKind && Number(current) > 0 && Number(monthly || 0) === 0 ? (
+        <p className="text-xs font-semibold text-muted">
+          납입 중단 · 오늘 잔액{" "}
+          <span className="text-ink">{fmtKrw(Number(current))}</span>
+        </p>
       ) : monthlyKind ? (
         <p className="text-xs text-muted">
           월 납입액·가입일·만기를 넣으면 오늘까지 낸 횟수가 자동으로 계산됩니다.
+          납입을 그만둔 상품은 월 납입액 0과 현재 잔액을 넣으세요.
         </p>
       ) : null}
     </>

@@ -472,9 +472,11 @@ def _form_deposits(client, user) -> None:
         if st.form_submit_button("추가", type="primary"):
             if not institution.strip() or not name.strip():
                 st.error("금융기관과 상품 이름을 입력하세요.")
-            elif monthly_kind and monthly <= 0:
-                st.error("월 납입액을 입력하세요.")
-            elif monthly_kind and (not start.strip() or not maturity.strip()):
+            elif monthly_kind and monthly < 0:
+                st.error("월 납입액을 확인하세요.")
+            elif monthly_kind and monthly == 0 and current <= 0:
+                st.error("납입을 중단한 경우 현재 잔액을 입력하세요.")
+            elif monthly_kind and monthly > 0 and (not start.strip() or not maturity.strip()):
                 st.error("적금은 가입일(첫 납입일)과 만기일이 필요합니다.")
             else:
                 payload = {
