@@ -20,7 +20,11 @@ export function AccountForms({ accounts }: { accounts: EditableAccount[] }) {
     <div className="space-y-4">
       <Panel title="새 계좌 추가">
         <p className="mb-3 text-xs text-muted">
-          증권·은행·대출 계좌만 여기 있습니다. 부동산·연금·보험은{" "}
+          증권·은행·대출 계좌만 여기 있습니다. 예적금은{" "}
+          <Link href="/record?tab=deposit" className="font-semibold text-brand">
+            예적금 탭
+          </Link>
+          , 부동산·연금·보험은{" "}
           <Link href="/record?tab=wealth" className="font-semibold text-brand">
             부동산·기타 탭
           </Link>

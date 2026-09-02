@@ -6,6 +6,7 @@ import {
   DailySnap,
   WealthAlert,
   DebtRow,
+  DepositRow,
   buildLiveHoldings,
   computeNetWorth,
   aggregateByTicker,
@@ -13,6 +14,7 @@ import {
   filterLiveByAccountAndOwnership,
   monthlySummaryStats,
   debtsDueSoon,
+  depositsDueSoon,
   institutionsFromAccounts,
 } from "@/lib/portfolio";
 import { createClient } from "@/lib/supabase/server";
@@ -114,6 +116,7 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
     priceRows,
     debtsRaw,
     otherRaw,
+    depositRaw,
     snaps,
     alerts,
     realizedRows,
@@ -139,6 +142,16 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
           .from("other_assets")
           .select("id,name,asset_kind,value_krw,cost_krw,ownership,memo"),
       { optional: true, label: "other_assets" }
+    ),
+    safeSelect<DepositRow>(
+      () =>
+        supabase
+          .from("deposits")
+          .select(
+            "id,institution,name,deposit_kind,principal,current_value,interest_rate,start_date,maturity_date,ownership,memo"
+          )
+          .order("maturity_date"),
+      { optional: true, label: "deposits" }
     ),
     safeSelect<DailySnap>(
       () =>
@@ -228,6 +241,7 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
     live: liveAll,
     accounts: accountRows,
     otherAssets,
+    deposits: depositRaw,
     totalDebt,
     usdkrw,
     accountIds,
@@ -266,12 +280,22 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
       body: `${d.due} (${d.days}일 후) · 잔금 ${Number(d.principal || 0).toLocaleString("ko-KR")}원`,
     });
   }
+  for (const d of depositsDueSoon(nw.deposit_rows, 30)) {
+    const title = `예적금 만기 임박 · ${d.name || d.institution || "예적금"}`;
+    if (displayAlerts.some((a) => a.title === title)) continue;
+    displayAlerts.push({
+      id: `dep-due-${d.id || d.due}`,
+      alert_kind: "debt_due",
+      title,
+      body: `${d.due} (${d.days}일 후) · ${Number(d.current_value || d.principal || 0).toLocaleString("ko-KR")}원`,
+    });
+  }
 
   const cashAccounts = accountRows
     .filter((a) => {
       if (accountIds && !accountIds.includes(a.id)) return false;
       if (ownership && (a.ownership || "joint") !== ownership) return false;
-      return Number(a.cash_balance || 0) !== 0 || a.account_type === "bank";
+      return Number(a.cash_balance || 0) !== 0;
     })
     .map((a) => ({
       id: a.id,
@@ -288,7 +312,8 @@ export async function loadPortfolioSnapshot(filters: PortfolioFilters = {}) {
     byTicker,
     accounts: accountRows,
     institutions: institutionsFromAccounts(accountRows),
-    otherAssets: nw.other_rows.length ? nw.other_rows : otherAssets,
+    otherAssets: nw.other_rows.length ? nw.other_rows : otherAssets.filter((o) => o.asset_kind !== "deposit"),
+    deposits: nw.deposit_rows,
     cashAccounts,
     nw,
     usdkrw,

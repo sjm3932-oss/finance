@@ -1,4 +1,4 @@
-import { monthStartKst } from "@/lib/dates";
+import { calendarDaysBetween, monthStartKst, todayKst } from "@/lib/dates";
 import { marketRegion } from "@/lib/money";
 
 export type AccountRow = {
@@ -55,9 +55,24 @@ export type LiveHolding = {
   ownership: string;
 };
 
+export type DepositRow = {
+  id?: string;
+  institution: string | null;
+  name: string | null;
+  deposit_kind: string | null;
+  principal: number | null;
+  current_value: number | null;
+  interest_rate: number | null;
+  start_date: string | null;
+  maturity_date: string | null;
+  ownership: string | null;
+  memo?: string | null;
+};
+
 export type NetWorth = {
   invest: number;
   cash: number;
+  deposits: number;
   other: number;
   debt: number;
   gross: number;
@@ -66,6 +81,7 @@ export type NetWorth = {
   overseas: number;
   cash_ratio: number;
   other_rows: OtherAssetRow[];
+  deposit_rows: DepositRow[];
 };
 
 export type MonthlySummary = {
@@ -102,6 +118,7 @@ export type DailySnap = {
   total_debt?: number | null;
   total_cash?: number | null;
   total_other?: number | null;
+  total_deposits?: number | null;
 };
 
 export const OWNERSHIP_KO: Record<string, string> = {
@@ -118,6 +135,76 @@ export const ASSET_KIND_KO: Record<string, string> = {
   crypto: "암호화폐",
   other: "기타",
 };
+
+export const DEPOSIT_KIND_KO: Record<string, string> = {
+  demand: "입출금",
+  time: "정기예금",
+  installment: "적금",
+  subscription: "청약",
+  cma: "CMA",
+  other: "기타",
+};
+
+/** Current 평가액: current_value if set, else principal (or leftover other_assets.value_krw). */
+export function depositBalance(d: Pick<DepositRow, "current_value" | "principal"> & { value_krw?: number | null }): number {
+  const cur = Number(d.current_value);
+  if (Number.isFinite(cur) && cur > 0) return cur;
+  const principal = Number(d.principal);
+  if (Number.isFinite(principal) && principal > 0) return principal;
+  return Number(d.value_krw || 0);
+}
+
+/** 단리 만기 예상 이자. start~maturity 일수, 없으면 1년. */
+export function depositExpectedInterest(d: DepositRow): number | null {
+  const principal = Number(d.principal || 0);
+  const rate = Number(d.interest_rate || 0);
+  if (!(principal > 0) || !(rate > 0)) return null;
+  const start = d.start_date ? String(d.start_date).slice(0, 10) : null;
+  const maturity = d.maturity_date ? String(d.maturity_date).slice(0, 10) : null;
+  const days =
+    start && maturity ? Math.max(0, calendarDaysBetween(start, maturity)) : 365;
+  return Math.round(principal * (rate / 100) * (days / 365));
+}
+
+export function depositsDueSoon(
+  rows: DepositRow[],
+  withinDays = 45,
+  asOf = todayKst()
+): Array<DepositRow & { days: number; due: string }> {
+  const end = (() => {
+    const [y, m, d] = asOf.split("-").map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d + withinDays));
+    const yy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getUTCDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+  })();
+  const out: Array<DepositRow & { days: number; due: string }> = [];
+  for (const r of rows) {
+    if (!r.maturity_date) continue;
+    const due = String(r.maturity_date).slice(0, 10);
+    if (due < asOf || due > end) continue;
+    out.push({ ...r, days: calendarDaysBetween(asOf, due), due });
+  }
+  return out.sort((a, b) => a.due.localeCompare(b.due));
+}
+
+export function otherAssetAsDeposit(o: OtherAssetRow): DepositRow {
+  const value = Number(o.value_krw || 0);
+  return {
+    id: o.id,
+    institution: "기타",
+    name: o.name,
+    deposit_kind: "time",
+    principal: value,
+    current_value: value,
+    interest_rate: 0,
+    start_date: null,
+    maturity_date: null,
+    ownership: o.ownership,
+    memo: o.memo ?? null,
+  };
+}
 
 function toKrw(amount: number, ccy: string, usdkrw: number | null): number {
   if ((ccy || "KRW").toUpperCase() === "USD") {
@@ -317,6 +404,7 @@ export function computeNetWorth(args: {
   usdkrw: number | null;
   accountIds?: string[] | null;
   ownership?: string | null;
+  deposits?: DepositRow[];
 }): NetWorth {
   const {
     live,
@@ -326,6 +414,7 @@ export function computeNetWorth(args: {
     usdkrw,
     accountIds = null,
     ownership = null,
+    deposits: depositInput = [],
   } = args;
   const allow = accountIds ? new Set(accountIds.map(String)) : null;
   const own =
@@ -365,23 +454,36 @@ export function computeNetWorth(args: {
 
   let other = 0;
   const other_rows: OtherAssetRow[] = [];
-  // Account filter = account lens → omit household other assets
+  let deposits = 0;
+  const deposit_rows: DepositRow[] = [];
+  // Account filter = account lens → omit household other assets / deposits
   if (!allow) {
     for (const o of otherAssets) {
       if (own && (o.ownership || "joint") !== own) continue;
       const val = Number(o.value_krw || 0);
+      if ((o.asset_kind || "") === "deposit") {
+        deposits += val;
+        deposit_rows.push(otherAssetAsDeposit(o));
+        continue;
+      }
       other += val;
       other_rows.push(o);
+    }
+    for (const d of depositInput) {
+      if (own && (d.ownership || "joint") !== own) continue;
+      deposits += depositBalance(d);
+      deposit_rows.push(d);
     }
   }
 
   let debt = Number(totalDebt || 0);
   if (allow) debt = 0;
 
-  const gross = invest + cash + other;
+  const gross = invest + cash + deposits + other;
   return {
     invest,
     cash,
+    deposits,
     other,
     debt,
     gross,
@@ -390,6 +492,7 @@ export function computeNetWorth(args: {
     overseas,
     cash_ratio: gross > 0 ? cash / gross : 0,
     other_rows,
+    deposit_rows,
   };
 }
 

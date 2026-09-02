@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AccountForms } from "@/components/record/AccountForms";
 import { WealthForms } from "@/components/record/WealthForms";
 import { FlowForms } from "@/components/record/FlowForms";
+import { DepositForms } from "@/components/record/DepositForms";
 import { DebtForms } from "@/components/record/DebtForms";
 import { TossSyncPanel } from "@/components/TossSyncPanel";
 import { HankookSyncPanel } from "@/components/HankookSyncPanel";
@@ -14,6 +15,7 @@ const TABS = [
   { id: "toss", label: "토스 동기화" },
   { id: "hankook", label: "한투 동기화" },
   { id: "account", label: "계좌" },
+  { id: "deposit", label: "예적금" },
   { id: "wealth", label: "부동산·기타" },
   { id: "flows", label: "매매·배당" },
   { id: "debt", label: "부채" },
@@ -42,7 +44,7 @@ export default async function RecordPage({
   const sp = await searchParams;
   const tab = (TABS.some((t) => t.id === sp.tab) ? sp.tab : "account") as TabId;
 
-  const { accounts, otherAssets } = await loadPortfolioSnapshot();
+  const { accounts, otherAssets, deposits } = await loadPortfolioSnapshot();
   const debts = await loadDebtsFull();
 
   return (
@@ -50,7 +52,7 @@ export default async function RecordPage({
       <div>
         <h1 className="text-xl font-extrabold tracking-tight">기록</h1>
         <p className="mt-1 text-sm text-muted">
-          증권 동기화 · 계좌 · 부동산은{" "}
+          증권 동기화 · 계좌 · 예적금 · 부동산은{" "}
           <Link href="/record?tab=wealth" className="font-semibold text-brand">
             부동산·기타
           </Link>
@@ -82,9 +84,8 @@ export default async function RecordPage({
 
       {tab === "toss" ? <TossSyncPanel /> : null}
       {tab === "hankook" ? <HankookSyncPanel /> : null}
-      {tab === "wealth" ? (
-        <WealthForms otherAssets={otherAssets} accounts={accounts} />
-      ) : null}
+      {tab === "wealth" ? <WealthForms otherAssets={otherAssets} /> : null}
+      {tab === "deposit" ? <DepositForms deposits={deposits} /> : null}
       {tab === "flows" ? <FlowForms accounts={accounts} /> : null}
       {tab === "debt" ? <DebtForms debts={debts} accounts={accounts} /> : null}
       {tab === "account" ? <AccountForms accounts={accounts} /> : null}

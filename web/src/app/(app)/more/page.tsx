@@ -3,7 +3,7 @@ import Link from "next/link";
 const LINKS = [
   {
     title: "기록하기",
-    body: "토스 · 한투 동기화 · 계좌 · 부동산·기타 · 매매 · 배당 · 부채",
+    body: "토스 · 한투 동기화 · 계좌 · 예적금 · 부동산·기타 · 매매 · 배당 · 부채",
     href: "/record",
   },
   {
@@ -13,12 +13,17 @@ const LINKS = [
   },
   {
     title: "순자산 구성",
-    body: "투자 · 현금 · 기타 · 부채",
+    body: "투자 · 현금 · 예적금 · 기타 · 부채",
     href: "/more/net-worth",
   },
   {
+    title: "예적금",
+    body: "원금 · 이율 · 만기",
+    href: "/more/deposits",
+  },
+  {
     title: "기타자산",
-    body: "부동산 · 연금 · 보험 · 예적금",
+    body: "부동산 · 연금 · 보험",
     href: "/more/other-assets",
   },
   {

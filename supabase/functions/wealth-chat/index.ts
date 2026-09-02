@@ -557,6 +557,45 @@ function buildTaxPlain(taxRows: Array<Record<string, unknown>>) {
   });
 }
 
+function depositBalance(r: Record<string, unknown>): number {
+  const cur = Number(r.current_value || 0);
+  if (cur > 0) return cur;
+  return Number(r.principal || r.value_krw || 0);
+}
+
+function buildDepositsPlain(rows: Array<Record<string, unknown>>) {
+  const kindKo: Record<string, string> = {
+    demand: "입출금",
+    time: "정기예금",
+    installment: "적금",
+    subscription: "청약",
+    cma: "CMA",
+    other: "기타",
+  };
+  return rows.map((r) => {
+    const bal = depositBalance(r);
+    const rate = Number(r.interest_rate || 0);
+    const maturity = r.maturity_date ? String(r.maturity_date).slice(0, 10) : null;
+    return {
+      institution: r.institution,
+      name: r.name,
+      kind: r.deposit_kind,
+      kind_ko: kindKo[String(r.deposit_kind || "")] || "예적금",
+      principal: Number(r.principal || 0),
+      current_value: bal,
+      interest_rate: rate,
+      maturity_date: maturity,
+      ownership: r.ownership,
+      memo: r.memo ?? null,
+      plain:
+        `${r.institution || ""} ${r.name || "예적금"}(${kindKo[String(r.deposit_kind || "")] || "예적금"}) ` +
+        `잔액 ${bal.toLocaleString("ko-KR")}원` +
+        (rate > 0 ? ` · 연 ${rate}%` : "") +
+        (maturity ? ` · 만기 ${maturity}` : ""),
+    };
+  });
+}
+
 function buildOtherAssetsPlain(rows: Array<Record<string, unknown>>) {
   const kindKo: Record<string, string> = {
     real_estate: "부동산",
@@ -603,6 +642,7 @@ async function buildContext(
     portfolio,
     dividends,
     otherAssets,
+    depositAssets,
     debtTxs,
     chatLogs,
     indexSnaps,
@@ -633,6 +673,7 @@ async function buildContext(
       .order("pay_date", { ascending: false })
       .limit(light ? 12 : 24),
     admin.from("other_assets").select("*"),
+    admin.from("deposits").select("*"),
     admin
       .from("debt_transactions")
       .select("tx_date,tx_type,amount,memo,debt_id")
@@ -718,7 +759,22 @@ async function buildContext(
   });
 
   const debtRows = (debts.data || []) as Array<Record<string, unknown>>;
-  const otherRows = (otherAssets.data || []) as Array<Record<string, unknown>>;
+  const otherAll = (otherAssets.data || []) as Array<Record<string, unknown>>;
+  const leftoverDeposits = otherAll.filter((r) => String(r.asset_kind) === "deposit");
+  const otherRows = otherAll.filter((r) => String(r.asset_kind) !== "deposit");
+  const tableDeposits = depositAssets.error
+    ? []
+    : ((depositAssets.data || []) as Array<Record<string, unknown>>);
+  const depositRows = [
+    ...tableDeposits,
+    ...leftoverDeposits.map((r) => ({
+      ...r,
+      institution: r.institution || "기타",
+      principal: Number(r.value_krw || 0),
+      current_value: Number(r.value_krw || 0),
+      deposit_kind: "time",
+    })),
+  ];
   const taxRows = (
     (taxView.data || []).length ? taxView.data : taxRecords.data || []
   ) as Array<Record<string, unknown>>;
@@ -726,6 +782,7 @@ async function buildContext(
   const loan_helpers = buildLoanHelpers(debtRows);
   const tax_plain = buildTaxPlain(taxRows);
   const other_assets_plain = buildOtherAssetsPlain(otherRows);
+  const deposits_plain = buildDepositsPlain(depositRows);
 
   const invest = enriched.reduce((s, h) => s + (h.market_value_krw || 0), 0);
   const cash = (accountRows as Array<Record<string, unknown>>).reduce(
@@ -740,6 +797,7 @@ async function buildContext(
     0
   );
   const otherSum = otherRows.reduce((s, r) => s + Number(r.value_krw || 0), 0);
+  const depositsSum = depositRows.reduce((s, r) => s + depositBalance(r), 0);
   const debtSum = debtRows.reduce((s, d) => s + Number(d.principal || 0), 0);
   const pensionSum = otherRows
     .filter((r) => String(r.asset_kind) === "pension")
@@ -749,13 +807,15 @@ async function buildContext(
     invest_krw_approx: invest,
     cash_krw_approx: cash,
     other_assets_krw: otherSum,
+    deposits_krw: depositsSum,
     pension_krw: pensionSum,
     debt_krw: debtSum,
-    net_worth_approx: invest + cash + otherSum - debtSum,
+    net_worth_approx: invest + cash + otherSum + depositsSum - debtSum,
     plain:
       `대략 투자 ${Math.round(invest).toLocaleString("ko-KR")}원 + 현금 ${Math.round(cash).toLocaleString("ko-KR")}원 ` +
+      `+ 예적금 ${Math.round(depositsSum).toLocaleString("ko-KR")}원 ` +
       `+ 기타(연금 등) ${Math.round(otherSum).toLocaleString("ko-KR")}원 − 부채 ${Math.round(debtSum).toLocaleString("ko-KR")}원 ` +
-      `→ 순자산 약 ${Math.round(invest + cash + otherSum - debtSum).toLocaleString("ko-KR")}원 수준입니다.`,
+      `→ 순자산 약 ${Math.round(invest + cash + otherSum + depositsSum - debtSum).toLocaleString("ko-KR")}원 수준입니다.`,
   };
 
   let holding_moves: MoveRow[] = [];
@@ -786,6 +846,8 @@ async function buildContext(
     loan_helpers,
     other_assets: otherRows,
     other_assets_plain,
+    deposits: depositRows,
+    deposits_plain,
     recent_debt_transactions: debtTxs.data || [],
     recent_trades: trades.data || [],
     recent_snapshots: snaps.data || [],
@@ -804,6 +866,7 @@ async function buildContext(
         "loan_helpers",
         "tax_plain",
         "other_assets_plain",
+        "deposits_plain",
         "macro_indicators",
         "snapshots",
         ...(light ? [] : ["holding_moves", "market_news"]),
@@ -821,6 +884,7 @@ async function buildContext(
       holdings: enriched.length,
       debts: debtRows.length,
       other_assets: otherRows.length,
+      deposits: depositRows.length,
       usdkrw,
       light,
       macros_ok: macros.filter((m) => m.value != null).length,

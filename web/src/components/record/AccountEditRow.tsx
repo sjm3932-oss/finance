@@ -99,31 +99,19 @@ export function AccountEditRow({
                 />
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="현금/예수금">
-                <input
-                  name="cash_balance"
-                  type="number"
-                  min={0}
-                  step={10000}
-                  defaultValue={Number(account.cash_balance || 0)}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="소유">
-                <select
-                  name="ownership"
-                  className={inputClass}
-                  defaultValue={account.ownership || "mine"}
-                >
-                  {OWNERSHIP_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
+            <Field label="소유">
+              <select
+                name="ownership"
+                className={inputClass}
+                defaultValue={account.ownership || "mine"}
+              >
+                {OWNERSHIP_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="메모">
               <input
                 name="memo"

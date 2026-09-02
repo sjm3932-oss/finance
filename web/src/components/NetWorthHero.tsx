@@ -14,7 +14,8 @@ export function NetWorthHero({
 
   const cells = [
     { label: "투자자산", value: fmtKrw(nw.invest) },
-    { label: "현금", value: fmtKrw(nw.cash) },
+    { label: "현금·예수금", value: fmtKrw(nw.cash) },
+    { label: "예적금", value: fmtKrw(nw.deposits) },
     { label: "기타자산", value: fmtKrw(nw.other) },
     { label: "부채", value: fmtKrw(nw.debt) },
     { label: "투자수익률", value: fmtPct(returnPct), tone },
@@ -27,7 +28,7 @@ export function NetWorthHero({
       <p className={`mt-1 text-3xl font-extrabold tracking-tight ${toneClass}`}>
         {fmtKrw(nw.net)}
       </p>
-      <p className="mt-1 text-sm text-muted">투자 + 현금 + 기타 − 부채</p>
+      <p className="mt-1 text-sm text-muted">투자 + 현금 + 예적금 + 기타 − 부채</p>
       <div className="mt-5 grid grid-cols-2 gap-3 border-t border-line pt-4 sm:grid-cols-3">
         {cells.map((c) => (
           <div key={c.label}>

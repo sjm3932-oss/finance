@@ -61,6 +61,7 @@ def test_compute_net_worth_basic():
     # cash: 1M + 0.5M = 1.5M
     assert nw["cash"] == 1_500_000
     assert nw["other"] == 52_000_000
+    assert nw["deposits"] == 0
     assert nw["debt"] == 20_000_000
     assert nw["net"] == 11_000_000 + 1_500_000 + 52_000_000 - 20_000_000
     assert nw["domestic"] == 10_000_000
@@ -96,12 +97,54 @@ def test_allocation_drift():
         "gross": 100.0,
         "domestic": 50.0,
         "overseas": 30.0,
-        "cash": 15.0,
+        "cash": 10.0,
+        "deposits": 5.0,
         "other": 5.0,
     }
     actual = allocation_actual(nw)
     assert round(actual["domestic"], 1) == 50.0
-    rows = allocation_drift(actual, {"domestic": 40, "overseas": 40, "cash": 15, "other": 5})
+    assert round(actual["deposits"], 1) == 5.0
+    rows = allocation_drift(
+        actual, {"domestic": 40, "overseas": 40, "cash": 10, "deposits": 5, "other": 5}
+    )
     by = {r["category"]: r for r in rows}
     assert by["domestic"]["drift_pct"] == 10.0
     assert by["overseas"]["drift_pct"] == -10.0
+    assert by["deposits"]["drift_pct"] == 0.0
+
+
+def test_deposits_are_not_cash_or_other():
+    accounts = [
+        {
+            "id": "a1",
+            "account_type": "brokerage",
+            "currency": "KRW",
+            "ownership": "joint",
+            "cash_balance": 1_000_000,
+        }
+    ]
+    live = [{"account_id": "a1", "ticker": "005930", "ccy": "KRW", "value": 10_000_000}]
+    other = [
+        {"name": "아파트", "asset_kind": "real_estate", "value_krw": 50_000_000, "ownership": "joint"},
+        {"name": "구예적금", "asset_kind": "deposit", "value_krw": 3_000_000, "ownership": "joint"},
+    ]
+    deposits = [
+        {
+            "name": "정기예금",
+            "principal": 10_000_000,
+            "current_value": 10_200_000,
+            "ownership": "joint",
+        }
+    ]
+    nw = compute_net_worth(
+        live,
+        accounts=accounts,
+        other_assets=other,
+        deposits=deposits,
+        total_debt=0,
+        usdkrw=None,
+    )
+    assert nw["cash"] == 1_000_000
+    assert nw["other"] == 50_000_000
+    assert nw["deposits"] == 13_200_000
+    assert nw["net"] == 10_000_000 + 1_000_000 + 13_200_000 + 50_000_000

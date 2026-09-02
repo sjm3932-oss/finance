@@ -6,10 +6,8 @@ import { ActionForm, Field, inputClass } from "@/components/record/FormUI";
 
 /** Free-form account create: any institution name + any ISO currency code. */
 export function CreateAccountFields({
-  showCash = true,
   submitLabel = "계좌 추가",
 }: {
-  showCash?: boolean;
   submitLabel?: string;
 }) {
   return (
@@ -51,29 +49,15 @@ export function CreateAccountFields({
           </datalist>
         </Field>
       </div>
-      {showCash ? (
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="현금/예수금 (선택)">
-            <input
-              name="cash_balance"
-              type="number"
-              min={0}
-              step={10000}
-              defaultValue={0}
-              className={inputClass}
-            />
-          </Field>
-          <Field label="소유">
-            <select name="ownership" className={inputClass} defaultValue="mine">
-              {OWNERSHIP_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-      ) : null}
+      <Field label="소유">
+        <select name="ownership" className={inputClass} defaultValue="mine">
+          {OWNERSHIP_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </Field>
       <Field label="메모">
         <input
           name="memo"

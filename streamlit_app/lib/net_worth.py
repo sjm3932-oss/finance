@@ -1,4 +1,4 @@
-"""Net worth composition: invest + cash + other − debt."""
+"""Net worth composition: invest + cash + deposits + other − debt."""
 
 from __future__ import annotations
 
@@ -14,14 +14,26 @@ ASSET_KIND_KO = {
     "real_estate": "부동산",
     "pension": "연금",
     "insurance": "보험",
-    "deposit": "예적금",
     "crypto": "암호화폐",
+    "other": "기타",
+}
+ASSET_KIND_KO_ALL = {
+    **ASSET_KIND_KO,
+    "deposit": "예적금",
+}
+DEPOSIT_KIND_KO = {
+    "demand": "입출금",
+    "time": "정기예금",
+    "installment": "적금",
+    "subscription": "청약",
+    "cma": "CMA",
     "other": "기타",
 }
 ALLOC_CAT_KO = {
     "domestic": "국내주식",
     "overseas": "해외주식",
-    "cash": "현금",
+    "cash": "현금·예수금",
+    "deposits": "예적금",
     "other": "기타자산",
 }
 
@@ -52,9 +64,32 @@ def load_other_assets(client) -> list[dict]:
     return _safe_table(client, "other_assets", "*")
 
 
+def load_deposits(client) -> list[dict]:
+    return _safe_table(client, "deposits", "*")
+
+
+def deposit_balance(row: dict) -> float:
+    try:
+        cur = float(row.get("current_value") or 0)
+    except (TypeError, ValueError):
+        cur = 0.0
+    if cur > 0:
+        return cur
+    try:
+        principal = float(row.get("principal") or 0)
+    except (TypeError, ValueError):
+        principal = 0.0
+    if principal > 0:
+        return principal
+    try:
+        return float(row.get("value_krw") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def load_allocation_targets(client) -> dict[str, float]:
     rows = _safe_table(client, "allocation_targets", "category,target_pct")
-    out = {c: 0.0 for c in ("domestic", "overseas", "cash", "other")}
+    out = {c: 0.0 for c in ("domestic", "overseas", "cash", "deposits", "other")}
     for r in rows:
         cat = str(r.get("category") or "")
         if cat in out:
@@ -95,14 +130,16 @@ def compute_net_worth(
     usdkrw: float | None,
     account_ids: list[str] | None = None,
     ownership: str | None = None,
+    deposits: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Return NW breakdown in KRW.
 
     invest = brokerage holdings market value
-    cash = account cash_balance + bank holdings
-    other = other_assets.value_krw
+    cash = account cash_balance (증권 예수금) + bank holdings
+    deposits = 예적금 평가액 (table + leftover other_assets.deposit)
+    other = other_assets.value_krw excluding deposit
     debt = total_debt (caller may already filter)
-    net = invest + cash + other - debt
+    net = invest + cash + deposits + other - debt
     """
     allow = {str(a) for a in account_ids} if account_ids is not None else None
     own = ownership if ownership in ("joint", "mine", "spouse") else None
@@ -154,35 +191,49 @@ def compute_net_worth(
 
     other = 0.0
     other_rows: list[dict] = []
+    deposits_sum = 0.0
+    deposit_rows: list[dict] = []
     for o in other_assets:
         if own is not None and o.get("ownership", "joint") != own:
             continue
-        # other assets are household-level (no account filter unless we add later)
         if allow is not None:
-            # When filtering by brokerage account, still show full other/cash only for 전체
             continue
         try:
             val = float(o.get("value_krw") or 0)
         except (TypeError, ValueError):
             val = 0.0
+        if str(o.get("asset_kind") or "") == "deposit":
+            deposits_sum += val
+            deposit_rows.append(o)
+            continue
         other += val
         other_rows.append(o)
 
-    # When account-filtered, omit household other assets from NW (account lens)
+    if allow is None:
+        for d in deposits or []:
+            if own is not None and d.get("ownership", "joint") != own:
+                continue
+            deposits_sum += deposit_balance(d)
+            deposit_rows.append(d)
+
+    # When account-filtered, omit household other assets / deposits from NW
     if allow is not None:
         other = 0.0
         other_rows = []
+        deposits_sum = 0.0
+        deposit_rows = []
 
     debt = float(total_debt or 0)
     if allow is not None:
         # caller usually passes 0 for filtered account debt already
         pass
 
-    gross = invest + cash + other
+    gross = invest + cash + deposits_sum + other
     net = gross - debt
     return {
         "invest": invest,
         "cash": cash,
+        "deposits": deposits_sum,
         "other": other,
         "debt": debt,
         "gross": gross,
@@ -190,6 +241,7 @@ def compute_net_worth(
         "domestic": domestic,
         "overseas": overseas,
         "other_rows": other_rows,
+        "deposit_rows": deposit_rows,
         "cash_ratio": (cash / gross) if gross > 0 else 0.0,
     }
 
@@ -198,11 +250,12 @@ def allocation_actual(nw: dict[str, Any]) -> dict[str, float]:
     """Actual % of gross assets by category."""
     gross = float(nw.get("gross") or 0)
     if gross <= 0:
-        return {c: 0.0 for c in ("domestic", "overseas", "cash", "other")}
+        return {c: 0.0 for c in ("domestic", "overseas", "cash", "deposits", "other")}
     return {
         "domestic": 100.0 * float(nw.get("domestic") or 0) / gross,
         "overseas": 100.0 * float(nw.get("overseas") or 0) / gross,
         "cash": 100.0 * float(nw.get("cash") or 0) / gross,
+        "deposits": 100.0 * float(nw.get("deposits") or 0) / gross,
         "other": 100.0 * float(nw.get("other") or 0) / gross,
     }
 
@@ -211,7 +264,7 @@ def allocation_drift(
     actual: dict[str, float], targets: dict[str, float]
 ) -> list[dict[str, Any]]:
     rows = []
-    for cat in ("domestic", "overseas", "cash", "other"):
+    for cat in ("domestic", "overseas", "cash", "deposits", "other"):
         a = float(actual.get(cat) or 0)
         t = float(targets.get(cat) or 0)
         rows.append(
