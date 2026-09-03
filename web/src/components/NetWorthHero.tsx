@@ -1,4 +1,6 @@
-import { fmtKrw, fmtPct, retTone } from "@/lib/money";
+import type { ReactNode } from "react";
+import { SignedPct } from "@/components/SignedValue";
+import { fmtKrw, retTone } from "@/lib/money";
 import type { NetWorth } from "@/lib/portfolio";
 
 export function NetWorthHero({
@@ -12,13 +14,17 @@ export function NetWorthHero({
   const toneClass =
     tone === "up" ? "text-up" : tone === "down" ? "text-down" : "text-ink";
 
-  const cells = [
+  const cells: { label: string; value: ReactNode; colored?: boolean }[] = [
     { label: "투자자산", value: fmtKrw(nw.invest) },
     { label: "현금·예수금", value: fmtKrw(nw.cash) },
     { label: "예적금", value: fmtKrw(nw.deposits) },
     { label: "기타자산", value: fmtKrw(nw.other) },
     { label: "부채", value: fmtKrw(nw.debt) },
-    { label: "투자수익률", value: fmtPct(returnPct), tone },
+    {
+      label: "투자수익률",
+      value: <SignedPct value={returnPct} className="text-base" />,
+      colored: true,
+    },
     { label: "총자산", value: fmtKrw(nw.gross) },
   ];
 
@@ -35,11 +41,7 @@ export function NetWorthHero({
             <div className="text-[11px] font-semibold text-muted">{c.label}</div>
             <div
               className={`mt-0.5 text-base font-extrabold tracking-tight ${
-                c.tone === "up"
-                  ? "text-up"
-                  : c.tone === "down"
-                    ? "text-down"
-                    : "text-ink"
+                c.colored ? "" : "text-ink"
               }`}
             >
               {c.value}

@@ -74,11 +74,36 @@ export function fmtPct(v: number | null | undefined): string {
   return `${sign}${n.toFixed(2)}%`;
 }
 
-export function retTone(v: number | null | undefined): "up" | "down" | "flat" {
+/** Korean market convention: + red/up, − blue/down. */
+export function signedTone(
+  v: number | null | undefined,
+  opts?: { epsilon?: number }
+): "up" | "down" | "flat" {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return "flat";
-  if (v > 0.05) return "up";
-  if (v < -0.05) return "down";
+  const n = Number(v);
+  const eps = opts?.epsilon ?? 0;
+  if (n > eps) return "up";
+  if (n < -eps) return "down";
   return "flat";
+}
+
+export function signedArrow(tone: "up" | "down" | "flat"): "↑" | "↓" | "" {
+  if (tone === "up") return "↑";
+  if (tone === "down") return "↓";
+  return "";
+}
+
+/** Percentage with ↑/↓, for SVG / plain text (no color class). */
+export function fmtPctArrow(v: number | null | undefined): string {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
+  const n = Number(v);
+  const arrow = signedArrow(signedTone(n, { epsilon: 0.005 }));
+  const body = `${Math.abs(n).toFixed(2)}%`;
+  return arrow ? `${arrow} ${body}` : body;
+}
+
+export function retTone(v: number | null | undefined): "up" | "down" | "flat" {
+  return signedTone(v, { epsilon: 0.05 });
 }
 
 export function marketRegion(ticker: string | null | undefined, ccy?: string | null) {

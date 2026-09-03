@@ -5,6 +5,7 @@ import { loadTickerHistory } from "@/lib/data-insights";
 import { accountIdsForInstitution } from "@/lib/portfolio";
 import { fmtKrw, fmtMoney, fmtUnitPrice, tradeNotional } from "@/lib/money";
 import { NetWorthTrend } from "@/components/NetWorthTrend";
+import { SignedAmount } from "@/components/SignedValue";
 
 export const dynamic = "force-dynamic";
 
@@ -119,12 +120,20 @@ export default async function HoldingDetailPage({
                 {fmtUnitPrice(t.price as number, t.currency as string)}
               </div>
             </div>
-            <div className="text-right text-xs font-bold text-muted">
+            <div className="text-right">
               {t.trade_type === "sell" &&
               t.realized_pnl != null &&
-              Number(t.realized_pnl) !== 0
-                ? fmtMoney(Number(t.realized_pnl), t.currency as string, { signed: true })
-                : fmtMoney(tradeNotional(t), t.currency as string)}
+              Number(t.realized_pnl) !== 0 ? (
+                <SignedAmount
+                  amount={Number(t.realized_pnl)}
+                  currency={t.currency as string}
+                  className="text-xs"
+                />
+              ) : (
+                <span className="text-xs font-bold text-muted">
+                  {fmtMoney(tradeNotional(t), t.currency as string)}
+                </span>
+              )}
             </div>
           </div>
         ))}
@@ -148,11 +157,11 @@ export default async function HoldingDetailPage({
               </div>
               <div className="text-xs text-muted">{d.memo || "배당"}</div>
             </div>
-            <div className="text-sm font-extrabold">
-              {d.currency === "USD"
-                ? `$${Number(d.amount).toLocaleString("en-US")}`
-                : fmtKrw(d.amount)}
-            </div>
+            <SignedAmount
+              amount={Number(d.amount)}
+              currency={d.currency}
+              className="text-sm"
+            />
           </div>
         ))}
         {!hist.dividends.length ? (

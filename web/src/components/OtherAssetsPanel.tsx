@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { fmtKrw, fmtPct, retTone } from "@/lib/money";
+import { SignedAmount, SignedPct } from "@/components/SignedValue";
+import { fmtKrw } from "@/lib/money";
 import {
   ASSET_KIND_KO,
   OWNERSHIP_KO,
@@ -22,7 +23,6 @@ export function OtherAssetsPanel({
   const valueOnCost = withCost.reduce((s, r) => s + Number(r.value_krw || 0), 0);
   const totalPnl = costSum > 0 ? valueOnCost - costSum : null;
   const totalPct = costSum > 0 ? (100 * (valueOnCost - costSum)) / costSum : null;
-  const pnlTone = retTone(totalPct);
 
   if (!rows.length) {
     return (
@@ -44,18 +44,13 @@ export function OtherAssetsPanel({
           {fmtKrw(total)}
         </p>
         {totalPnl !== null ? (
-          <div className="mt-2 flex flex-wrap gap-x-3 text-xs font-bold">
+          <div className="mt-2 flex flex-wrap items-baseline gap-x-3 text-xs font-bold">
             <span className="text-muted">매수가 {fmtKrw(costSum)}</span>
-            <span
-              className={
-                pnlTone === "up"
-                  ? "text-up"
-                  : pnlTone === "down"
-                    ? "text-down"
-                    : "text-muted"
-              }
-            >
-              손익 {fmtKrw(totalPnl, { signed: true })} · {fmtPct(totalPct)}
+            <span className="inline-flex items-baseline gap-1">
+              손익
+              <SignedAmount amount={totalPnl} className="text-xs" />
+              <span className="text-muted">·</span>
+              <SignedPct value={totalPct} />
             </span>
           </div>
         ) : null}
@@ -82,7 +77,6 @@ export function OtherAssetsPanel({
           .sort((a, b) => Number(b.value_krw || 0) - Number(a.value_krw || 0))
           .map((r, i) => {
             const ret = otherAssetReturn(r);
-            const tone = retTone(ret.pct);
             return (
               <div
                 key={r.id || `${r.name}-${i}`}
@@ -110,16 +104,10 @@ export function OtherAssetsPanel({
                       {fmtKrw(r.value_krw)}
                     </div>
                     {ret.pct !== null ? (
-                      <div
-                        className={`text-xs font-bold ${
-                          tone === "up"
-                            ? "text-up"
-                            : tone === "down"
-                              ? "text-down"
-                              : "text-muted"
-                        }`}
-                      >
-                        {fmtKrw(ret.pnl, { signed: true })} · {fmtPct(ret.pct)}
+                      <div className="mt-0.5 flex flex-wrap items-baseline justify-end gap-1">
+                        <SignedAmount amount={ret.pnl} className="text-xs" />
+                        <span className="text-xs font-bold text-muted">·</span>
+                        <SignedPct value={ret.pct} />
                       </div>
                     ) : (
                       <div className="text-xs font-bold text-muted">시세</div>

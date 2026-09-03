@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { deleteOtherAsset, updateOtherAsset } from "@/lib/actions/record";
 import { ASSET_KIND_OPTIONS, OWNERSHIP_OPTIONS } from "@/lib/record";
 import { ActionForm, Field, inputClass } from "@/components/record/FormUI";
-import { fmtKrw, fmtPct, retTone } from "@/lib/money";
+import { SignedAmount, SignedPct } from "@/components/SignedValue";
+import { fmtKrw } from "@/lib/money";
 import { ASSET_KIND_KO, OWNERSHIP_KO, otherAssetReturn } from "@/lib/portfolio";
 
 export type EditableOtherAsset = {
@@ -29,7 +30,6 @@ export function OtherAssetEditRow({ asset }: { asset: EditableOtherAsset }) {
   const ownLabel =
     OWNERSHIP_KO[asset.ownership || "joint"] || "공동";
   const ret = otherAssetReturn(asset);
-  const tone = retTone(ret.pct);
 
   return (
     <li className="py-2.5">
@@ -40,7 +40,14 @@ export function OtherAssetEditRow({ asset }: { asset: EditableOtherAsset }) {
           </div>
           <div className="mt-0.5 text-xs font-semibold text-muted">
             {kindLabel} · {ownLabel} · 시세 {fmtKrw(asset.value_krw)}
-            {ret.pct !== null ? ` · ${fmtPct(ret.pct)}` : ""}
+            {ret.pct !== null ? (
+              <>
+                {" · "}
+                <SignedPct value={ret.pct} className="text-xs" />
+              </>
+            ) : (
+              ""
+            )}
           </div>
           {asset.memo ? (
             <p className="mt-1 text-xs text-muted">{asset.memo}</p>
@@ -48,17 +55,7 @@ export function OtherAssetEditRow({ asset }: { asset: EditableOtherAsset }) {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {ret.pct !== null ? (
-            <span
-              className={`text-xs font-bold ${
-                tone === "up"
-                  ? "text-up"
-                  : tone === "down"
-                    ? "text-down"
-                    : "text-muted"
-              }`}
-            >
-              {fmtKrw(ret.pnl, { signed: true })}
-            </span>
+            <SignedAmount amount={ret.pnl} className="text-xs" />
           ) : null}
           <button
             type="button"

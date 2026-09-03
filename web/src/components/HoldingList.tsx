@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { fmtKrw, fmtPct, retTone } from "@/lib/money";
+import { SignedPct } from "@/components/SignedValue";
+import { fmtKrw } from "@/lib/money";
 
 type Item = {
   ticker: string;
@@ -46,7 +47,6 @@ export function HoldingList({
   return (
     <div className="overflow-hidden rounded-2xl border border-line bg-surface">
       {items.map((it) => {
-        const tone = retTone(it.return_pct);
         const valueLabel =
           it.value_krw != null
             ? fmtKrw(it.value_krw)
@@ -77,16 +77,8 @@ export function HoldingList({
               <div className="text-[15px] font-extrabold tracking-tight">
                 {valueLabel}
               </div>
-              <div
-                className={`text-xs font-bold ${
-                  tone === "up"
-                    ? "text-up"
-                    : tone === "down"
-                      ? "text-down"
-                      : "text-muted"
-                }`}
-              >
-                {fmtPct(it.return_pct)}
+              <div className="flex justify-end">
+                <SignedPct value={it.return_pct} className="text-xs" />
               </div>
             </div>
           </>

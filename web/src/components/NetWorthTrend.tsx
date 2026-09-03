@@ -5,6 +5,7 @@ import { daysAgoKst } from "@/lib/dates";
 import { fmtKrw } from "@/lib/money";
 import type { DailySnap } from "@/lib/portfolio";
 import { DualLineChart } from "@/components/Charts";
+import { SignedAmount } from "@/components/SignedValue";
 
 export function NetWorthTrend({
   snaps,
@@ -79,8 +80,8 @@ export function NetWorthTrend({
               {first.date} → {last.date}
             </p>
           </div>
-          <div className="text-right text-sm font-extrabold tracking-tight">
-            {fmtKrw(change, { signed: true })}
+          <div className="text-right">
+            <SignedAmount amount={change} className="text-sm" />
           </div>
         </div>
         <div className="mt-2 flex gap-1">
