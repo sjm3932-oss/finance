@@ -32,11 +32,10 @@ type JobResult = {
   dividends?: number;
 };
 
-function formatResult(
-  accounts: AccountSummary[] | undefined,
-  products?: ProductSummary[],
-  totals?: { trades?: number; dividends?: number }
-): string {
+function formatResult(result: JobResult): string {
+  const accounts = result.accounts;
+  const products = result.products;
+  const totals = { trades: result.trades, dividends: result.dividends };
   const productBits = (products || []).map((p) => {
     const bits = [`${p.code} ${p.label || ""}`.trim()];
     if (Number(p.holdings || 0) > 0) bits.push(`${p.holdings}종목`);
@@ -151,19 +150,8 @@ export function HankookSyncPanel() {
           setAppKey("");
         }
         setMsg("한투에서 잔고·체결·배당을 가져오는 중… 1~2분 걸릴 수 있습니다.");
-        const res = await invokeEdge<{
-          ran?: boolean;
-          accounts?: AccountSummary[];
-          products?: ProductSummary[];
-          trades?: number;
-          dividends?: number;
-        }>("kis-sync", {});
-        setMsg(
-          formatResult(res.accounts, res.products, {
-            trades: res.trades,
-            dividends: res.dividends,
-          })
-        );
+        const res = await invokeEdge<JobResult & { ran?: boolean }>("kis-sync", {});
+        setMsg(formatResult(res));
         router.refresh();
       } catch (e) {
         setMsg(null);
