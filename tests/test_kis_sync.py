@@ -23,6 +23,7 @@ from kis_client import (  # noqa: E402
     map_overseas_holding,
     merge_holdings,
     merge_credentials,
+    merge_estimated_dividends,
     normalize_kr_ticker,
     overseas_cash,
     parse_account_spec,
@@ -380,3 +381,32 @@ def test_merge_credentials_falls_back_to_db():
     assert secret == "d-sec"
     assert env == "real"
     assert accounts == [("64209634", "01"), ("64209634", "21")]
+
+
+def test_merge_estimated_dividends_fills_gaps_only():
+    broker = [
+        {
+            "ticker": "458730",
+            "pay_date": "2026-03-10",
+            "amount": 12.0,
+            "external_id": "kis:div:kr:1:2026-03-10:458730:12.0000",
+        }
+    ]
+    estimated = [
+        {
+            "ticker": "458730",
+            "pay_date": "2026-03-10",
+            "amount": 11.0,
+            "external_id": "kis:div:est:458730:2026-03-10:1.100000",
+        },
+        {
+            "ticker": "458730",
+            "pay_date": "2026-04-10",
+            "amount": 9.0,
+            "external_id": "kis:div:est:458730:2026-04-10:0.900000",
+        },
+    ]
+    merged = merge_estimated_dividends(broker, estimated)
+    assert [r["pay_date"] for r in merged] == ["2026-03-10", "2026-04-10"]
+    assert merged[0]["amount"] == 12.0
+    assert merged[1]["external_id"].startswith("kis:div:est:")

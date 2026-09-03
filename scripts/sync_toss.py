@@ -38,6 +38,7 @@ from toss_client import (  # noqa: E402
     INSTITUTION,
     TOSS_BASE,
     date_windows,
+    estimate_holding_dividends,
     extract_holdings_items,
     extract_orders,
     holdings_by_currency,
@@ -45,9 +46,7 @@ from toss_client import (  # noqa: E402
     local_account_key,
     map_filled_order,
     pagination_cursor,
-    parse_yahoo_dividends,
     to_number,
-    yahoo_chart_symbol,
 )
 
 USER_EMAIL = os.getenv("CLEAR_USER_EMAIL", "sjm3932@gmail.com")
@@ -455,91 +454,6 @@ def existing_dividend_keys(c, account_ids: list[str]) -> set[str]:
     return keys
 
 
-_YAHOO_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-)
-
-
-def _yahoo_chart(symbol: str, *, from_date: str, to_date: str) -> dict[str, Any]:
-    try:
-        start_ts = int(datetime.fromisoformat(from_date).replace(tzinfo=timezone.utc).timestamp())
-        end_ts = int(
-            (datetime.fromisoformat(to_date) + timedelta(days=2))
-            .replace(tzinfo=timezone.utc)
-            .timestamp()
-        )
-    except ValueError:
-        start_ts = int((datetime.now(timezone.utc) - timedelta(days=730)).timestamp())
-        end_ts = int(datetime.now(timezone.utc).timestamp())
-    query = urllib.parse.urlencode(
-        {
-            "interval": "1d",
-            "period1": str(start_ts),
-            "period2": str(end_ts),
-            "events": "div",
-        }
-    )
-    headers = {"User-Agent": _YAHOO_UA, "Accept": "application/json"}
-    last: dict[str, Any] = {}
-    for host in ("query1.finance.yahoo.com", "query2.finance.yahoo.com"):
-        url = f"https://{host}/v8/finance/chart/{urllib.parse.quote(symbol)}?{query}"
-        req = urllib.request.Request(url, headers=headers, method="GET")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                body = resp.read().decode()
-                payload = json.loads(body) if body else {}
-        except Exception:
-            continue
-        last = payload if isinstance(payload, dict) else last
-        events = ((payload.get("chart") or {}).get("result") or [{}])
-        if events and (events[0].get("events") or {}).get("dividends"):
-            return payload
-    return last
-
-
-def fetch_holding_dividends(
-    holdings: list[dict[str, Any]],
-    *,
-    from_date: str,
-    to_date: str,
-) -> list[dict[str, Any]]:
-    """Yahoo (US) / Yahoo .KS (KR) cash dividends × current quantity."""
-    cache: dict[str, dict[str, Any]] = {}
-    out: list[dict[str, Any]] = []
-    for h in holdings:
-        ticker = str(h.get("ticker") or "").strip()
-        qty = to_number(h.get("quantity"))
-        if not ticker or qty <= 0:
-            continue
-        payload = None
-        for symbol in yahoo_chart_symbol(ticker):
-            if symbol not in cache:
-                time.sleep(0.15)
-                cache[symbol] = _yahoo_chart(symbol, from_date=from_date, to_date=to_date)
-            payload = cache[symbol]
-            events = ((payload.get("chart") or {}).get("result") or [{}])
-            if events and (events[0].get("events") or {}).get("dividends"):
-                break
-        if not payload:
-            continue
-        rows = parse_yahoo_dividends(
-            payload,
-            ticker=ticker,
-            quantity=qty,
-            start=from_date,
-            end=to_date,
-        )
-        ccy = str(h.get("currency") or "").upper()
-        name = str(h.get("name") or ticker).strip() or ticker
-        for row in rows:
-            if ccy in {"KRW", "USD"}:
-                row["currency"] = ccy
-            row["name"] = name
-            out.append(row)
-    return out
-
-
 def insert_toss_dividends(
     c,
     *,
@@ -684,8 +598,8 @@ def run_sync(*, user_id: str | None = None) -> dict:
         trade_ccy = {m["currency"] for m in filled}
         all_holdings = (by_ccy.get("KRW") or []) + (by_ccy.get("USD") or [])
         try:
-            raw_divs = fetch_holding_dividends(
-                all_holdings, from_date=from_date, to_date=to_date
+            raw_divs = estimate_holding_dividends(
+                all_holdings, from_date=from_date, to_date=to_date, source="toss"
             )
         except Exception as exc:
             print(f"  dividends skip: {exc}")

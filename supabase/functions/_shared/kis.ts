@@ -1,5 +1,6 @@
 // Korea Investment Open API helpers (inquiry only). Port of scripts/kis_client.py + sync_kis.py.
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { estimateHoldingDividends, mergeEstimatedDividends } from "./yahooDividends.ts";
 
 export const KIS_REAL_BASE = "https://openapi.koreainvestment.com:9443";
 export const KIS_DEMO_BASE = "https://openapivts.koreainvestment.com:29443";
@@ -958,47 +959,6 @@ async function fetchDomesticDividends(ctx: KisCtx, cano: string, prod: string, s
   return mapped;
 }
 
-async function fetchOverseasDividends(ctx: KisCtx, cano: string, prod: string, start: string, end: string): Promise<Dividend[]> {
-  const mapped: Dividend[] = [];
-  const seen = new Set<string>();
-  const exchanges = ["NASD", "NYSE", "AMEX"];
-  for (const [a, b] of dateWindows(start, end, 30)) {
-    for (const exch of exchanges) {
-      await sleep(150);
-      try {
-        const { rows } = await pagedGet(ctx, {
-          path: "/uapi/overseas-stock/v1/trading/inquire-period-trans",
-          trId: "CTOS4001R",
-          query: {
-            CANO: cano,
-            ACNT_PRDT_CD: prod,
-            ERLM_STRT_DT: fmtYyyymmdd(a),
-            ERLM_END_DT: fmtYyyymmdd(b),
-            OVRS_EXCG_CD: exch,
-            PDNO: "",
-            SLL_BUY_DVSN_CD: "00",
-            LOAN_DVSN_CD: "",
-            CTX_AREA_FK100: "",
-            CTX_AREA_NK100: "",
-          },
-          fkKey: "CTX_AREA_FK100",
-          nkKey: "CTX_AREA_NK100",
-          outputKey: "output1",
-        });
-        for (const r of rows) {
-          const m = mapOverseasDividend(r, cano);
-          if (!m || seen.has(m.external_id)) continue;
-          seen.add(m.external_id);
-          mapped.push(m);
-        }
-      } catch {
-        continue;
-      }
-    }
-  }
-  return mapped;
-}
-
 async function ensureAccount(admin: SupabaseClient, userId: string, currency: string, prod: string): Promise<string> {
   const { data: rows } = await admin
     .from("accounts")
@@ -1303,9 +1263,16 @@ export async function runKisSync(
       console.log("domestic dividends skip", cano, prod, e);
     }
     try {
-      prodDivs.push(...tagDivs(await fetchOverseasDividends(ctx, cano, prod, start, end), prod));
+      const estimated = await estimateHoldingDividends(krHold, {
+        fromDate: start,
+        toDate: end,
+        source: "kis",
+      });
+      const merged = mergeEstimatedDividends(prodDivs, tagDivs(estimated, prod));
+      prodDivs.length = 0;
+      prodDivs.push(...merged);
     } catch (e) {
-      console.log("overseas dividends skip", cano, prod, e);
+      console.log("yahoo dividend estimate skip", cano, prod, e);
     }
     fills.push(...prodFills);
     dividends.push(...prodDivs);

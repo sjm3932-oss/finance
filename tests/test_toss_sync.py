@@ -309,6 +309,17 @@ def test_parse_yahoo_dividends_scales_by_holding_quantity():
     assert rows[0]["external_id"].startswith("toss:div:SCHD:2024-07-01:")
     assert yahoo_chart_symbol("005930") == ["005930.KS", "005930.KQ"]
     assert yahoo_chart_symbol("SCHD") == ["SCHD"]
+    kis_rows = parse_yahoo_dividends(
+        payload,
+        ticker="458730",
+        quantity=10,
+        start="2024-01-01",
+        end="2026-09-01",
+        source="kis",
+    )
+    assert kis_rows[0]["external_id"].startswith("kis:div:est:458730:2024-07-01:")
+    assert kis_rows[0]["memo"] == "한투 배당(추정)"
+    assert kis_rows[0]["currency"] == "KRW"
 
 
 def test_closed_not_supported_message():

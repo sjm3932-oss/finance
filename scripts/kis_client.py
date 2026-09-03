@@ -524,6 +524,21 @@ def map_overseas_dividend(item: dict[str, Any], *, cano: str) -> dict[str, Any] 
     }
 
 
+def merge_estimated_dividends(
+    broker: list[dict[str, Any]], estimated: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Keep broker-paid rows; fill gaps with Yahoo estimates on ticker+pay_date."""
+    have = {(str(row.get("ticker") or ""), str(row.get("pay_date") or "")) for row in broker}
+    out = list(broker)
+    for row in estimated:
+        key = (str(row.get("ticker") or ""), str(row.get("pay_date") or ""))
+        if not key[0] or not key[1] or key in have:
+            continue
+        out.append(row)
+        have.add(key)
+    return out
+
+
 def date_windows(start: date, end: date, days: int) -> list[tuple[date, date]]:
     if days < 1:
         days = 1

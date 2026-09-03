@@ -174,7 +174,8 @@ export function HankookSyncPanel() {
           KIS Developers
         </a>
         에서 받은 앱키·앱시크릿을 아래에 붙여 넣고 저장한 뒤, 지금 동기화를
-        누르세요. 주문은 하지 않습니다.
+        누르세요. 주문은 하지 않습니다. 국내 상장 ETF 분배금은 한투 권리내역이
+        없으면 Yahoo 주당 분배금 × 보유수량으로 추정합니다.
       </p>
       <p className="mt-2 text-xs text-muted">
         계좌는 <span className="font-mono">8자리-상품코드</span> 입니다. 위탁 01,

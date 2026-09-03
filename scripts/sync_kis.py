@@ -57,14 +57,15 @@ from kis_client import (  # noqa: E402
     map_domestic_dividend,
     map_domestic_fill,
     map_domestic_holding,
-    map_overseas_dividend,
     map_overseas_fill,
     map_overseas_holding,
     merge_credentials,
+    merge_estimated_dividends,
     output_rows,
     overseas_cash,
     to_number,
 )
+from toss_client import estimate_holding_dividends  # noqa: E402
 
 USER_EMAIL = os.getenv("CLEAR_USER_EMAIL", "sjm3932@gmail.com")
 TRADE_LOOKBACK_DAYS = max(1, int(os.getenv("KIS_TRADE_LOOKBACK_DAYS", "365")))
@@ -875,49 +876,6 @@ def fetch_domestic_dividends(ctx: dict, cano: str, prod: str, start, end) -> lis
     return mapped
 
 
-def fetch_overseas_dividends(ctx: dict, cano: str, prod: str, start, end) -> list[dict]:
-    mapped: list[dict] = []
-    seen: set[str] = set()
-    exchanges = ("NASD", "NYSE", "AMEX")
-    for a, b in date_windows(start, end, 30):
-        for exch in exchanges:
-            time.sleep(0.25)
-            try:
-                rows, _s = paged_get(
-                    path="/uapi/overseas-stock/v1/trading/inquire-period-trans",
-                    tr_id="CTOS4001R",
-                    query={
-                        "CANO": cano,
-                        "ACNT_PRDT_CD": prod,
-                        "ERLM_STRT_DT": fmt_yyyymmdd(a),
-                        "ERLM_END_DT": fmt_yyyymmdd(b),
-                        "OVRS_EXCG_CD": exch,
-                        "PDNO": "",
-                        "SLL_BUY_DVSN_CD": "00",
-                        "LOAN_DVSN_CD": "",
-                        "CTX_AREA_FK100": "",
-                        "CTX_AREA_NK100": "",
-                    },
-                    base=ctx["base"],
-                    appkey=ctx["appkey"],
-                    appsecret=ctx["appsecret"],
-                    token=ctx["token"],
-                    fk_key="CTX_AREA_FK100",
-                    nk_key="CTX_AREA_NK100",
-                    output_key="output1",
-                )
-            except Exception as exc:
-                print(f"  overseas trans skip {a}:{b} {exch}: {exc}")
-                continue
-            for r in rows:
-                m = map_overseas_dividend(r, cano=cano)
-                if not m or m["external_id"] in seen:
-                    continue
-                seen.add(m["external_id"])
-                mapped.append(m)
-    return mapped
-
-
 def _kis_settings_row() -> dict | None:
     try:
         rows = (
@@ -1073,9 +1031,15 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
         except Exception as exc:
             print(f"  domestic dividends skip: {exc}")
         try:
-            prod_divs.extend(tag_rows(fetch_overseas_dividends(ctx, cano, prod, start, end), prod))
+            estimated = estimate_holding_dividends(
+                kr_hold,
+                from_date=start.isoformat(),
+                to_date=end.isoformat(),
+                source="kis",
+            )
+            prod_divs = merge_estimated_dividends(prod_divs, tag_rows(estimated, prod))
         except Exception as exc:
-            print(f"  overseas dividends skip: {exc}")
+            print(f"  yahoo dividend estimate skip: {exc}")
         fills.extend(prod_fills)
         dividends.extend(prod_divs)
 

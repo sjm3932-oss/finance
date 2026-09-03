@@ -9,6 +9,10 @@ Base: https://openapi.tossinvest.com
 
 from __future__ import annotations
 
+import json
+import time
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -260,8 +264,9 @@ def parse_yahoo_dividends(
     quantity: float,
     start: str,
     end: str,
+    source: str = "toss",
 ) -> list[dict[str, Any]]:
-    """Map Yahoo chart events.dividends into Toss dividend rows (qty × DPS)."""
+    """Map Yahoo chart events.dividends into qty × DPS estimate rows."""
     if quantity <= 0:
         return []
     result = ((payload or {}).get("chart") or {}).get("result") or []
@@ -269,6 +274,12 @@ def parse_yahoo_dividends(
         return []
     events = (result[0].get("events") or {}).get("dividends") or {}
     items = events.values() if isinstance(events, dict) else events
+    if source == "kis":
+        id_prefix = "kis:div:est"
+        memo = "한투 배당(추정)"
+    else:
+        id_prefix = "toss:div"
+        memo = "토스 배당(추정)"
     out: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, dict):
@@ -288,12 +299,12 @@ def parse_yahoo_dividends(
             continue
         out.append(
             {
-                "external_id": f"toss:div:{ticker}:{pay_date}:{dps:.6f}",
+                "external_id": f"{id_prefix}:{ticker}:{pay_date}:{dps:.6f}",
                 "ticker": ticker,
                 "pay_date": pay_date,
                 "amount": amount,
                 "currency": "USD" if not str(ticker).isdigit() else "KRW",
-                "memo": "토스 배당(추정)",
+                "memo": memo,
             }
         )
     return out
@@ -304,6 +315,94 @@ def yahoo_chart_symbol(ticker: str) -> list[str]:
     if t.isdigit() and len(t) == 6:
         return [f"{t}.KS", f"{t}.KQ"]
     return [t]
+
+
+_YAHOO_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
+_SKIP_YAHOO_TICKERS = {"ISA-FUND"}
+
+
+def fetch_yahoo_chart(symbol: str, *, from_date: str, to_date: str) -> dict[str, Any]:
+    try:
+        start_ts = int(datetime.fromisoformat(from_date).replace(tzinfo=timezone.utc).timestamp())
+        end_ts = int(
+            (datetime.fromisoformat(to_date) + timedelta(days=2))
+            .replace(tzinfo=timezone.utc)
+            .timestamp()
+        )
+    except ValueError:
+        start_ts = int((datetime.now(timezone.utc) - timedelta(days=730)).timestamp())
+        end_ts = int(datetime.now(timezone.utc).timestamp())
+    query = urllib.parse.urlencode(
+        {
+            "interval": "1d",
+            "period1": str(start_ts),
+            "period2": str(end_ts),
+            "events": "div",
+        }
+    )
+    headers = {"User-Agent": _YAHOO_UA, "Accept": "application/json"}
+    last: dict[str, Any] = {}
+    for host in ("query1.finance.yahoo.com", "query2.finance.yahoo.com"):
+        url = f"https://{host}/v8/finance/chart/{urllib.parse.quote(symbol)}?{query}"
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                body = resp.read().decode()
+                payload = json.loads(body) if body else {}
+        except Exception:
+            continue
+        last = payload if isinstance(payload, dict) else last
+        events = ((payload.get("chart") or {}).get("result") or [{}])
+        if events and (events[0].get("events") or {}).get("dividends"):
+            return payload
+    return last
+
+
+def estimate_holding_dividends(
+    holdings: list[dict[str, Any]],
+    *,
+    from_date: str,
+    to_date: str,
+    source: str = "toss",
+) -> list[dict[str, Any]]:
+    """Yahoo cash dividends × current quantity. KR tickers use .KS then .KQ."""
+    cache: dict[str, dict[str, Any]] = {}
+    out: list[dict[str, Any]] = []
+    for h in holdings:
+        ticker = str(h.get("ticker") or "").strip()
+        qty = to_number(h.get("quantity"))
+        if not ticker or qty <= 0 or ticker.upper() in _SKIP_YAHOO_TICKERS:
+            continue
+        payload: dict[str, Any] | None = None
+        for symbol in yahoo_chart_symbol(ticker):
+            if symbol not in cache:
+                time.sleep(0.15)
+                cache[symbol] = fetch_yahoo_chart(symbol, from_date=from_date, to_date=to_date)
+            payload = cache[symbol]
+            events = ((payload.get("chart") or {}).get("result") or [{}])
+            if events and (events[0].get("events") or {}).get("dividends"):
+                break
+        if not payload:
+            continue
+        rows = parse_yahoo_dividends(
+            payload,
+            ticker=ticker,
+            quantity=qty,
+            start=from_date,
+            end=to_date,
+            source=source,
+        )
+        ccy = str(h.get("currency") or "").upper()
+        name = str(h.get("name") or ticker).strip() or ticker
+        for row in rows:
+            if ccy in {"KRW", "USD"}:
+                row["currency"] = ccy
+            row["name"] = name
+            out.append(row)
+    return out
 
 
 def humanize_toss_error(status: int, payload: Any) -> str:
