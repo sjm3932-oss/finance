@@ -1,36 +1,5 @@
 import { fmtKrw } from "@/lib/money";
-
-export function FlowAmount({
-  amount,
-  className = "text-sm",
-  signedNet = false,
-}: {
-  amount: number;
-  className?: string;
-  /** When true, 0 is unlabeled; otherwise treat >= 0 as inflow. */
-  signedNet?: boolean;
-}) {
-  const n = Number(amount) || 0;
-  if (signedNet && n === 0) {
-    return (
-      <span className={`font-extrabold tracking-tight tabular-nums text-ink ${className}`}>
-        {fmtKrw(0)}
-      </span>
-    );
-  }
-  const inflow = n >= 0;
-  return (
-    <span
-      className={`inline-flex items-baseline gap-0.5 font-extrabold tracking-tight tabular-nums ${
-        inflow ? "text-up" : "text-down"
-      } ${className}`}
-      aria-label={`${inflow ? "유입" : "유출"} ${fmtKrw(Math.abs(n))}`}
-    >
-      <span aria-hidden>{inflow ? "↑" : "↓"}</span>
-      {fmtKrw(Math.abs(n))}
-    </span>
-  );
-}
+import { FlowAmount, SignedAmount } from "@/components/SignedValue";
 
 export function SimpleBarChart({
   title,
@@ -59,18 +28,22 @@ export function SimpleBarChart({
       <h2 className="text-base font-extrabold tracking-tight">{title}</h2>
       {subtitle ? <p className="mt-0.5 text-xs text-muted">{subtitle}</p> : null}
       <div className="mt-3 space-y-2">
-        {bars.map((b) => {
+        {bars.map((b, i) => {
           const pct = (Math.abs(b.value) / max) * 100;
           const positive = b.value >= 0;
           const color =
             b.color || (positive ? "var(--up)" : "var(--down)");
           return (
-            <div key={b.label}>
+            <div key={`${b.label}-${i}`}>
               <div className="mb-1 flex items-center justify-between text-xs">
                 <span className="font-bold text-muted">{b.label}</span>
-                <span className="font-extrabold tracking-tight">
-                  {signed ? fmtKrw(b.value, { signed: true }) : fmtKrw(b.value)}
-                </span>
+                {signed ? (
+                  <SignedAmount amount={b.value} className="text-xs" />
+                ) : (
+                  <span className="font-extrabold tracking-tight">
+                    {fmtKrw(b.value)}
+                  </span>
+                )}
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-canvas">
                 <div

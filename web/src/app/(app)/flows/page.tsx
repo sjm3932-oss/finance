@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { PortfolioFilters } from "@/components/PortfolioFilters";
-import { FlowAmount, MonthlyFlowChart } from "@/components/Charts";
+import { MonthlyFlowChart } from "@/components/Charts";
+import { FlowAmount } from "@/components/SignedValue";
 import { loadPortfolioSnapshot } from "@/lib/data";
 import { loadAssetFlows } from "@/lib/data-insights";
 import { accountIdsForInstitution } from "@/lib/portfolio";

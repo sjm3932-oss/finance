@@ -14,7 +14,7 @@ import {
   loadBenchmarkSeries,
   loadRealizedRows,
 } from "@/lib/data-insights";
-import { fmtKrw } from "@/lib/money";
+import { SignedAmount } from "@/components/SignedValue";
 import { accountIdsForInstitution, filterQuery } from "@/lib/portfolio";
 
 export const dynamic = "force-dynamic";
@@ -81,14 +81,14 @@ export default async function HomePage({
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-2xl border border-line bg-surface px-3 py-3 shadow-soft">
           <div className="text-[11px] font-semibold text-muted">미실현 손익</div>
-          <div className="mt-1 text-sm font-extrabold tracking-tight">
-            {fmtKrw(unrealized, { signed: true })}
+          <div className="mt-1">
+            <SignedAmount amount={unrealized} className="text-sm" />
           </div>
         </div>
         <div className="rounded-2xl border border-line bg-surface px-3 py-3 shadow-soft">
           <div className="text-[11px] font-semibold text-muted">실현 손익 YTD</div>
-          <div className="mt-1 text-sm font-extrabold tracking-tight">
-            {fmtKrw(ytdRealized, { signed: true })}
+          <div className="mt-1">
+            <SignedAmount amount={ytdRealized} className="text-sm" />
           </div>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { PortfolioFilters } from "@/components/PortfolioFilters";
 import { SimpleBarChart } from "@/components/Charts";
+import { SignedAmount } from "@/components/SignedValue";
 import { loadPortfolioSnapshot } from "@/lib/data";
 import {
   loadRealizedRows,
@@ -9,7 +10,6 @@ import {
 } from "@/lib/data-insights";
 import { accountIdsForInstitution } from "@/lib/portfolio";
 import { aggregateByMonth, PNL_KIND_KO } from "@/lib/insights";
-import { fmtKrw } from "@/lib/money";
 
 export const dynamic = "force-dynamic";
 
@@ -99,16 +99,14 @@ export default async function PnlPage({
         <>
           <div className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
             <div className="text-xs font-semibold text-muted">기간 실현손익</div>
-            <div className="mt-1 text-2xl font-extrabold tracking-tight">
-              {fmtKrw(total, { signed: true })}
+            <div className="mt-1">
+              <SignedAmount amount={total} className="text-2xl" />
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {byKind.map((k) => (
                 <div key={k.label}>
                   <div className="text-[11px] text-muted">{k.label}</div>
-                  <div className="text-sm font-extrabold">
-                    {fmtKrw(k.value, { signed: true })}
-                  </div>
+                  <SignedAmount amount={k.value} className="text-sm" />
                 </div>
               ))}
             </div>
@@ -132,8 +130,8 @@ export default async function PnlPage({
                     {r.event_date} · {r.pnl_kind_ko} · {r.detail}
                   </div>
                 </div>
-                <div className="shrink-0 text-sm font-extrabold">
-                  {fmtKrw(r.pnl_krw, { signed: true })}
+                <div className="shrink-0">
+                  <SignedAmount amount={r.pnl_krw} className="text-sm" />
                 </div>
               </div>
             ))}
@@ -160,7 +158,9 @@ export default async function PnlPage({
                 className="rounded-2xl border border-line bg-surface px-3 py-3 shadow-soft"
               >
                 <div className="text-[11px] font-semibold text-muted">{label}</div>
-                <div className="mt-1 text-sm font-extrabold">{fmtKrw(v)}</div>
+                <div className="mt-1">
+                  <SignedAmount amount={v} className="text-sm" />
+                </div>
               </div>
             ))}
           </div>
@@ -170,6 +170,7 @@ export default async function PnlPage({
               label: m.month.slice(5),
               value: m.value,
             }))}
+            signed
           />
           <section className="overflow-hidden rounded-2xl border border-line bg-surface">
             <div className="border-b border-line px-4 py-3 text-sm font-extrabold">
@@ -188,12 +189,12 @@ export default async function PnlPage({
                     {String(r.pay_date).slice(0, 10)} · {r.ticker}
                   </div>
                 </div>
-                <div className="text-sm font-extrabold">
-                  {r.currency === "USD"
-                    ? `$${Number(r.amount).toLocaleString("en-US", {
-                        maximumFractionDigits: 2,
-                      })}`
-                    : fmtKrw(r.amount)}
+                <div className="shrink-0">
+                  <SignedAmount
+                    amount={Number(r.amount)}
+                    currency={r.currency}
+                    className="text-sm"
+                  />
                 </div>
               </div>
             ))}

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { buildTreemapLeaves, returnColor, type TreemapLeaf } from "@/lib/insights";
 import type { LiveHolding } from "@/lib/portfolio";
-import { fmtKrw, fmtPct } from "@/lib/money";
+import { fmtKrw, fmtPctArrow } from "@/lib/money";
 
 function layoutStrip(
   leaves: TreemapLeaf[],
@@ -118,7 +118,7 @@ export function AllocationTreemap({ live }: { live: LiveHolding[] }) {
                   fontWeight="600"
                   opacity={0.9}
                 >
-                  {fmtPct(n.return_pct)}
+                  {fmtPctArrow(n.return_pct)}
                 </text>
               ) : null}
             </g>
