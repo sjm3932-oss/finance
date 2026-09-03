@@ -779,7 +779,7 @@ def fetch_domestic_fills(ctx: dict, cano: str, prod: str, start, end) -> list[di
                     "INQR_DVSN_1": "",
                     "CTX_AREA_FK100": "",
                     "CTX_AREA_NK100": "",
-                    "EXCG_ID_DVSN_CD": "KRX",
+                    "EXCG_ID_DVSN_CD": "ALL",
                 },
                 base=ctx["base"],
                 appkey=ctx["appkey"],
@@ -830,73 +830,91 @@ def fetch_overseas_fills(ctx: dict, cano: str, prod: str, start, end) -> list[di
 
 def fetch_domestic_dividends(ctx: dict, cano: str, prod: str, start, end) -> list[dict]:
     mapped: list[dict] = []
+    seen: set[str] = set()
+    right_codes = ("", "03")
     for a, b in date_windows(start, end, 90):
-        time.sleep(0.25)
-        try:
-            rows, _s = paged_get(
-                path="/uapi/domestic-stock/v1/trading/period-rights",
-                tr_id="CTRGA011R",
-                query={
-                    "INQR_DVSN": "03",
-                    "CANO": cano,
-                    "ACNT_PRDT_CD": prod,
-                    "INQR_STRT_DT": fmt_yyyymmdd(a),
-                    "INQR_END_DT": fmt_yyyymmdd(b),
-                    "CUST_RNCNO25": "",
-                    "HMID": "",
-                    "RGHT_TYPE_CD": "",
-                    "PDNO": "",
-                    "PRDT_TYPE_CD": "",
-                    "CTX_AREA_NK100": "",
-                    "CTX_AREA_FK100": "",
-                },
-                base=ctx["base"],
-                appkey=ctx["appkey"],
-                appsecret=ctx["appsecret"],
-                token=ctx["token"],
-                fk_key="CTX_AREA_FK100",
-                nk_key="CTX_AREA_NK100",
-                output_key="output",
-            )
-        except Exception as exc:
-            print(f"  domestic rights skip {a}:{b}: {exc}")
-            continue
-        mapped.extend(m for r in rows if (m := map_domestic_dividend(r, cano=cano)))
+        for rght in right_codes:
+            time.sleep(0.25)
+            try:
+                rows, _s = paged_get(
+                    path="/uapi/domestic-stock/v1/trading/period-rights",
+                    tr_id="CTRGA011R",
+                    query={
+                        "INQR_DVSN": "03",
+                        "CANO": cano,
+                        "ACNT_PRDT_CD": prod,
+                        "INQR_STRT_DT": fmt_yyyymmdd(a),
+                        "INQR_END_DT": fmt_yyyymmdd(b),
+                        "CUST_RNCNO25": "",
+                        "HMID": "",
+                        "RGHT_TYPE_CD": rght,
+                        "PDNO": "",
+                        "PRDT_TYPE_CD": "",
+                        "CTX_AREA_NK100": "",
+                        "CTX_AREA_FK100": "",
+                    },
+                    base=ctx["base"],
+                    appkey=ctx["appkey"],
+                    appsecret=ctx["appsecret"],
+                    token=ctx["token"],
+                    fk_key="CTX_AREA_FK100",
+                    nk_key="CTX_AREA_NK100",
+                    output_key="output",
+                )
+            except Exception as exc:
+                print(f"  domestic rights skip {a}:{b} rght={rght or '*'}: {exc}")
+                continue
+            for r in rows:
+                m = map_domestic_dividend(r, cano=cano)
+                if not m or m["external_id"] in seen:
+                    continue
+                seen.add(m["external_id"])
+                mapped.append(m)
+            if mapped and not rght:
+                break
     return mapped
 
 
 def fetch_overseas_dividends(ctx: dict, cano: str, prod: str, start, end) -> list[dict]:
     mapped: list[dict] = []
+    seen: set[str] = set()
+    exchanges = ("NASD", "NYSE", "AMEX")
     for a, b in date_windows(start, end, 30):
-        time.sleep(0.25)
-        try:
-            rows, _s = paged_get(
-                path="/uapi/overseas-stock/v1/trading/inquire-period-trans",
-                tr_id="CTOS4001R",
-                query={
-                    "CANO": cano,
-                    "ACNT_PRDT_CD": prod,
-                    "ERLM_STRT_DT": fmt_yyyymmdd(a),
-                    "ERLM_END_DT": fmt_yyyymmdd(b),
-                    "OVRS_EXCG_CD": "NASD",
-                    "PDNO": "",
-                    "SLL_BUY_DVSN_CD": "00",
-                    "LOAN_DVSN_CD": "",
-                    "CTX_AREA_FK100": "",
-                    "CTX_AREA_NK100": "",
-                },
-                base=ctx["base"],
-                appkey=ctx["appkey"],
-                appsecret=ctx["appsecret"],
-                token=ctx["token"],
-                fk_key="CTX_AREA_FK100",
-                nk_key="CTX_AREA_NK100",
-                output_key="output1",
-            )
-        except Exception as exc:
-            print(f"  overseas trans skip {a}:{b}: {exc}")
-            continue
-        mapped.extend(m for r in rows if (m := map_overseas_dividend(r, cano=cano)))
+        for exch in exchanges:
+            time.sleep(0.25)
+            try:
+                rows, _s = paged_get(
+                    path="/uapi/overseas-stock/v1/trading/inquire-period-trans",
+                    tr_id="CTOS4001R",
+                    query={
+                        "CANO": cano,
+                        "ACNT_PRDT_CD": prod,
+                        "ERLM_STRT_DT": fmt_yyyymmdd(a),
+                        "ERLM_END_DT": fmt_yyyymmdd(b),
+                        "OVRS_EXCG_CD": exch,
+                        "PDNO": "",
+                        "SLL_BUY_DVSN_CD": "00",
+                        "LOAN_DVSN_CD": "",
+                        "CTX_AREA_FK100": "",
+                        "CTX_AREA_NK100": "",
+                    },
+                    base=ctx["base"],
+                    appkey=ctx["appkey"],
+                    appsecret=ctx["appsecret"],
+                    token=ctx["token"],
+                    fk_key="CTX_AREA_FK100",
+                    nk_key="CTX_AREA_NK100",
+                    output_key="output1",
+                )
+            except Exception as exc:
+                print(f"  overseas trans skip {a}:{b} {exch}: {exc}")
+                continue
+            for r in rows:
+                m = map_overseas_dividend(r, cano=cano)
+                if not m or m["external_id"] in seen:
+                    continue
+                seen.add(m["external_id"])
+                mapped.append(m)
     return mapped
 
 
@@ -1087,14 +1105,16 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
             }
         )
 
-    insert_trades(c, user_id=uid, account_ids=account_ids, rows=fills) if account_ids else {}
-    insert_dividends(c, user_id=uid, account_ids=account_ids, rows=dividends) if account_ids else {}
+    trades_by = insert_trades(c, user_id=uid, account_ids=account_ids, rows=fills) if account_ids else {}
+    divs_by = insert_dividends(c, user_id=uid, account_ids=account_ids, rows=dividends) if account_ids else {}
     if isa_seen:
         try:
             delete_isa_other_asset(c, uid)
         except Exception as exc:
             print(f"  isa other_asset skip: {exc}")
 
+    trade_n = sum(trades_by.values())
+    div_n = sum(divs_by.values())
     for p in products:
         summary.append(
             {
@@ -1110,13 +1130,15 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
             + (f" ({p['note']})" if p.get("note") else "")
         )
 
-    print(f"Done. Synced {INSTITUTION}.")
+    print(f"Done. Synced {INSTITUTION}. 체결 {trade_n}건, 배당 {div_n}건")
     return {
         "ok": True,
         "institution": INSTITUTION,
         "accounts": summary,
         "products": products,
         "egress_ip": ip,
+        "trades": trade_n,
+        "dividends": div_n,
     }
 
 

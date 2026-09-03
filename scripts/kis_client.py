@@ -20,7 +20,16 @@ ACCOUNT_TYPE = "brokerage"
 KST = ZoneInfo("Asia/Seoul")
 
 DIVIDEND_NAME_HINTS = ("배당", "분배")
-DIVIDEND_RIGHT_CODES = {"03", "04", "17", "18"}  # 현금배당 / 주식배당 / ETF분배 등
+DIVIDEND_RIGHT_CODES = {
+    "03",
+    "04",
+    "17",
+    "18",
+    "74",
+    "75",
+    "3",
+    "4",
+}  # 현금배당 / 주식배당 / ETF분배 / 배당옵션 / 특별배당
 
 
 def kis_base(env: str) -> str:
@@ -384,8 +393,9 @@ def map_overseas_fill(item: dict[str, Any], *, cano: str) -> dict[str, Any] | No
 
 
 def _looks_like_dividend(code: Any, *names: Any) -> bool:
-    raw = str(code or "").strip()
-    if raw in DIVIDEND_RIGHT_CODES:
+    raw = str(code or "").strip().lstrip("0") or str(code or "").strip()
+    padded = str(code or "").strip().zfill(2) if str(code or "").strip().isdigit() else str(code or "").strip()
+    if padded in DIVIDEND_RIGHT_CODES or raw in DIVIDEND_RIGHT_CODES:
         return True
     blob = " ".join(str(n or "") for n in names)
     return any(hint in blob for hint in DIVIDEND_NAME_HINTS)
@@ -393,14 +403,23 @@ def _looks_like_dividend(code: Any, *names: Any) -> bool:
 
 def map_domestic_dividend(item: dict[str, Any], *, cano: str) -> dict[str, Any] | None:
     name_bits = (
-        pick(item, "rght_type_name", "rght_type_cd_name"),
-        pick(item, "prdt_name"),
+        pick(item, "rght_type_name", "rght_type_cd_name", "trad_dvsn_name"),
         pick(item, "rght_type_cd"),
     )
     if not _looks_like_dividend(pick(item, "rght_type_cd"), *name_bits):
         return None
     amount = to_number(
-        pick(item, "last_alct_amt", "alct_amt", "stck_dvdn_unpr", "rfus_amt")
+        pick(
+            item,
+            "last_alct_amt",
+            "alct_amt",
+            "cash_alct_amt",
+            "csnc_amt",
+            "tot_alct_amt",
+            "dvdn_amt",
+            "rfus_amt",
+            "stck_dvdn_unpr",
+        )
     )
     tax = to_number(pick(item, "intt_tax", "tax_amt", "stlm_tax"))
     if amount > 0 and tax > 0 and tax < amount:
@@ -411,7 +430,17 @@ def map_domestic_dividend(item: dict[str, Any], *, cano: str) -> dict[str, Any] 
     if not ticker:
         return None
     pay_date = yyyymmdd(
-        pick(item, "pay_dt", "alct_dt", "rght_offr_end_dt", "bass_dt", "stnd_dt")
+        pick(
+            item,
+            "pay_dt",
+            "alct_dt",
+            "cash_alct_dt",
+            "dvdn_pay_dt",
+            "rght_offr_end_dt",
+            "acpl_bass_dt",
+            "bass_dt",
+            "stnd_dt",
+        )
     )
     if not pay_date:
         return None
@@ -428,29 +457,54 @@ def map_domestic_dividend(item: dict[str, Any], *, cano: str) -> dict[str, Any] 
 
 def map_overseas_dividend(item: dict[str, Any], *, cano: str) -> dict[str, Any] | None:
     name_bits = (
-        pick(item, "sll_buy_dvsn_name", "trad_dvsn_name", "tr_type_name", "dvsn_name"),
-        pick(item, "prdt_name", "ovrs_item_name"),
+        pick(
+            item,
+            "sll_buy_dvsn_name",
+            "trad_dvsn_name",
+            "tr_type_name",
+            "tr_tp_name",
+            "dvsn_name",
+            "rght_type_name",
+        ),
+        pick(item, "sll_buy_dvsn_cd", "tr_type_cd", "tr_tp_cd", "rght_type_cd"),
     )
-    if not _looks_like_dividend(pick(item, "sll_buy_dvsn_cd", "tr_type_cd"), *name_bits):
+    if not _looks_like_dividend(
+        pick(item, "sll_buy_dvsn_cd", "tr_type_cd", "tr_tp_cd", "rght_type_cd"), *name_bits
+    ):
         return None
     amount = abs(
         to_number(
             pick(
                 item,
+                "trst_amt",
+                "frcr_tr_amt",
                 "tr_amt",
                 "ccld_amt",
                 "ft_ccld_amt3",
-                "frcr_tr_amt",
                 "alct_amt",
+                "alct_frcr_unpr",
+                "excc_amt",
+                "frcr_excc_amt",
             )
         )
     )
     if amount <= 0:
         return None
-    ticker = normalize_us_ticker(pick(item, "pdno", "ovrs_pdno"))
+    ticker = normalize_us_ticker(pick(item, "pdno", "ovrs_pdno", "ovrs_item_cd"))
     if not ticker:
         return None
-    pay_date = yyyymmdd(pick(item, "trad_dt", "erlm_dt", "ccld_dt", "stlm_dt"))
+    pay_date = yyyymmdd(
+        pick(
+            item,
+            "trad_dt",
+            "erlm_dt",
+            "ccld_dt",
+            "stlm_dt",
+            "pay_dt",
+            "bass_dt",
+            "acpl_bass_dt",
+        )
+    )
     if not pay_date:
         return None
     currency = str(pick(item, "tr_crcy_cd", "crcy_cd") or "USD").upper()
@@ -463,7 +517,9 @@ def map_overseas_dividend(item: dict[str, Any], *, cano: str) -> dict[str, Any] 
         "pay_date": pay_date,
         "amount": amount,
         "currency": currency,
-        "memo": str(pick(item, "sll_buy_dvsn_name", "trad_dvsn_name") or "한투 배당").strip()
+        "memo": str(
+            pick(item, "sll_buy_dvsn_name", "trad_dvsn_name", "tr_tp_name", "rght_type_name") or "한투 배당"
+        ).strip()
         or "한투 배당",
     }
 

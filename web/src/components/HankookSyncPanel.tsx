@@ -13,6 +13,7 @@ type AccountSummary = {
   cash: number;
   trades?: number;
   dividends?: number;
+  label?: string;
 };
 
 type ProductSummary = {
@@ -24,9 +25,17 @@ type ProductSummary = {
   note?: string;
 };
 
+type JobResult = {
+  accounts?: AccountSummary[];
+  products?: ProductSummary[];
+  trades?: number;
+  dividends?: number;
+};
+
 function formatResult(
   accounts: AccountSummary[] | undefined,
-  products?: ProductSummary[]
+  products?: ProductSummary[],
+  totals?: { trades?: number; dividends?: number }
 ): string {
   const productBits = (products || []).map((p) => {
     const bits = [`${p.code} ${p.label || ""}`.trim()];
@@ -35,20 +44,24 @@ function formatResult(
     else if (p.note) bits.push(p.note);
     return bits.join(" ");
   });
+  const accountTrades = (accounts || []).reduce((s, a) => s + Number(a.trades || 0), 0);
+  const accountDivs = (accounts || []).reduce((s, a) => s + Number(a.dividends || 0), 0);
+  const trades = Number(totals?.trades || 0) || accountTrades;
+  const divs = Number(totals?.dividends || 0) || accountDivs;
   const parts = (accounts || []).map((a) => {
-    const trades = Number(a.trades || 0);
-    const divs = Number(a.dividends || 0);
-    const extra = [
-      trades ? `체결 ${trades}건` : "",
-      divs ? `배당 ${divs}건` : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    return `${a.currency} ${a.holdings}종목 · 현금 ${a.cash}${extra ? ` · ${extra}` : ""}`;
+    return `${a.currency}${a.label ? ` ${a.label}` : ""} ${a.holdings}종목 · 현금 ${a.cash}`;
   });
+  const extra = [
+    trades ? `체결 ${trades}건` : "",
+    divs ? `배당 ${divs}건` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const merged = parts.length
-    ? `동기화 완료. ${parts.join(" / ")}`
-    : "한투 계좌는 연결됐지만 보유 종목이 없습니다.";
+    ? `동기화 완료. ${parts.join(" / ")}${extra ? ` · ${extra}` : ""}`
+    : extra
+      ? `동기화 완료. ${extra}`
+      : "한투 계좌는 연결됐지만 보유 종목이 없습니다.";
   return productBits.length ? `${merged}. ${productBits.join(" · ")}` : merged;
 }
 
@@ -142,8 +155,15 @@ export function HankookSyncPanel() {
           ran?: boolean;
           accounts?: AccountSummary[];
           products?: ProductSummary[];
+          trades?: number;
+          dividends?: number;
         }>("kis-sync", {});
-        setMsg(formatResult(res.accounts, res.products));
+        setMsg(
+          formatResult(res.accounts, res.products, {
+            trades: res.trades,
+            dividends: res.dividends,
+          })
+        );
         router.refresh();
       } catch (e) {
         setMsg(null);

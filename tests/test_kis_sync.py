@@ -261,6 +261,56 @@ def test_map_overseas_dividend_by_name():
     )
 
 
+def test_map_overseas_dividend_falls_back_to_base_date_and_trust_amount():
+    row = map_overseas_dividend(
+        {
+            "ovrs_pdno": "JEPI",
+            "tr_crcy_cd": "USD",
+            "trst_amt": "8.21",
+            "bass_dt": "20260315",
+            "tr_tp_name": "배당금입금",
+        },
+        cano="12345678",
+    )
+    assert row is not None
+    assert row["ticker"] == "JEPI"
+    assert row["pay_date"] == "2026-03-15"
+    assert row["amount"] == 8.21
+
+
+def test_map_overseas_dividend_ignores_etf_name_false_positive():
+    assert (
+        map_overseas_dividend(
+            {
+                "pdno": "SCHD",
+                "ovrs_item_name": "Schwab US Dividend Equity ETF",
+                "tr_crcy_cd": "USD",
+                "frcr_tr_amt": "50",
+                "trad_dt": "20260310",
+                "sll_buy_dvsn_name": "해외주식매수",
+            },
+            cano="12345678",
+        )
+        is None
+    )
+
+
+def test_map_domestic_dividend_uses_bass_dt_when_pay_dt_empty():
+    row = map_domestic_dividend(
+        {
+            "pdno": "005930",
+            "rght_type_cd": "03",
+            "rght_type_name": "현금배당",
+            "last_alct_amt": "15400",
+            "bass_dt": "20260415",
+        },
+        cano="12345678",
+    )
+    assert row is not None
+    assert row["pay_date"] == "2026-04-15"
+    assert row["amount"] == 15400.0
+
+
 def test_date_windows():
     windows = date_windows(date(2026, 1, 1), date(2026, 2, 10), 30)
     assert windows[0] == (date(2026, 1, 1), date(2026, 1, 30))
