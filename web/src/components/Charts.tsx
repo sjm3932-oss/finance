@@ -1,4 +1,5 @@
-import { fmtKrw } from "@/lib/money";
+import Link from "next/link";
+import { fmtCompactKrw, fmtKrw } from "@/lib/money";
 import { FlowAmount, SignedAmount } from "@/components/SignedValue";
 
 export function SimpleBarChart({
@@ -198,5 +199,159 @@ export function DualLineChart({
         {b.length ? <span>{bLabel}</span> : null}
       </div>
     </section>
+  );
+}
+
+export function TimeSeriesBarChart({
+  title,
+  subtitle,
+  bars,
+  windows,
+  signed = true,
+}: {
+  title: string;
+  subtitle?: string;
+  bars: { key: string; label: string; value: number }[];
+  windows?: { id: string; label: string; href: string; active: boolean }[];
+  signed?: boolean;
+}) {
+  if (!bars.length) {
+    return (
+      <section className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
+        <h2 className="text-base font-extrabold tracking-tight">{title}</h2>
+        {windows?.length ? <PeriodChips windows={windows} /> : null}
+        <p className="mt-2 text-sm text-muted">표시할 데이터가 없습니다.</p>
+      </section>
+    );
+  }
+
+  const W = 360;
+  const H = 160;
+  const padL = 6;
+  const padR = 6;
+  const padT = 8;
+  const padB = 28;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const max = Math.max(0, ...bars.map((b) => b.value), 1);
+  const min = Math.min(0, ...bars.map((b) => b.value));
+  const span = Math.max(max - min, 1);
+  const yOf = (v: number) => padT + ((max - v) / span) * innerH;
+  const zeroY = yOf(0);
+  const slot = innerW / bars.length;
+  const barW = Math.min(16, Math.max(6, slot * 0.58));
+  const total = bars.reduce((s, b) => s + b.value, 0);
+
+  return (
+    <section className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-base font-extrabold tracking-tight">{title}</h2>
+          {subtitle ? <p className="mt-0.5 text-xs text-muted">{subtitle}</p> : null}
+        </div>
+        {signed ? (
+          <SignedAmount amount={total} className="shrink-0 text-sm" />
+        ) : (
+          <span className="shrink-0 text-sm font-extrabold tracking-tight">
+            {fmtKrw(total)}
+          </span>
+        )}
+      </div>
+      {windows?.length ? <PeriodChips windows={windows} /> : null}
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="mt-3 h-40 w-full"
+        role="img"
+        aria-label={`${title}. ${bars
+          .map((b) => `${b.label} ${fmtKrw(b.value, { signed: true })}`)
+          .join(", ")}`}
+      >
+        <line
+          x1={padL}
+          x2={W - padR}
+          y1={zeroY}
+          y2={zeroY}
+          stroke="var(--line)"
+          strokeWidth="1"
+        />
+        {bars.map((b, i) => {
+          const y1 = yOf(b.value);
+          const x = padL + slot * i + (slot - barW) / 2;
+          const top = Math.min(y1, zeroY);
+          const height = b.value === 0 ? 0 : Math.max(Math.abs(y1 - zeroY), 2);
+          const color =
+            b.value > 0 ? "var(--up)" : b.value < 0 ? "var(--down)" : "#D1D5DB";
+          const labelY = H - 10;
+          return (
+            <g key={b.key}>
+              {height ? (
+                <rect
+                  x={x}
+                  y={top}
+                  width={barW}
+                  height={height}
+                  rx="2"
+                  fill={color}
+                />
+              ) : null}
+              <text
+                x={padL + slot * i + slot / 2}
+                y={labelY}
+                textAnchor="middle"
+                fontSize="8.5"
+                fontWeight="700"
+                fill="#6B7280"
+              >
+                {b.label}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <ul className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1 sm:grid-cols-4">
+        {bars.map((b) => {
+          const tone =
+            b.value > 0 ? "text-up" : b.value < 0 ? "text-down" : "text-muted";
+          return (
+            <li
+              key={b.key}
+              className="flex items-baseline justify-between gap-1 text-[11px]"
+            >
+              <span className="font-bold text-muted">{b.label}</span>
+              <span className={`font-extrabold tabular-nums ${tone}`}>
+                {b.value === 0
+                  ? "—"
+                  : `${b.value > 0 ? "↑" : "↓"} ${fmtCompactKrw(b.value)}`}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+export function PeriodChips({
+  windows,
+}: {
+  windows: { id: string; label: string; href: string; active: boolean }[];
+}) {
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="기간">
+      {windows.map((w) => (
+        <Link
+          key={w.id}
+          href={w.href}
+          aria-current={w.active ? "page" : undefined}
+          className={`inline-flex min-h-9 items-center rounded-lg px-2.5 py-1.5 text-[11px] font-bold ${
+            w.active
+              ? "bg-brand text-white"
+              : "bg-canvas text-muted ring-1 ring-line"
+          }`}
+        >
+          {w.label}
+        </Link>
+      ))}
+    </div>
   );
 }

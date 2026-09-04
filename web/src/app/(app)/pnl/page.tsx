@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { PortfolioFilters } from "@/components/PortfolioFilters";
-import { SimpleBarChart } from "@/components/Charts";
+import { PeriodChips, SimpleBarChart, TimeSeriesBarChart } from "@/components/Charts";
 import { SignedAmount } from "@/components/SignedValue";
 import { loadPortfolioSnapshot } from "@/lib/data";
 import {
@@ -9,14 +9,33 @@ import {
   loadDividendInsights,
 } from "@/lib/data-insights";
 import { accountIdsForInstitution } from "@/lib/portfolio";
-import { aggregateByMonth, PNL_KIND_KO } from "@/lib/insights";
+import { aggregateByMonth, PNL_KIND_KO, toKrwAmount } from "@/lib/insights";
+import { todayKst } from "@/lib/dates";
+import {
+  LAST_12M,
+  fillMonthSeries,
+  formatMonthTick,
+  monthInPeriod,
+  monthKeysForPeriod,
+  parsePeriodWindow,
+  periodLabel,
+  periodOptions,
+  yearsFromMonthKeys,
+} from "@/lib/month-window";
 
 export const dynamic = "force-dynamic";
 
 export default async function PnlPage({
   searchParams,
 }: {
-  searchParams: Promise<{ own?: string; inst?: string; tab?: string; sub?: string }>;
+  searchParams: Promise<{
+    own?: string;
+    inst?: string;
+    tab?: string;
+    sub?: string;
+    year?: string;
+    period?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const tab = sp.tab === "dividend" ? "dividend" : "realized";
@@ -36,22 +55,51 @@ export default async function PnlPage({
     loadDividendInsights(usdkrw, accountIds),
   ]);
 
-  const total = realized.reduce((s, r) => s + r.pnl_krw, 0);
+  const nowYm = todayKst().slice(0, 7);
+  const years = yearsFromMonthKeys([
+    ...realized.map((r) => r.event_date),
+    ...div.rows.map((r) => String(r.pay_date)),
+  ]);
+  const period = parsePeriodWindow(sp.period || sp.year, years, nowYm);
+  const monthKeys = monthKeysForPeriod(period, nowYm);
+  const includeYear = new Set(monthKeys.map((m) => m.slice(0, 4))).size > 1;
+  const realizedInPeriod = realized.filter((r) =>
+    monthInPeriod(r.event_date, monthKeys)
+  );
+  const dividendsInPeriod = div.rows.filter((r) =>
+    monthInPeriod(String(r.pay_date), monthKeys)
+  );
+
+  const total = realizedInPeriod.reduce((s, r) => s + r.pnl_krw, 0);
   const byKind = Object.keys(PNL_KIND_KO).map((k) => ({
     label: PNL_KIND_KO[k],
-    value: realized
+    value: realizedInPeriod
       .filter((r) => r.pnl_kind === k)
       .reduce((s, r) => s + r.pnl_krw, 0),
   }));
 
-  const monthly = aggregateByMonth(
-    realized.map((r) => ({ date: r.event_date, value: r.pnl_krw }))
-  )
-    .slice(-18)
-    .map((m) => ({ label: m.month.slice(5), value: m.value }));
+  const realizedMonthly = aggregateByMonth(
+    realizedInPeriod.map((r) => ({ date: r.event_date, value: r.pnl_krw }))
+  );
+  const dividendMonthly = aggregateByMonth(
+    dividendsInPeriod.map((r) => ({
+      date: String(r.pay_date),
+      value: toKrwAmount(Number(r.amount || 0), r.currency, usdkrw),
+    }))
+  );
+  const monthlyBars = fillMonthSeries(realizedMonthly, monthKeys).map((m) => ({
+    key: m.month,
+    label: formatMonthTick(m.month, includeYear),
+    value: m.value,
+  }));
+  const dividendBars = fillMonthSeries(dividendMonthly, monthKeys).map((m) => ({
+    key: m.month,
+    label: formatMonthTick(m.month, includeYear),
+    value: m.value,
+  }));
 
   const byTickerMap = new Map<string, number>();
-  for (const r of realized) {
+  for (const r of realizedInPeriod) {
     const label = r.asset_name || r.asset_ref;
     byTickerMap.set(label, (byTickerMap.get(label) || 0) + r.pnl_krw);
   }
@@ -64,6 +112,28 @@ export default async function PnlPage({
   if (sp.own) q.set("own", sp.own);
   if (sp.inst) q.set("inst", sp.inst);
   if (sp.sub) q.set("sub", sp.sub);
+  if (period !== LAST_12M) q.set("period", period);
+
+  function hrefFor(next: { tab?: string; period?: string }) {
+    const nextQ = new URLSearchParams(q);
+    const nextTab = next.tab ?? tab;
+    if (nextTab === "dividend") nextQ.set("tab", "dividend");
+    else nextQ.delete("tab");
+    const nextPeriod = next.period ?? period;
+    if (nextPeriod === LAST_12M) nextQ.delete("period");
+    else nextQ.set("period", nextPeriod);
+    nextQ.delete("year");
+    const s = nextQ.toString();
+    return s ? `/pnl?${s}` : "/pnl";
+  }
+
+  const periodChips = periodOptions(years, nowYm).map((w) => ({
+    id: w.id,
+    label: w.label,
+    href: hrefFor({ period: w.id }),
+    active: w.id === period,
+  }));
+  const selectedPeriodLabel = periodLabel(period, nowYm);
 
   return (
     <div className="space-y-5">
@@ -78,7 +148,7 @@ export default async function PnlPage({
 
       <div className="flex gap-1.5">
         <Link
-          href={`/pnl?${q.toString()}${q.toString() ? "&" : ""}tab=realized`}
+          href={hrefFor({ tab: "realized" })}
           className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
             tab === "realized" ? "bg-brand text-white" : "bg-surface text-muted ring-1 ring-line"
           }`}
@@ -86,7 +156,7 @@ export default async function PnlPage({
           실현손익
         </Link>
         <Link
-          href={`/pnl?${q.toString()}${q.toString() ? "&" : ""}tab=dividend`}
+          href={hrefFor({ tab: "dividend" })}
           className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
             tab === "dividend" ? "bg-brand text-white" : "bg-surface text-muted ring-1 ring-line"
           }`}
@@ -99,6 +169,10 @@ export default async function PnlPage({
         <>
           <div className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
             <div className="text-xs font-semibold text-muted">기간 실현손익</div>
+            <PeriodChips windows={periodChips} />
+            <p className="mt-2 text-[11px] font-semibold text-muted">
+              {selectedPeriodLabel}
+            </p>
             <div className="mt-1">
               <SignedAmount amount={total} className="text-2xl" />
             </div>
@@ -111,13 +185,18 @@ export default async function PnlPage({
               ))}
             </div>
           </div>
-          <SimpleBarChart title="월별 실현손익" bars={monthly} signed />
+          <TimeSeriesBarChart
+            title="월별 실현손익"
+            subtitle={selectedPeriodLabel}
+            bars={monthlyBars}
+            signed
+          />
           <SimpleBarChart title="종목별 실현손익" bars={byTicker} signed />
           <section className="overflow-hidden rounded-2xl border border-line bg-surface">
             <div className="border-b border-line px-4 py-3 text-sm font-extrabold">
               실현 원장
             </div>
-            {realized.slice(0, 40).map((r, i) => (
+            {realizedInPeriod.slice(0, 40).map((r, i) => (
               <div
                 key={`${r.event_date}-${r.asset_ref}-${i}`}
                 className="flex items-start justify-between gap-3 border-b border-line px-4 py-3 last:border-b-0"
@@ -135,7 +214,7 @@ export default async function PnlPage({
                 </div>
               </div>
             ))}
-            {!realized.length ? (
+            {!realizedInPeriod.length ? (
               <p className="px-4 py-8 text-center text-sm text-muted">
                 실현손익 데이터가 없습니다.
               </p>
@@ -164,12 +243,11 @@ export default async function PnlPage({
               </div>
             ))}
           </div>
-          <SimpleBarChart
+          <TimeSeriesBarChart
             title="월별 배당 수입"
-            bars={div.stats.monthly.slice(-18).map((m) => ({
-              label: m.month.slice(5),
-              value: m.value,
-            }))}
+            subtitle={selectedPeriodLabel}
+            bars={dividendBars}
+            windows={periodChips}
             signed
           />
           <section className="overflow-hidden rounded-2xl border border-line bg-surface">
