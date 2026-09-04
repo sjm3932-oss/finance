@@ -1056,15 +1056,37 @@ async function existingTradeKeys(admin: SupabaseClient, accountIds: string[]): P
   return keys;
 }
 
-async function existingDividendKeys(admin: SupabaseClient, accountIds: string[]): Promise<Set<string>> {
-  const keys = new Set<string>();
-  if (!accountIds.length) return keys;
-  const { data } = await admin.from("dividends").select("external_id").in("account_id", accountIds);
+async function existingDividendKeys(admin: SupabaseClient, accountIds: string[]): Promise<{
+  ids: Set<string>;
+  pays: Set<string>;
+}> {
+  const ids = new Set<string>();
+  const pays = new Set<string>();
+  if (!accountIds.length) return { ids, pays };
+  const { data } = await admin
+    .from("dividends")
+    .select("external_id,ticker,pay_date")
+    .in("account_id", accountIds);
   for (const row of data || []) {
     const ext = String(row.external_id || "").trim();
-    if (ext) keys.add(ext);
+    if (ext) ids.add(ext);
+    const ticker = normalizeKrTicker(row.ticker) || String(row.ticker || "").trim();
+    const pay = String(row.pay_date || "").slice(0, 10);
+    if (ticker && pay) pays.add(`${ticker}|${pay}`);
   }
-  return keys;
+  return { ids, pays };
+}
+
+function dedupeDividendsByPayDate(rows: Dividend[]): Dividend[] {
+  const score = (r: Dividend) =>
+    String(r.external_id || "").includes(":est") || String(r.memo || "").includes("추정") ? 0 : 1;
+  const byKey = new Map<string, Dividend>();
+  for (const row of rows) {
+    const key = `${normalizeKrTicker(row.ticker) || row.ticker}|${row.pay_date}`;
+    const prev = byKey.get(key);
+    if (!prev || score(row) > score(prev)) byKey.set(key, row);
+  }
+  return [...byKey.values()];
 }
 
 async function insertTrades(
@@ -1110,15 +1132,18 @@ async function insertDividends(
 ): Promise<Record<string, number>> {
   const known = await existingDividendKeys(admin, Object.values(accountIds));
   const per: Record<string, number> = {};
-  for (const row of rows) {
-    if (known.has(row.external_id)) continue;
+  for (const row of dedupeDividendsByPayDate(rows)) {
+    if (known.ids.has(row.external_id)) continue;
+    const ticker = normalizeKrTicker(row.ticker) || row.ticker;
+    const payKey = `${ticker}|${row.pay_date}`;
+    if (known.pays.has(payKey)) continue;
     const accountId =
       (row.product && accountIds[`${row.product}:${row.currency}`]) || accountIds[row.currency];
     if (!accountId) continue;
     const { data, error } = await admin.from("dividends").insert({
       user_id: userId,
       account_id: accountId,
-      ticker: normalizeKrTicker(row.ticker) || row.ticker,
+      ticker,
       name: row.name,
       pay_date: row.pay_date,
       amount: row.amount,
@@ -1127,7 +1152,8 @@ async function insertDividends(
       external_id: row.external_id,
     }).select("id");
     if (error || !data?.length) continue;
-    known.add(row.external_id);
+    known.ids.add(row.external_id);
+    known.pays.add(payKey);
     per[row.currency] = (per[row.currency] || 0) + 1;
   }
   return per;

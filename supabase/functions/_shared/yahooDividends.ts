@@ -123,8 +123,7 @@ export async function estimateHoldingDividends(
       } else {
         payload = cache.get(symbol);
       }
-      const events = (payload as { chart?: { result?: Array<{ events?: { dividends?: unknown } }> } })
-        ?.chart?.result?.[0]?.events?.dividends;
+      const events = (payload as YahooChartPayload)?.chart?.result?.[0]?.events?.dividends;
       if (events) break;
     }
     const rows = parseYahooDividends(payload, {
@@ -238,13 +237,17 @@ export async function upsertEstimatedDividendsForInstitution(
 
   const dates = lookbackDates(opts.lookbackDays ?? 365);
   const known = new Set<string>();
+  const havePay = new Set<string>();
   const { data: existing } = await admin
     .from("dividends")
-    .select("external_id")
+    .select("external_id,ticker,pay_date")
     .in("account_id", accountIds);
   for (const row of existing || []) {
     const ext = String(row.external_id || "").trim();
     if (ext) known.add(ext);
+    const ticker = storedKrTicker(row.ticker) || String(row.ticker || "").trim();
+    const pay = String(row.pay_date || "").slice(0, 10);
+    if (ticker && pay) havePay.add(`${ticker}|${pay}`);
   }
 
   const accountUser = new Map(accountRows.map((a) => [String(a.id), String(a.user_id || "")]));
@@ -262,6 +265,8 @@ export async function upsertEstimatedDividendsForInstitution(
     for (const row of estimated) {
       if (known.has(row.external_id)) continue;
       const ticker = storedKrTicker(row.ticker) || row.ticker;
+      const payKey = `${ticker}|${row.pay_date}`;
+      if (havePay.has(payKey)) continue;
       const { data, error } = await admin
         .from("dividends")
         .insert({
@@ -278,6 +283,7 @@ export async function upsertEstimatedDividendsForInstitution(
         .select("id");
       if (error || !data?.length) continue;
       known.add(row.external_id);
+      havePay.add(payKey);
       inserted += 1;
     }
   }

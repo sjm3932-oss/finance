@@ -464,26 +464,31 @@ def existing_trade_keys(c, account_ids: list[str]) -> set[str]:
     return keys
 
 
-def existing_dividend_keys(c, account_ids: list[str]) -> set[str]:
+def existing_dividend_keys(c, account_ids: list[str]) -> tuple[set[str], set[str]]:
     keys: set[str] = set()
     if not account_ids:
-        return keys
+        return keys, set()
     try:
         rows = (
             c.table("dividends")
-            .select("external_id,memo")
+            .select("external_id,ticker,pay_date")
             .in_("account_id", account_ids)
             .execute()
             .data
             or []
         )
     except Exception:
-        return keys
+        return keys, set()
+    pays: set[str] = set()
     for row in rows:
         ext = str(row.get("external_id") or "").strip()
         if ext:
             keys.add(ext)
-    return keys
+        ticker = normalize_kr_ticker(row.get("ticker")) or str(row.get("ticker") or "").strip()
+        pay = str(row.get("pay_date") or "")[:10]
+        if ticker and pay:
+            pays.add(f"{ticker}|{pay}")
+    return keys, pays
 
 
 def insert_trades(c, *, user_id: str, account_ids: dict[str, str], rows: list[dict]) -> dict[str, int]:
@@ -530,11 +535,15 @@ def insert_trades(c, *, user_id: str, account_ids: dict[str, str], rows: list[di
 
 
 def insert_dividends(c, *, user_id: str, account_ids: dict[str, str], rows: list[dict]) -> dict[str, int]:
-    known = existing_dividend_keys(c, list(account_ids.values()))
+    known, have_pay = existing_dividend_keys(c, list(account_ids.values()))
     per_ccy: dict[str, int] = {}
     for row in rows:
         ext = row["external_id"]
         if ext in known:
+            continue
+        ticker = normalize_kr_ticker(row["ticker"]) or row["ticker"]
+        pay_key = f"{ticker}|{row['pay_date']}"
+        if pay_key in have_pay:
             continue
         ccy = row["currency"]
         prod = str(row.get("product") or "")
@@ -545,7 +554,7 @@ def insert_dividends(c, *, user_id: str, account_ids: dict[str, str], rows: list
         payload: dict[str, Any] = {
             "user_id": user_id,
             "account_id": account_id,
-            "ticker": normalize_kr_ticker(row["ticker"]) or row["ticker"],
+            "ticker": ticker,
             "name": row["name"],
             "pay_date": row["pay_date"],
             "amount": row["amount"],
@@ -564,6 +573,7 @@ def insert_dividends(c, *, user_id: str, account_ids: dict[str, str], rows: list
                 continue
         if res.data:
             known.add(ext)
+            have_pay.add(pay_key)
             per_ccy[ccy] = per_ccy.get(ccy, 0) + 1
     return per_ccy
 
