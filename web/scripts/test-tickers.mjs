@@ -5,6 +5,7 @@ import {
   isTickerLike,
   lookupAssetName,
   normalizeKrTicker,
+  tickerLookupKeys,
 } from "../src/lib/tickers.ts";
 
 assert.equal(normalizeKrTicker("00000A458730"), "458730");
@@ -26,6 +27,8 @@ const names = buildNameIndex([
   { ticker: "360750", name: "TIGER 미국S&P500" },
   { ticker: "442570", name: "RISE TDF2050액티브" },
 ]);
+assert.ok(tickerLookupKeys("458730").includes("00000A458730"));
+assert.ok(tickerLookupKeys("00000A458730").includes("458730"));
 assert.equal(lookupAssetName("00000A458730", names), "TIGER 미국배당다우존스");
 assert.equal(lookupAssetName("458730", names), "TIGER 미국배당다우존스");
 assert.equal(lookupAssetName("360750", names), "TIGER 미국S&P500");

@@ -81,7 +81,7 @@ Auth: user Bearer JWT
 ```
 
 - `save` — `kis_api_settings` (id=1)에 저장. 시크릿은 RLS로 클라이언트에 노출되지 않습니다.
-- `{}` — 한투 API를 이 함수에서 실행 (lookback ~90일). 응답 `{ ok, ran, accounts }`.
+- `{}` — 한투 API를 이 함수에서 실행 (lookback ~365일). 응답 `{ ok, ran, accounts, trades, dividends }`.
 - Worker / GitHub Actions `sync_kis.py` 는 같은 테이블을 fallback으로 읽습니다.
 
 ## Next.js routes

@@ -57,14 +57,18 @@ from kis_client import (  # noqa: E402
     map_domestic_dividend,
     map_domestic_fill,
     map_domestic_holding,
-    map_overseas_dividend,
     map_overseas_fill,
     map_overseas_holding,
     merge_credentials,
+    merge_estimated_dividends,
+    has_nearby_pay,
+    normalize_kr_ticker,
     output_rows,
     overseas_cash,
     to_number,
 )
+from toss_client import estimate_holding_dividends  # noqa: E402
+from sync_revision import SYNC_REVISION  # noqa: E402
 
 USER_EMAIL = os.getenv("CLEAR_USER_EMAIL", "sjm3932@gmail.com")
 TRADE_LOOKBACK_DAYS = max(1, int(os.getenv("KIS_TRADE_LOOKBACK_DAYS", "365")))
@@ -461,26 +465,31 @@ def existing_trade_keys(c, account_ids: list[str]) -> set[str]:
     return keys
 
 
-def existing_dividend_keys(c, account_ids: list[str]) -> set[str]:
+def existing_dividend_keys(c, account_ids: list[str]) -> tuple[set[str], set[str]]:
     keys: set[str] = set()
     if not account_ids:
-        return keys
+        return keys, set()
     try:
         rows = (
             c.table("dividends")
-            .select("external_id,memo")
+            .select("external_id,ticker,pay_date")
             .in_("account_id", account_ids)
             .execute()
             .data
             or []
         )
     except Exception:
-        return keys
+        return keys, set()
+    pays: set[str] = set()
     for row in rows:
         ext = str(row.get("external_id") or "").strip()
         if ext:
             keys.add(ext)
-    return keys
+        ticker = normalize_kr_ticker(row.get("ticker")) or str(row.get("ticker") or "").strip()
+        pay = str(row.get("pay_date") or "")[:10]
+        if ticker and pay:
+            pays.add(f"{ticker}|{pay}")
+    return keys, pays
 
 
 def insert_trades(c, *, user_id: str, account_ids: dict[str, str], rows: list[dict]) -> dict[str, int]:
@@ -527,11 +536,16 @@ def insert_trades(c, *, user_id: str, account_ids: dict[str, str], rows: list[di
 
 
 def insert_dividends(c, *, user_id: str, account_ids: dict[str, str], rows: list[dict]) -> dict[str, int]:
-    known = existing_dividend_keys(c, list(account_ids.values()))
+    known, have_pay = existing_dividend_keys(c, list(account_ids.values()))
+    have_tuples = {tuple(k.split("|", 1)) for k in have_pay if "|" in k}
     per_ccy: dict[str, int] = {}
     for row in rows:
         ext = row["external_id"]
         if ext in known:
+            continue
+        ticker = normalize_kr_ticker(row["ticker"]) or row["ticker"]
+        pay_key = f"{ticker}|{row['pay_date']}"
+        if pay_key in have_pay or has_nearby_pay(ticker, row["pay_date"], have_tuples):
             continue
         ccy = row["currency"]
         prod = str(row.get("product") or "")
@@ -542,7 +556,7 @@ def insert_dividends(c, *, user_id: str, account_ids: dict[str, str], rows: list
         payload: dict[str, Any] = {
             "user_id": user_id,
             "account_id": account_id,
-            "ticker": row["ticker"],
+            "ticker": ticker,
             "name": row["name"],
             "pay_date": row["pay_date"],
             "amount": row["amount"],
@@ -561,6 +575,8 @@ def insert_dividends(c, *, user_id: str, account_ids: dict[str, str], rows: list
                 continue
         if res.data:
             known.add(ext)
+            have_pay.add(pay_key)
+            have_tuples.add((ticker, row["pay_date"]))
             per_ccy[ccy] = per_ccy.get(ccy, 0) + 1
     return per_ccy
 
@@ -779,7 +795,7 @@ def fetch_domestic_fills(ctx: dict, cano: str, prod: str, start, end) -> list[di
                     "INQR_DVSN_1": "",
                     "CTX_AREA_FK100": "",
                     "CTX_AREA_NK100": "",
-                    "EXCG_ID_DVSN_CD": "KRX",
+                    "EXCG_ID_DVSN_CD": "ALL",
                 },
                 base=ctx["base"],
                 appkey=ctx["appkey"],
@@ -830,73 +846,48 @@ def fetch_overseas_fills(ctx: dict, cano: str, prod: str, start, end) -> list[di
 
 def fetch_domestic_dividends(ctx: dict, cano: str, prod: str, start, end) -> list[dict]:
     mapped: list[dict] = []
+    seen: set[str] = set()
+    right_codes = ("", "03")
     for a, b in date_windows(start, end, 90):
-        time.sleep(0.25)
-        try:
-            rows, _s = paged_get(
-                path="/uapi/domestic-stock/v1/trading/period-rights",
-                tr_id="CTRGA011R",
-                query={
-                    "INQR_DVSN": "03",
-                    "CANO": cano,
-                    "ACNT_PRDT_CD": prod,
-                    "INQR_STRT_DT": fmt_yyyymmdd(a),
-                    "INQR_END_DT": fmt_yyyymmdd(b),
-                    "CUST_RNCNO25": "",
-                    "HMID": "",
-                    "RGHT_TYPE_CD": "",
-                    "PDNO": "",
-                    "PRDT_TYPE_CD": "",
-                    "CTX_AREA_NK100": "",
-                    "CTX_AREA_FK100": "",
-                },
-                base=ctx["base"],
-                appkey=ctx["appkey"],
-                appsecret=ctx["appsecret"],
-                token=ctx["token"],
-                fk_key="CTX_AREA_FK100",
-                nk_key="CTX_AREA_NK100",
-                output_key="output",
-            )
-        except Exception as exc:
-            print(f"  domestic rights skip {a}:{b}: {exc}")
-            continue
-        mapped.extend(m for r in rows if (m := map_domestic_dividend(r, cano=cano)))
-    return mapped
-
-
-def fetch_overseas_dividends(ctx: dict, cano: str, prod: str, start, end) -> list[dict]:
-    mapped: list[dict] = []
-    for a, b in date_windows(start, end, 30):
-        time.sleep(0.25)
-        try:
-            rows, _s = paged_get(
-                path="/uapi/overseas-stock/v1/trading/inquire-period-trans",
-                tr_id="CTOS4001R",
-                query={
-                    "CANO": cano,
-                    "ACNT_PRDT_CD": prod,
-                    "ERLM_STRT_DT": fmt_yyyymmdd(a),
-                    "ERLM_END_DT": fmt_yyyymmdd(b),
-                    "OVRS_EXCG_CD": "NASD",
-                    "PDNO": "",
-                    "SLL_BUY_DVSN_CD": "00",
-                    "LOAN_DVSN_CD": "",
-                    "CTX_AREA_FK100": "",
-                    "CTX_AREA_NK100": "",
-                },
-                base=ctx["base"],
-                appkey=ctx["appkey"],
-                appsecret=ctx["appsecret"],
-                token=ctx["token"],
-                fk_key="CTX_AREA_FK100",
-                nk_key="CTX_AREA_NK100",
-                output_key="output1",
-            )
-        except Exception as exc:
-            print(f"  overseas trans skip {a}:{b}: {exc}")
-            continue
-        mapped.extend(m for r in rows if (m := map_overseas_dividend(r, cano=cano)))
+        for rght in right_codes:
+            time.sleep(0.25)
+            try:
+                rows, _s = paged_get(
+                    path="/uapi/domestic-stock/v1/trading/period-rights",
+                    tr_id="CTRGA011R",
+                    query={
+                        "INQR_DVSN": "03",
+                        "CANO": cano,
+                        "ACNT_PRDT_CD": prod,
+                        "INQR_STRT_DT": fmt_yyyymmdd(a),
+                        "INQR_END_DT": fmt_yyyymmdd(b),
+                        "CUST_RNCNO25": "",
+                        "HMID": "",
+                        "RGHT_TYPE_CD": rght,
+                        "PDNO": "",
+                        "PRDT_TYPE_CD": "",
+                        "CTX_AREA_NK100": "",
+                        "CTX_AREA_FK100": "",
+                    },
+                    base=ctx["base"],
+                    appkey=ctx["appkey"],
+                    appsecret=ctx["appsecret"],
+                    token=ctx["token"],
+                    fk_key="CTX_AREA_FK100",
+                    nk_key="CTX_AREA_NK100",
+                    output_key="output",
+                )
+            except Exception as exc:
+                print(f"  domestic rights skip {a}:{b} rght={rght or '*'}: {exc}")
+                continue
+            for r in rows:
+                m = map_domestic_dividend(r, cano=cano)
+                if not m or m["external_id"] in seen:
+                    continue
+                seen.add(m["external_id"])
+                mapped.append(m)
+            if mapped and not rght:
+                break
     return mapped
 
 
@@ -935,6 +926,18 @@ def kis_credentials() -> tuple[str, str, str, list[tuple[str, str]]]:
     )
 
 
+def normalize_stored_dividend_tickers(c) -> int:
+    rows = c.table("dividends").select("id,ticker").execute().data or []
+    n = 0
+    for row in rows:
+        nxt = normalize_kr_ticker(row.get("ticker"))
+        if not nxt or nxt == row.get("ticker"):
+            continue
+        c.table("dividends").update({"ticker": nxt}).eq("id", row["id"]).execute()
+        n += 1
+    return n
+
+
 def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
     appkey, appsecret, env, accounts = kis_credentials()
     if not appkey or not appsecret:
@@ -960,6 +963,12 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
     print(f"Public IP (allow-list this in KIS Developers if IP lock is on): {ip}")
 
     c = supabase()
+    try:
+        fixed = normalize_stored_dividend_tickers(c)
+        if fixed:
+            print(f"  normalized {fixed} dividend ticker(s)")
+    except Exception as exc:
+        print(f"  dividend ticker normalize skip: {exc}")
     uid = user_id
     if not uid:
         users = c.table("users").select("id,email").eq("email", USER_EMAIL).execute().data or []
@@ -1055,9 +1064,15 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
         except Exception as exc:
             print(f"  domestic dividends skip: {exc}")
         try:
-            prod_divs.extend(tag_rows(fetch_overseas_dividends(ctx, cano, prod, start, end), prod))
+            estimated = estimate_holding_dividends(
+                kr_hold,
+                from_date=start.isoformat(),
+                to_date=end.isoformat(),
+                source="kis",
+            )
+            prod_divs = merge_estimated_dividends(prod_divs, tag_rows(estimated, prod))
         except Exception as exc:
-            print(f"  overseas dividends skip: {exc}")
+            print(f"  yahoo dividend estimate skip: {exc}")
         fills.extend(prod_fills)
         dividends.extend(prod_divs)
 
@@ -1087,14 +1102,16 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
             }
         )
 
-    insert_trades(c, user_id=uid, account_ids=account_ids, rows=fills) if account_ids else {}
-    insert_dividends(c, user_id=uid, account_ids=account_ids, rows=dividends) if account_ids else {}
+    trades_by = insert_trades(c, user_id=uid, account_ids=account_ids, rows=fills) if account_ids else {}
+    divs_by = insert_dividends(c, user_id=uid, account_ids=account_ids, rows=dividends) if account_ids else {}
     if isa_seen:
         try:
             delete_isa_other_asset(c, uid)
         except Exception as exc:
             print(f"  isa other_asset skip: {exc}")
 
+    trade_n = sum(trades_by.values())
+    div_n = sum(divs_by.values())
     for p in products:
         summary.append(
             {
@@ -1110,13 +1127,16 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
             + (f" ({p['note']})" if p.get("note") else "")
         )
 
-    print(f"Done. Synced {INSTITUTION}.")
+    print(f"Done. Synced {INSTITUTION}. 체결 {trade_n}건, 배당 {div_n}건")
     return {
         "ok": True,
         "institution": INSTITUTION,
         "accounts": summary,
         "products": products,
         "egress_ip": ip,
+        "trades": trade_n,
+        "dividends": div_n,
+        "sync_revision": SYNC_REVISION,
     }
 
 

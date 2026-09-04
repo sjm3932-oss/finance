@@ -28,7 +28,11 @@ export function tickerLookupKeys(raw: unknown): string[] {
   keys.add(orig.toUpperCase());
   const norm = normalizeKrTicker(orig);
   if (norm) keys.add(norm);
-  if (norm !== orig) keys.add(orig.replace(/^0+/, "") || orig);
+  if (/^\d{6}$/.test(norm)) {
+    keys.add(norm.replace(/^0+/, "") || norm);
+    keys.add(`A${norm}`);
+    keys.add(`00000A${norm}`);
+  }
   return [...keys];
 }
 

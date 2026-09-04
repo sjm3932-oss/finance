@@ -14,9 +14,46 @@ type Job = {
       holdings: number;
       cash: number;
       trades?: number;
+      dividends?: number;
     }>;
+    trades?: number;
+    dividends?: number;
   } | null;
 };
+
+function formatTossResult(job: Job): string {
+  const accounts = job.result?.accounts || [];
+  const trades =
+    Number(job.result?.trades || 0) ||
+    accounts.reduce((s, a) => s + Number(a.trades || 0), 0);
+  const divs =
+    Number(job.result?.dividends || 0) ||
+    accounts.reduce((s, a) => s + Number(a.dividends || 0), 0);
+  const parts = accounts.map((a) => {
+    const extra = [
+      Number(a.trades || 0) ? `체결 ${a.trades}건` : "",
+      Number(a.dividends || 0) ? `배당 ${a.dividends}건` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return `${a.currency} ${a.holdings}종목 · 현금 ${a.cash}${extra ? ` · ${extra}` : ""}`;
+  });
+  const totals = [
+    trades ? `체결 ${trades}건` : "",
+    divs ? `배당 ${divs}건` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  if (!parts.length) {
+    return totals
+      ? `동기화 완료. ${totals}`
+      : "토스 계좌는 연결됐지만 보유 종목이 없습니다.";
+  }
+  const body = `동기화 완료. ${parts.join(" / ")}`;
+  return totals && !parts.some((p) => p.includes("체결") || p.includes("배당"))
+    ? `${body} · ${totals}`
+    : body;
+}
 
 export function TossSyncPanel() {
   const router = useRouter();
@@ -48,16 +85,7 @@ export function TossSyncPanel() {
       const job = res.job;
       if (!job) return;
       if (job.status === "ok") {
-        const parts = (job.result?.accounts || []).map((a) => {
-          const trades = Number(a.trades || 0);
-          const extra = trades ? ` · 체결 ${trades}건` : "";
-          return `${a.currency} ${a.holdings}종목 · 현금 ${a.cash}${extra}`;
-        });
-        setMsg(
-          parts.length
-            ? `동기화 완료. ${parts.join(" / ")}`
-            : "토스 계좌는 연결됐지만 보유 종목이 없습니다."
-        );
+        setMsg(formatTossResult(job));
         router.refresh();
         return;
       }
@@ -75,7 +103,7 @@ export function TossSyncPanel() {
       }
       setMsg(
         job.status === "running"
-          ? "클라우드 워커가 토스 잔고·체결을 가져오는 중…"
+          ? "클라우드 워커가 토스 잔고·체결·배당을 가져오는 중…"
           : "클라우드 워커 대기 중…"
       );
       window.setTimeout(() => void tick(), 2000);
@@ -115,7 +143,7 @@ export function TossSyncPanel() {
     <div className="rounded-2xl border border-line bg-surface px-4 py-4 shadow-soft">
       <div className="font-extrabold tracking-tight">토스증권 동기화</div>
       <p className="mt-1 text-sm text-muted">
-        워커가 켜져 있으면 매일 오전 6시·오후 4시(한국 시간)에 잔고와 체결을
+        워커가 켜져 있으면 매일 오전 6시·오후 4시(한국 시간)에 잔고·체결·배당을
         가져옵니다. 지금 당장 반영하려면 아래 버튼을 누르세요.
       </p>
       {workerIp ? (

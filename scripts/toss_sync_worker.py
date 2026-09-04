@@ -9,6 +9,7 @@ the DB when env is empty. Do not run Toss sync on a laptop.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import time
 import traceback
@@ -17,6 +18,40 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+
+
+def maybe_self_update() -> None:
+    """Pull WORKER_GIT_REF so a static-IP VM eventually picks up merged sync fixes."""
+    if os.getenv("WORKER_SELF_UPDATE", "1").strip().lower() in {"0", "false", "no"}:
+        return
+    if not (ROOT / ".git").exists():
+        return
+    ref = os.getenv("WORKER_GIT_REF", "cursor/wealth-mvp-core-faae").strip()
+    try:
+        subprocess.run(
+            ["git", "-C", str(ROOT), "fetch", "--depth", "1", "origin", ref],
+            check=True,
+            timeout=90,
+            capture_output=True,
+        )
+        local = subprocess.check_output(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True, timeout=10
+        ).strip()
+        remote = subprocess.check_output(
+            ["git", "-C", str(ROOT), "rev-parse", "FETCH_HEAD"], text=True, timeout=10
+        ).strip()
+        if local == remote:
+            return
+        subprocess.run(
+            ["git", "-C", str(ROOT), "checkout", "--force", "FETCH_HEAD"],
+            check=True,
+            timeout=30,
+            capture_output=True,
+        )
+        print(f"worker updated {local[:8]} -> {remote[:8]} ({ref}), restarting", flush=True)
+        os.execv(sys.executable, [sys.executable, *sys.argv])
+    except Exception as exc:
+        print(f"worker self-update skip: {exc}", flush=True)
 
 from dotenv import load_dotenv
 
@@ -215,4 +250,5 @@ def loop() -> None:
 
 
 if __name__ == "__main__":
+    maybe_self_update()
     loop()

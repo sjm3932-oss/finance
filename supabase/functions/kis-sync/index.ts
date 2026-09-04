@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
     }
 
     try {
-      const result = await runKisSync(admin, { userId: user.id, lookbackDays: 90 });
+      const result = await runKisSync(admin, { userId: user.id, lookbackDays: 365 });
       await admin
         .from("kis_sync_jobs")
         .update({ status: "ok", result, finished_at: new Date().toISOString(), error: null })

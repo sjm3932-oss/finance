@@ -9,7 +9,11 @@ Base: https://openapi.tossinvest.com
 
 from __future__ import annotations
 
-from datetime import datetime
+import json
+import time
+import urllib.parse
+import urllib.request
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -82,26 +86,132 @@ def _date_prefix(raw: Any) -> str | None:
     return None
 
 
+def _dict_list(val: Any) -> list[dict[str, Any]] | None:
+    if isinstance(val, list):
+        return [row for row in val if isinstance(row, dict)]
+    return None
+
+
+def extract_orders(payload: Any) -> list[dict[str, Any]]:
+    """Unwrap Toss getOrders payloads (`result.orders`, nested data, or a bare list)."""
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    if not isinstance(payload, dict):
+        return []
+    result = payload.get("result")
+    listed = _dict_list(result)
+    if listed is not None:
+        return listed
+    blobs: list[Any] = []
+    if isinstance(result, dict):
+        blobs.append(result)
+        nested = result.get("data")
+        if isinstance(nested, dict):
+            blobs.append(nested)
+        listed = _dict_list(nested)
+        if listed is not None:
+            return listed
+    blobs.append(payload)
+    for blob in blobs:
+        if not isinstance(blob, dict):
+            continue
+        for key in ("orders", "items", "list"):
+            listed = _dict_list(blob.get(key))
+            if listed is not None:
+                return listed
+    return []
+
+
+def extract_holdings_items(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    if not isinstance(payload, dict):
+        return []
+    result = payload.get("result")
+    listed = _dict_list(result)
+    if listed is not None:
+        return listed
+    blob = result if isinstance(result, dict) else payload
+    if not isinstance(blob, dict):
+        return []
+    for key in ("items", "holdings", "list"):
+        listed = _dict_list(blob.get(key))
+        if listed is not None:
+            return listed
+    return []
+
+
+def pagination_cursor(payload: Any) -> tuple[bool, str | None]:
+    blob: Any = payload
+    if isinstance(payload, dict) and isinstance(payload.get("result"), dict):
+        blob = payload["result"]
+    if not isinstance(blob, dict):
+        return False, None
+    cursor = blob.get("nextCursor") or blob.get("next_cursor") or blob.get("next")
+    has_next = bool(blob.get("hasNext") if "hasNext" in blob else blob.get("has_next"))
+    if not has_next and cursor:
+        has_next = True
+    return has_next, str(cursor) if cursor else None
+
+
+def _execution_blob(order: dict[str, Any]) -> dict[str, Any]:
+    """Prefer nested execution, but some payloads flatten fill fields onto the order."""
+    nested = order.get("execution") if isinstance(order.get("execution"), dict) else {}
+    out = dict(nested)
+    for key in (
+        "filledQuantity",
+        "averageFilledPrice",
+        "filledAmount",
+        "commission",
+        "tax",
+        "filledAt",
+        "settlementDate",
+    ):
+        if out.get(key) in (None, "") and order.get(key) not in (None, ""):
+            out[key] = order[key]
+    return out
+
+
+def _trade_side(raw: Any) -> str | None:
+    side = str(raw or "").strip().upper()
+    if side in {"BUY", "B", "매수"} or "매수" in str(raw or ""):
+        return "buy"
+    if side in {"SELL", "S", "매도"} or "매도" in str(raw or ""):
+        return "sell"
+    return None
+
+
 def map_filled_order(order: dict[str, Any]) -> dict[str, Any] | None:
     """Map a Toss order with fills to a local trades row. Skip unfilled orders."""
-    execution = order.get("execution") if isinstance(order.get("execution"), dict) else {}
+    if not isinstance(order, dict):
+        return None
+    execution = _execution_blob(order)
     qty = to_number(execution.get("filledQuantity"))
     if qty <= 0:
         return None
     price = to_number(execution.get("averageFilledPrice"))
     if price <= 0:
+        filled_amt = to_number(execution.get("filledAmount"))
+        if filled_amt > 0:
+            price = filled_amt / qty
+    if price <= 0:
+        price = to_number(order.get("price"))
+    if price <= 0:
         return None
-    side = str(order.get("side") or "").upper()
-    if side == "BUY":
-        trade_type = "buy"
-    elif side == "SELL":
-        trade_type = "sell"
-    else:
+    trade_type = _trade_side(order.get("side"))
+    if not trade_type:
         return None
-    order_id = str(order.get("orderId") or "").strip()
+    order_id = str(order.get("orderId") or order.get("id") or "").strip()
     if not order_id:
         return None
-    symbol = str(order.get("symbol") or "").strip()
+    stock = order.get("stock") if isinstance(order.get("stock"), dict) else {}
+    symbol = str(
+        order.get("symbol")
+        or order.get("ticker")
+        or stock.get("symbol")
+        or stock.get("stockCode")
+        or ""
+    ).strip()
     if not symbol:
         return None
     currency = str(order.get("currency") or "KRW").upper()
@@ -109,8 +219,10 @@ def map_filled_order(order: dict[str, Any]) -> dict[str, Any] | None:
         currency = "USD" if not symbol.isdigit() else "KRW"
     ticker = normalize_ticker(symbol, "KR" if currency == "KRW" else "US")
     fee = to_number(execution.get("commission")) + to_number(execution.get("tax"))
-    trade_date = _date_prefix(execution.get("filledAt")) or _date_prefix(
-        order.get("orderedAt")
+    trade_date = (
+        _date_prefix(execution.get("filledAt"))
+        or _date_prefix(execution.get("settlementDate"))
+        or _date_prefix(order.get("orderedAt"))
     )
     if not trade_date:
         return None
@@ -127,6 +239,172 @@ def map_filled_order(order: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def date_windows(start: str, end: str, days: int) -> list[tuple[str, str]]:
+    """Inclusive YYYY-MM-DD windows of at most `days` length."""
+    step = max(1, days)
+    try:
+        cur = datetime.fromisoformat(start).date()
+        last = datetime.fromisoformat(end).date()
+    except ValueError:
+        return [(start, end)]
+    if cur > last:
+        return []
+    out: list[tuple[str, str]] = []
+    while cur <= last:
+        nxt = min(cur + timedelta(days=step - 1), last)
+        out.append((cur.isoformat(), nxt.isoformat()))
+        cur = nxt + timedelta(days=1)
+    return out
+
+
+def parse_yahoo_dividends(
+    payload: Any,
+    *,
+    ticker: str,
+    quantity: float,
+    start: str,
+    end: str,
+    source: str = "toss",
+) -> list[dict[str, Any]]:
+    """Map Yahoo chart events.dividends into qty × DPS estimate rows."""
+    if quantity <= 0:
+        return []
+    result = ((payload or {}).get("chart") or {}).get("result") or []
+    if not result:
+        return []
+    events = (result[0].get("events") or {}).get("dividends") or {}
+    items = events.values() if isinstance(events, dict) else events
+    if source == "kis":
+        id_prefix = "kis:div:est"
+        memo = "한투 배당(추정)"
+    else:
+        id_prefix = "toss:div"
+        memo = "토스 배당(추정)"
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        dps = to_number(item.get("amount"))
+        ts = item.get("date")
+        if dps <= 0 or ts in (None, ""):
+            continue
+        try:
+            pay_date = datetime.fromtimestamp(int(ts), tz=timezone.utc).date().isoformat()
+        except (TypeError, ValueError, OSError):
+            continue
+        if pay_date < start or pay_date > end:
+            continue
+        amount = round(dps * quantity, 6)
+        if amount <= 0:
+            continue
+        out.append(
+            {
+                "external_id": f"{id_prefix}:{ticker}:{pay_date}:{dps:.6f}",
+                "ticker": ticker,
+                "pay_date": pay_date,
+                "amount": amount,
+                "currency": "USD" if not str(ticker).isdigit() else "KRW",
+                "memo": memo,
+            }
+        )
+    return out
+
+
+def yahoo_chart_symbol(ticker: str) -> list[str]:
+    t = normalize_ticker(ticker)
+    if t.isdigit() and len(t) == 6:
+        return [f"{t}.KS", f"{t}.KQ"]
+    return [t]
+
+
+_YAHOO_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
+_SKIP_YAHOO_TICKERS = {"ISA-FUND"}
+
+
+def fetch_yahoo_chart(symbol: str, *, from_date: str, to_date: str) -> dict[str, Any]:
+    try:
+        start_ts = int(datetime.fromisoformat(from_date).replace(tzinfo=timezone.utc).timestamp())
+        end_ts = int(
+            (datetime.fromisoformat(to_date) + timedelta(days=2))
+            .replace(tzinfo=timezone.utc)
+            .timestamp()
+        )
+    except ValueError:
+        start_ts = int((datetime.now(timezone.utc) - timedelta(days=730)).timestamp())
+        end_ts = int(datetime.now(timezone.utc).timestamp())
+    query = urllib.parse.urlencode(
+        {
+            "interval": "1d",
+            "period1": str(start_ts),
+            "period2": str(end_ts),
+            "events": "div",
+        }
+    )
+    headers = {"User-Agent": _YAHOO_UA, "Accept": "application/json"}
+    last: dict[str, Any] = {}
+    for host in ("query1.finance.yahoo.com", "query2.finance.yahoo.com"):
+        url = f"https://{host}/v8/finance/chart/{urllib.parse.quote(symbol)}?{query}"
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                body = resp.read().decode()
+                payload = json.loads(body) if body else {}
+        except Exception:
+            continue
+        last = payload if isinstance(payload, dict) else last
+        events = ((payload.get("chart") or {}).get("result") or [{}])
+        if events and (events[0].get("events") or {}).get("dividends"):
+            return payload
+    return last
+
+
+def estimate_holding_dividends(
+    holdings: list[dict[str, Any]],
+    *,
+    from_date: str,
+    to_date: str,
+    source: str = "toss",
+) -> list[dict[str, Any]]:
+    """Yahoo cash dividends × current quantity. KR tickers use .KS then .KQ."""
+    cache: dict[str, dict[str, Any]] = {}
+    out: list[dict[str, Any]] = []
+    for h in holdings:
+        ticker = str(h.get("ticker") or "").strip()
+        qty = to_number(h.get("quantity"))
+        if not ticker or qty <= 0 or ticker.upper() in _SKIP_YAHOO_TICKERS:
+            continue
+        payload: dict[str, Any] | None = None
+        for symbol in yahoo_chart_symbol(ticker):
+            if symbol not in cache:
+                time.sleep(0.15)
+                cache[symbol] = fetch_yahoo_chart(symbol, from_date=from_date, to_date=to_date)
+            payload = cache[symbol]
+            events = ((payload.get("chart") or {}).get("result") or [{}])
+            if events and (events[0].get("events") or {}).get("dividends"):
+                break
+        if not payload:
+            continue
+        rows = parse_yahoo_dividends(
+            payload,
+            ticker=ticker,
+            quantity=qty,
+            start=from_date,
+            end=to_date,
+            source=source,
+        )
+        ccy = str(h.get("currency") or "").upper()
+        name = str(h.get("name") or ticker).strip() or ticker
+        for row in rows:
+            if ccy in {"KRW", "USD"}:
+                row["currency"] = ccy
+            row["name"] = name
+            out.append(row)
+    return out
+
+
 def humanize_toss_error(status: int, payload: Any) -> str:
     code = ""
     message = ""
@@ -138,6 +416,11 @@ def humanize_toss_error(status: int, payload: Any) -> str:
         elif isinstance(err, str):
             code = err
             message = str(payload.get("error_description") or "")
+    if code == "closed-not-supported":
+        return (
+            "토스 Open API가 종료 주문 목록(CLOSED)을 이 계정에서 아직 지원하지 않습니다. "
+            "진행 중 주문(OPEN)과 보유 종목 기준 배당은 그대로 가져옵니다."
+        )
     if status == 403 or code in {"edge-blocked", "forbidden"}:
         return (
             "토스 Open API가 이 IP를 막았습니다 (403). "

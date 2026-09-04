@@ -23,6 +23,7 @@ from kis_client import (  # noqa: E402
     map_overseas_holding,
     merge_holdings,
     merge_credentials,
+    merge_estimated_dividends,
     normalize_kr_ticker,
     overseas_cash,
     parse_account_spec,
@@ -261,6 +262,56 @@ def test_map_overseas_dividend_by_name():
     )
 
 
+def test_map_overseas_dividend_falls_back_to_base_date_and_trust_amount():
+    row = map_overseas_dividend(
+        {
+            "ovrs_pdno": "JEPI",
+            "tr_crcy_cd": "USD",
+            "trst_amt": "8.21",
+            "bass_dt": "20260315",
+            "tr_tp_name": "배당금입금",
+        },
+        cano="12345678",
+    )
+    assert row is not None
+    assert row["ticker"] == "JEPI"
+    assert row["pay_date"] == "2026-03-15"
+    assert row["amount"] == 8.21
+
+
+def test_map_overseas_dividend_ignores_etf_name_false_positive():
+    assert (
+        map_overseas_dividend(
+            {
+                "pdno": "SCHD",
+                "ovrs_item_name": "Schwab US Dividend Equity ETF",
+                "tr_crcy_cd": "USD",
+                "frcr_tr_amt": "50",
+                "trad_dt": "20260310",
+                "sll_buy_dvsn_name": "해외주식매수",
+            },
+            cano="12345678",
+        )
+        is None
+    )
+
+
+def test_map_domestic_dividend_uses_bass_dt_when_pay_dt_empty():
+    row = map_domestic_dividend(
+        {
+            "pdno": "005930",
+            "rght_type_cd": "03",
+            "rght_type_name": "현금배당",
+            "last_alct_amt": "15400",
+            "bass_dt": "20260415",
+        },
+        cano="12345678",
+    )
+    assert row is not None
+    assert row["pay_date"] == "2026-04-15"
+    assert row["amount"] == 15400.0
+
+
 def test_date_windows():
     windows = date_windows(date(2026, 1, 1), date(2026, 2, 10), 30)
     assert windows[0] == (date(2026, 1, 1), date(2026, 1, 30))
@@ -330,3 +381,41 @@ def test_merge_credentials_falls_back_to_db():
     assert secret == "d-sec"
     assert env == "real"
     assert accounts == [("64209634", "01"), ("64209634", "21")]
+
+
+def test_merge_estimated_dividends_fills_gaps_only():
+    broker = [
+        {
+            "ticker": "458730",
+            "pay_date": "2026-03-10",
+            "amount": 12.0,
+            "external_id": "kis:div:kr:1:2026-03-10:458730:12.0000",
+        }
+    ]
+    estimated = [
+        {
+            "ticker": "458730",
+            "pay_date": "2026-03-10",
+            "amount": 11.0,
+            "external_id": "kis:div:est:458730:2026-03-10:1.100000",
+        },
+        {
+            "ticker": "458730",
+            "pay_date": "2026-04-10",
+            "amount": 9.0,
+            "external_id": "kis:div:est:458730:2026-04-10:0.900000",
+        },
+    ]
+    merged = merge_estimated_dividends(broker, estimated)
+    assert [r["pay_date"] for r in merged] == ["2026-03-10", "2026-04-10"]
+    assert merged[0]["amount"] == 12.0
+    assert merged[1]["external_id"].startswith("kis:div:est:")
+
+    near = merge_estimated_dividends(
+        [{"ticker": "458730", "pay_date": "2026-08-31", "amount": 11610}],
+        [
+            {"ticker": "458730", "pay_date": "2026-08-28", "amount": 11610},
+            {"ticker": "458730", "pay_date": "2026-09-29", "amount": 9000},
+        ],
+    )
+    assert [r["pay_date"] for r in near] == ["2026-08-31", "2026-09-29"]

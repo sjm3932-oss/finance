@@ -13,6 +13,7 @@ type AccountSummary = {
   cash: number;
   trades?: number;
   dividends?: number;
+  label?: string;
 };
 
 type ProductSummary = {
@@ -24,10 +25,17 @@ type ProductSummary = {
   note?: string;
 };
 
-function formatResult(
-  accounts: AccountSummary[] | undefined,
-  products?: ProductSummary[]
-): string {
+type JobResult = {
+  accounts?: AccountSummary[];
+  products?: ProductSummary[];
+  trades?: number;
+  dividends?: number;
+};
+
+function formatResult(result: JobResult): string {
+  const accounts = result.accounts;
+  const products = result.products;
+  const totals = { trades: result.trades, dividends: result.dividends };
   const productBits = (products || []).map((p) => {
     const bits = [`${p.code} ${p.label || ""}`.trim()];
     if (Number(p.holdings || 0) > 0) bits.push(`${p.holdings}종목`);
@@ -35,20 +43,24 @@ function formatResult(
     else if (p.note) bits.push(p.note);
     return bits.join(" ");
   });
+  const accountTrades = (accounts || []).reduce((s, a) => s + Number(a.trades || 0), 0);
+  const accountDivs = (accounts || []).reduce((s, a) => s + Number(a.dividends || 0), 0);
+  const trades = Number(totals?.trades || 0) || accountTrades;
+  const divs = Number(totals?.dividends || 0) || accountDivs;
   const parts = (accounts || []).map((a) => {
-    const trades = Number(a.trades || 0);
-    const divs = Number(a.dividends || 0);
-    const extra = [
-      trades ? `체결 ${trades}건` : "",
-      divs ? `배당 ${divs}건` : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    return `${a.currency} ${a.holdings}종목 · 현금 ${a.cash}${extra ? ` · ${extra}` : ""}`;
+    return `${a.currency}${a.label ? ` ${a.label}` : ""} ${a.holdings}종목 · 현금 ${a.cash}`;
   });
+  const extra = [
+    trades ? `체결 ${trades}건` : "",
+    divs ? `배당 ${divs}건` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const merged = parts.length
-    ? `동기화 완료. ${parts.join(" / ")}`
-    : "한투 계좌는 연결됐지만 보유 종목이 없습니다.";
+    ? `동기화 완료. ${parts.join(" / ")}${extra ? ` · ${extra}` : ""}`
+    : extra
+      ? `동기화 완료. ${extra}`
+      : "한투 계좌는 연결됐지만 보유 종목이 없습니다.";
   return productBits.length ? `${merged}. ${productBits.join(" · ")}` : merged;
 }
 
@@ -138,12 +150,8 @@ export function HankookSyncPanel() {
           setAppKey("");
         }
         setMsg("한투에서 잔고·체결·배당을 가져오는 중… 1~2분 걸릴 수 있습니다.");
-        const res = await invokeEdge<{
-          ran?: boolean;
-          accounts?: AccountSummary[];
-          products?: ProductSummary[];
-        }>("kis-sync", {});
-        setMsg(formatResult(res.accounts, res.products));
+        const res = await invokeEdge<JobResult & { ran?: boolean }>("kis-sync", {});
+        setMsg(formatResult(res));
         router.refresh();
       } catch (e) {
         setMsg(null);
@@ -166,7 +174,8 @@ export function HankookSyncPanel() {
           KIS Developers
         </a>
         에서 받은 앱키·앱시크릿을 아래에 붙여 넣고 저장한 뒤, 지금 동기화를
-        누르세요. 주문은 하지 않습니다.
+        누르세요. 주문은 하지 않습니다. 국내 상장 ETF 분배금은 한투 권리내역이
+        없으면 Yahoo 주당 분배금 × 보유수량으로 추정합니다.
       </p>
       <p className="mt-2 text-xs text-muted">
         계좌는 <span className="font-mono">8자리-상품코드</span> 입니다. 위탁 01,

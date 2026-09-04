@@ -1,5 +1,7 @@
 // Korea Investment Open API helpers (inquiry only). Port of scripts/kis_client.py + sync_kis.py.
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { estimateHoldingDividends, hasNearbyPay, mergeEstimatedDividends, normalizeStoredDividendTickers } from "./yahooDividends.ts";
+import { SYNC_REVISION } from "./syncRevision.ts";
 
 export const KIS_REAL_BASE = "https://openapi.koreainvestment.com:9443";
 export const KIS_DEMO_BASE = "https://openapivts.koreainvestment.com:29443";
@@ -33,7 +35,7 @@ const ISA_FUND_HOLDING_NAME = "ISA 펀드";
 const ISA_OTHER_ASSET_NAME = "한국투자증권 ISA(21) 펀드";
 
 const DIVIDEND_NAME_HINTS = ["배당", "분배"];
-const DIVIDEND_RIGHT_CODES = new Set(["03", "04", "17", "18"]);
+const DIVIDEND_RIGHT_CODES = new Set(["03", "04", "17", "18", "74", "75", "3", "4"]);
 
 export type Json = Record<string, unknown>;
 export type AccountSpec = [string, string];
@@ -373,25 +375,29 @@ export function mapOverseasFill(item: Json, cano: string): Fill | null {
 
 function looksLikeDividend(code: unknown, ...names: unknown[]): boolean {
   const raw = String(code || "").trim();
-  if (DIVIDEND_RIGHT_CODES.has(raw)) return true;
+  const padded = /^\d+$/.test(raw) ? raw.padStart(2, "0") : raw;
+  if (DIVIDEND_RIGHT_CODES.has(raw) || DIVIDEND_RIGHT_CODES.has(padded)) return true;
   const blob = names.map((n) => String(n || "")).join(" ");
   return DIVIDEND_NAME_HINTS.some((h) => blob.includes(h));
 }
 
 export function mapDomesticDividend(item: Json, cano: string): Dividend | null {
   const nameBits = [
-    pick(item, "rght_type_name", "rght_type_cd_name"),
-    pick(item, "prdt_name"),
+    pick(item, "rght_type_name", "rght_type_cd_name", "trad_dvsn_name"),
     pick(item, "rght_type_cd"),
   ];
   if (!looksLikeDividend(pick(item, "rght_type_cd"), ...nameBits)) return null;
-  let amount = toNumber(pick(item, "last_alct_amt", "alct_amt", "stck_dvdn_unpr", "rfus_amt"));
+  let amount = toNumber(
+    pick(item, "last_alct_amt", "alct_amt", "cash_alct_amt", "csnc_amt", "tot_alct_amt", "dvdn_amt", "rfus_amt", "stck_dvdn_unpr")
+  );
   const tax = toNumber(pick(item, "intt_tax", "tax_amt", "stlm_tax"));
   if (amount > 0 && tax > 0 && tax < amount) amount = amount - tax;
   if (amount <= 0) return null;
   const ticker = normalizeKrTicker(pick(item, "pdno", "shtn_pdno"));
   if (!ticker) return null;
-  const payDate = yyyymmdd(pick(item, "pay_dt", "alct_dt", "rght_offr_end_dt", "bass_dt", "stnd_dt"));
+  const payDate = yyyymmdd(
+    pick(item, "pay_dt", "alct_dt", "cash_alct_dt", "dvdn_pay_dt", "rght_offr_end_dt", "acpl_bass_dt", "bass_dt", "stnd_dt")
+  );
   if (!payDate) return null;
   return {
     external_id: `kis:div:kr:${cano}:${payDate}:${ticker}:${amount.toFixed(4)}`,
@@ -406,17 +412,32 @@ export function mapDomesticDividend(item: Json, cano: string): Dividend | null {
 
 export function mapOverseasDividend(item: Json, cano: string): Dividend | null {
   const nameBits = [
-    pick(item, "sll_buy_dvsn_name", "trad_dvsn_name", "tr_type_name", "dvsn_name"),
-    pick(item, "prdt_name", "ovrs_item_name"),
+    pick(item, "sll_buy_dvsn_name", "trad_dvsn_name", "tr_type_name", "tr_tp_name", "dvsn_name", "rght_type_name"),
+    pick(item, "sll_buy_dvsn_cd", "tr_type_cd", "tr_tp_cd", "rght_type_cd"),
   ];
-  if (!looksLikeDividend(pick(item, "sll_buy_dvsn_cd", "tr_type_cd"), ...nameBits)) return null;
+  if (!looksLikeDividend(pick(item, "sll_buy_dvsn_cd", "tr_type_cd", "tr_tp_cd", "rght_type_cd"), ...nameBits)) return null;
   const amount = Math.abs(
-    toNumber(pick(item, "tr_amt", "ccld_amt", "ft_ccld_amt3", "frcr_tr_amt", "alct_amt"))
+    toNumber(
+      pick(
+        item,
+        "trst_amt",
+        "frcr_tr_amt",
+        "tr_amt",
+        "ccld_amt",
+        "ft_ccld_amt3",
+        "alct_amt",
+        "alct_frcr_unpr",
+        "excc_amt",
+        "frcr_excc_amt"
+      )
+    )
   );
   if (amount <= 0) return null;
-  const ticker = normalizeUsTicker(pick(item, "pdno", "ovrs_pdno"));
+  const ticker = normalizeUsTicker(pick(item, "pdno", "ovrs_pdno", "ovrs_item_cd"));
   if (!ticker) return null;
-  const payDate = yyyymmdd(pick(item, "trad_dt", "erlm_dt", "ccld_dt", "stlm_dt"));
+  const payDate = yyyymmdd(
+    pick(item, "trad_dt", "erlm_dt", "ccld_dt", "stlm_dt", "pay_dt", "bass_dt", "acpl_bass_dt")
+  );
   if (!payDate) return null;
   let currency = String(pick(item, "tr_crcy_cd", "crcy_cd") || "USD").toUpperCase();
   if (currency !== "USD") currency = "USD";
@@ -427,7 +448,7 @@ export function mapOverseasDividend(item: Json, cano: string): Dividend | null {
     pay_date: payDate,
     amount,
     currency,
-    memo: String(pick(item, "sll_buy_dvsn_name", "trad_dvsn_name") || "한투 배당").trim() || "한투 배당",
+    memo: String(pick(item, "sll_buy_dvsn_name", "trad_dvsn_name", "tr_tp_name", "rght_type_name") || "한투 배당").trim() || "한투 배당",
   };
 }
 
@@ -844,7 +865,7 @@ async function fetchDomesticFills(ctx: KisCtx, cano: string, prod: string, start
           INQR_DVSN_1: "",
           CTX_AREA_FK100: "",
           CTX_AREA_NK100: "",
-          EXCG_ID_DVSN_CD: "KRX",
+          EXCG_ID_DVSN_CD: "ALL",
         },
         fkKey: "CTX_AREA_FK100",
         nkKey: "CTX_AREA_NK100",
@@ -896,71 +917,44 @@ async function fetchOverseasFills(ctx: KisCtx, cano: string, prod: string, start
 
 async function fetchDomesticDividends(ctx: KisCtx, cano: string, prod: string, start: string, end: string): Promise<Dividend[]> {
   const mapped: Dividend[] = [];
+  const seen = new Set<string>();
   for (const [a, b] of dateWindows(start, end, 90)) {
-    await sleep(150);
-    try {
-      const { rows } = await pagedGet(ctx, {
-        path: "/uapi/domestic-stock/v1/trading/period-rights",
-        trId: "CTRGA011R",
-        query: {
-          INQR_DVSN: "03",
-          CANO: cano,
-          ACNT_PRDT_CD: prod,
-          INQR_STRT_DT: fmtYyyymmdd(a),
-          INQR_END_DT: fmtYyyymmdd(b),
-          CUST_RNCNO25: "",
-          HMID: "",
-          RGHT_TYPE_CD: "",
-          PDNO: "",
-          PRDT_TYPE_CD: "",
-          CTX_AREA_NK100: "",
-          CTX_AREA_FK100: "",
-        },
-        fkKey: "CTX_AREA_FK100",
-        nkKey: "CTX_AREA_NK100",
-        outputKey: "output",
-      });
-      for (const r of rows) {
-        const m = mapDomesticDividend(r, cano);
-        if (m) mapped.push(m);
+    for (const rght of ["", "03"]) {
+      await sleep(150);
+      try {
+        const { rows } = await pagedGet(ctx, {
+          path: "/uapi/domestic-stock/v1/trading/period-rights",
+          trId: "CTRGA011R",
+          query: {
+            INQR_DVSN: "03",
+            CANO: cano,
+            ACNT_PRDT_CD: prod,
+            INQR_STRT_DT: fmtYyyymmdd(a),
+            INQR_END_DT: fmtYyyymmdd(b),
+            CUST_RNCNO25: "",
+            HMID: "",
+            RGHT_TYPE_CD: rght,
+            PDNO: "",
+            PRDT_TYPE_CD: "",
+            CTX_AREA_NK100: "",
+            CTX_AREA_FK100: "",
+          },
+          fkKey: "CTX_AREA_FK100",
+          nkKey: "CTX_AREA_NK100",
+          outputKey: "output",
+        });
+        let added = 0;
+        for (const r of rows) {
+          const m = mapDomesticDividend(r, cano);
+          if (!m || seen.has(m.external_id)) continue;
+          seen.add(m.external_id);
+          mapped.push(m);
+          added += 1;
+        }
+        if (added && !rght) break;
+      } catch {
+        continue;
       }
-    } catch {
-      continue;
-    }
-  }
-  return mapped;
-}
-
-async function fetchOverseasDividends(ctx: KisCtx, cano: string, prod: string, start: string, end: string): Promise<Dividend[]> {
-  const mapped: Dividend[] = [];
-  for (const [a, b] of dateWindows(start, end, 30)) {
-    await sleep(150);
-    try {
-      const { rows } = await pagedGet(ctx, {
-        path: "/uapi/overseas-stock/v1/trading/inquire-period-trans",
-        trId: "CTOS4001R",
-        query: {
-          CANO: cano,
-          ACNT_PRDT_CD: prod,
-          ERLM_STRT_DT: fmtYyyymmdd(a),
-          ERLM_END_DT: fmtYyyymmdd(b),
-          OVRS_EXCG_CD: "NASD",
-          PDNO: "",
-          SLL_BUY_DVSN_CD: "00",
-          LOAN_DVSN_CD: "",
-          CTX_AREA_FK100: "",
-          CTX_AREA_NK100: "",
-        },
-        fkKey: "CTX_AREA_FK100",
-        nkKey: "CTX_AREA_NK100",
-        outputKey: "output1",
-      });
-      for (const r of rows) {
-        const m = mapOverseasDividend(r, cano);
-        if (m) mapped.push(m);
-      }
-    } catch {
-      continue;
     }
   }
   return mapped;
@@ -1062,15 +1056,37 @@ async function existingTradeKeys(admin: SupabaseClient, accountIds: string[]): P
   return keys;
 }
 
-async function existingDividendKeys(admin: SupabaseClient, accountIds: string[]): Promise<Set<string>> {
-  const keys = new Set<string>();
-  if (!accountIds.length) return keys;
-  const { data } = await admin.from("dividends").select("external_id").in("account_id", accountIds);
+async function existingDividendKeys(admin: SupabaseClient, accountIds: string[]): Promise<{
+  ids: Set<string>;
+  pays: Set<string>;
+}> {
+  const ids = new Set<string>();
+  const pays = new Set<string>();
+  if (!accountIds.length) return { ids, pays };
+  const { data } = await admin
+    .from("dividends")
+    .select("external_id,ticker,pay_date")
+    .in("account_id", accountIds);
   for (const row of data || []) {
     const ext = String(row.external_id || "").trim();
-    if (ext) keys.add(ext);
+    if (ext) ids.add(ext);
+    const ticker = normalizeKrTicker(row.ticker) || String(row.ticker || "").trim();
+    const pay = String(row.pay_date || "").slice(0, 10);
+    if (ticker && pay) pays.add(`${ticker}|${pay}`);
   }
-  return keys;
+  return { ids, pays };
+}
+
+function dedupeDividendsByPayDate(rows: Dividend[]): Dividend[] {
+  const score = (r: Dividend) =>
+    String(r.external_id || "").includes(":est") || String(r.memo || "").includes("추정") ? 0 : 1;
+  const byKey = new Map<string, Dividend>();
+  for (const row of rows) {
+    const key = `${normalizeKrTicker(row.ticker) || row.ticker}|${row.pay_date}`;
+    const prev = byKey.get(key);
+    if (!prev || score(row) > score(prev)) byKey.set(key, row);
+  }
+  return [...byKey.values()];
 }
 
 async function insertTrades(
@@ -1116,15 +1132,18 @@ async function insertDividends(
 ): Promise<Record<string, number>> {
   const known = await existingDividendKeys(admin, Object.values(accountIds));
   const per: Record<string, number> = {};
-  for (const row of rows) {
-    if (known.has(row.external_id)) continue;
+  for (const row of dedupeDividendsByPayDate(rows)) {
+    if (known.ids.has(row.external_id)) continue;
+    const ticker = normalizeKrTicker(row.ticker) || row.ticker;
+    const payKey = `${ticker}|${row.pay_date}`;
+    if (hasNearbyPay(ticker, row.pay_date, known.pays)) continue;
     const accountId =
       (row.product && accountIds[`${row.product}:${row.currency}`]) || accountIds[row.currency];
     if (!accountId) continue;
     const { data, error } = await admin.from("dividends").insert({
       user_id: userId,
       account_id: accountId,
-      ticker: row.ticker,
+      ticker,
       name: row.name,
       pay_date: row.pay_date,
       amount: row.amount,
@@ -1133,7 +1152,8 @@ async function insertDividends(
       external_id: row.external_id,
     }).select("id");
     if (error || !data?.length) continue;
-    known.add(row.external_id);
+    known.ids.add(row.external_id);
+    known.pays.add(payKey);
     per[row.currency] = (per[row.currency] || 0) + 1;
   }
   return per;
@@ -1169,6 +1189,9 @@ export async function runKisSync(
   institution: string;
   accounts: Array<Record<string, unknown>>;
   products: Array<Record<string, unknown>>;
+  trades: number;
+  dividends: number;
+  sync_revision: string;
 }> {
   const settings = await loadKisSettings(admin);
   if (!settings) {
@@ -1183,7 +1206,12 @@ export async function runKisSync(
     appsecret: settings.app_secret,
     token,
   };
-  const [start, end] = lookbackRange(opts.lookbackDays ?? 90);
+  const [start, end] = lookbackRange(opts.lookbackDays ?? 365);
+  try {
+    await normalizeStoredDividendTickers(admin);
+  } catch (e) {
+    console.log("normalize stored dividend tickers skip", e);
+  }
 
   const fills: Fill[] = [];
   const dividends: Dividend[] = [];
@@ -1268,9 +1296,16 @@ export async function runKisSync(
       console.log("domestic dividends skip", cano, prod, e);
     }
     try {
-      prodDivs.push(...tagDivs(await fetchOverseasDividends(ctx, cano, prod, start, end), prod));
+      const estimated = await estimateHoldingDividends(krHold, {
+        fromDate: start,
+        toDate: end,
+        source: "kis",
+      });
+      const merged = mergeEstimatedDividends(prodDivs, tagDivs(estimated, prod));
+      prodDivs.length = 0;
+      prodDivs.push(...merged);
     } catch (e) {
-      console.log("overseas dividends skip", cano, prod, e);
+      console.log("yahoo dividend estimate skip", cano, prod, e);
     }
     fills.push(...prodFills);
     dividends.push(...prodDivs);
@@ -1300,9 +1335,11 @@ export async function runKisSync(
     });
   }
 
+  let tradeCounts: Record<string, number> = {};
+  let divCounts: Record<string, number> = {};
   if (Object.keys(accountIds).length) {
-    await insertTrades(admin, opts.userId, accountIds, fills);
-    await insertDividends(admin, opts.userId, accountIds, dividends);
+    tradeCounts = await insertTrades(admin, opts.userId, accountIds, fills);
+    divCounts = await insertDividends(admin, opts.userId, accountIds, dividends);
   }
   try {
     if (isaSeen) await deleteIsaOtherAsset(admin, opts.userId);
@@ -1318,5 +1355,15 @@ export async function runKisSync(
     cash: p.cash,
   }));
 
-  return { ok: true, institution: INSTITUTION, accounts: summary, products };
+  const tradeN = Object.values(tradeCounts).reduce((s, n) => s + n, 0);
+  const divN = Object.values(divCounts).reduce((s, n) => s + n, 0);
+  return {
+    ok: true,
+    institution: INSTITUTION,
+    accounts: summary,
+    products,
+    trades: tradeN,
+    dividends: divN,
+    sync_revision: SYNC_REVISION,
+  };
 }
