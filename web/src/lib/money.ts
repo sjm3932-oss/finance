@@ -15,6 +15,21 @@ export function fmtKrw(
   return n < 0 ? `-${body}` : body;
 }
 
+/** Short axis labels: 282158 → 28만, 34800 → 3만, 500 → 500. */
+export function fmtCompactKrw(v: number | null | undefined): string {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
+  const n = Math.abs(Number(v));
+  if (n >= 100_000_000) {
+    const eok = n / 100_000_000;
+    return `${eok >= 10 ? Math.round(eok) : Number(eok.toFixed(1))}억`;
+  }
+  if (n >= 10_000) {
+    const man = n / 10_000;
+    return `${man >= 10 ? Math.round(man) : Number(man.toFixed(1))}만`;
+  }
+  return Math.round(n).toLocaleString("ko-KR");
+}
+
 export function fmtMoney(
   v: number | null | undefined,
   currency?: string | null,
