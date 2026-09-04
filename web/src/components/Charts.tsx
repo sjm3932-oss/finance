@@ -219,7 +219,7 @@ export function TimeSeriesBarChart({
     return (
       <section className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
         <h2 className="text-base font-extrabold tracking-tight">{title}</h2>
-        {windows?.length ? <YearWindowChips windows={windows} /> : null}
+        {windows?.length ? <PeriodChips windows={windows} /> : null}
         <p className="mt-2 text-sm text-muted">표시할 데이터가 없습니다.</p>
       </section>
     );
@@ -257,7 +257,7 @@ export function TimeSeriesBarChart({
           </span>
         )}
       </div>
-      {windows?.length ? <YearWindowChips windows={windows} /> : null}
+      {windows?.length ? <PeriodChips windows={windows} /> : null}
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="mt-3 h-40 w-full"
@@ -331,7 +331,7 @@ export function TimeSeriesBarChart({
   );
 }
 
-function YearWindowChips({
+export function PeriodChips({
   windows,
 }: {
   windows: { id: string; label: string; href: string; active: boolean }[];

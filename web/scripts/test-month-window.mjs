@@ -4,11 +4,12 @@ import {
   fillMonthSeries,
   formatMonthTick,
   lastNMonthKeys,
-  monthKeysForWindow,
+  monthInPeriod,
+  monthKeysForPeriod,
   monthKeysForYear,
-  parseYearWindow,
-  yearWindowLabel,
-  yearWindowOptions,
+  parsePeriodWindow,
+  periodLabel,
+  periodOptions,
   yearsFromMonthKeys,
 } from "../src/lib/month-window.ts";
 import { fmtCompactKrw } from "../src/lib/money.ts";
@@ -27,6 +28,8 @@ assert.deepEqual(lastNMonthKeys("2026-09", 12), [
   "2026-08",
   "2026-09",
 ]);
+assert.deepEqual(lastNMonthKeys("2026-09", 1), ["2026-09"]);
+assert.equal(lastNMonthKeys("2026-09", 3).length, 3);
 assert.equal(lastNMonthKeys("2026-09", 24).length, 12);
 
 assert.deepEqual(monthKeysForYear("2026", "2026-09"), [
@@ -41,17 +44,33 @@ assert.deepEqual(monthKeysForYear("2026", "2026-09"), [
   "2026-09",
 ]);
 assert.equal(monthKeysForYear("2025", "2026-09").length, 12);
-assert.equal(monthKeysForYear("2025", "2026-09")[0], "2025-01");
-assert.equal(monthKeysForYear("2025", "2026-09")[11], "2025-12");
 
-assert.equal(parseYearWindow("2025", ["2025", "2026"]), "2025");
-assert.equal(parseYearWindow("2024", ["2025", "2026"]), LAST_12M);
-assert.equal(parseYearWindow(undefined, ["2026"]), LAST_12M);
+assert.equal(parsePeriodWindow("3m", ["2025", "2026"]), "3m");
+assert.equal(parsePeriodWindow("ytd", ["2026"]), "ytd");
+assert.equal(parsePeriodWindow("2025", ["2025", "2026"]), "2025");
+assert.equal(parsePeriodWindow("2024", ["2025", "2026"]), LAST_12M);
+assert.equal(parsePeriodWindow(undefined, ["2026"]), LAST_12M);
 
-assert.deepEqual(yearsFromMonthKeys(["2025-09", "2026-08", "2026-01"]), [
-  "2025",
-  "2026",
-]);
+assert.deepEqual(monthKeysForPeriod("1m", "2026-09"), ["2026-09"]);
+assert.deepEqual(monthKeysForPeriod("ytd", "2026-09"), monthKeysForYear("2026", "2026-09"));
+assert.equal(monthKeysForPeriod("6m", "2026-09").length, 6);
+
+assert.equal(monthInPeriod("2026-09-04", ["2026-09"]), true);
+assert.equal(monthInPeriod("2026-08-31", ["2026-09"]), false);
+
+assert.equal(formatMonthTick("2025-09", true), "25.09");
+assert.equal(formatMonthTick("2026-01", false), "1월");
+assert.equal(periodLabel(LAST_12M, "2026-09"), "최근 12개월");
+assert.equal(periodLabel("ytd", "2026-09"), "2026년");
+assert.equal(periodLabel("1m", "2026-09"), "이번 달");
+
+const opts = periodOptions(["2025", "2026"], "2026-09");
+assert.ok(opts.some((o) => o.id === "1m"));
+assert.ok(opts.some((o) => o.id === "ytd" && o.label === "올해"));
+assert.ok(opts.some((o) => o.id === "2025"));
+assert.ok(!opts.some((o) => o.id === "2026"));
+
+assert.deepEqual(yearsFromMonthKeys(["2025-09", "2026-08"]), ["2025", "2026"]);
 
 const filled = fillMonthSeries(
   [
@@ -64,15 +83,6 @@ assert.deepEqual(filled, [
   { month: "2026-07", value: 0 },
   { month: "2026-08", value: 120 },
 ]);
-
-assert.equal(formatMonthTick("2025-09", LAST_12M), "25.09");
-assert.equal(formatMonthTick("2026-01", "2026"), "1월");
-assert.equal(yearWindowLabel(LAST_12M), "최근 12개월");
-assert.equal(yearWindowLabel("2026"), "2026년");
-assert.equal(yearWindowOptions(["2025", "2026"]).length, 3);
-
-assert.equal(monthKeysForWindow(LAST_12M, "2026-09").length, 12);
-assert.equal(monthKeysForWindow("2026", "2026-09").length, 9);
 
 assert.equal(fmtCompactKrw(282158), "28만");
 assert.equal(fmtCompactKrw(34800), "3.5만");
