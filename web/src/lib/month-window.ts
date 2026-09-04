@@ -32,8 +32,8 @@ export function parseYearWindow(
 export function lastNMonthKeys(nowYm: string, count = 12): string[] {
   const n = Math.min(12, Math.max(1, count));
   const [ys, ms] = String(nowYm).split("-");
-  let y = Number(ys);
-  let m = Number(ms);
+  const y = Number(ys);
+  const m = Number(ms);
   if (!y || !m) return [];
   const out: string[] = [];
   for (let i = n - 1; i >= 0; i--) {
