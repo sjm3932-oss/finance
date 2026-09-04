@@ -1,6 +1,7 @@
 // Korea Investment Open API helpers (inquiry only). Port of scripts/kis_client.py + sync_kis.py.
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
-import { estimateHoldingDividends, mergeEstimatedDividends } from "./yahooDividends.ts";
+import { estimateHoldingDividends, mergeEstimatedDividends, normalizeStoredDividendTickers } from "./yahooDividends.ts";
+import { SYNC_REVISION } from "./syncRevision.ts";
 
 export const KIS_REAL_BASE = "https://openapi.koreainvestment.com:9443";
 export const KIS_DEMO_BASE = "https://openapivts.koreainvestment.com:29443";
@@ -1117,7 +1118,7 @@ async function insertDividends(
     const { data, error } = await admin.from("dividends").insert({
       user_id: userId,
       account_id: accountId,
-      ticker: row.ticker,
+      ticker: normalizeKrTicker(row.ticker) || row.ticker,
       name: row.name,
       pay_date: row.pay_date,
       amount: row.amount,
@@ -1164,6 +1165,7 @@ export async function runKisSync(
   products: Array<Record<string, unknown>>;
   trades: number;
   dividends: number;
+  sync_revision: string;
 }> {
   const settings = await loadKisSettings(admin);
   if (!settings) {
@@ -1179,6 +1181,11 @@ export async function runKisSync(
     token,
   };
   const [start, end] = lookbackRange(opts.lookbackDays ?? 365);
+  try {
+    await normalizeStoredDividendTickers(admin);
+  } catch (e) {
+    console.log("normalize stored dividend tickers skip", e);
+  }
 
   const fills: Fill[] = [];
   const dividends: Dividend[] = [];
@@ -1331,5 +1338,6 @@ export async function runKisSync(
     products,
     trades: tradeN,
     dividends: divN,
+    sync_revision: SYNC_REVISION,
   };
 }

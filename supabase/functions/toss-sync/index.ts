@@ -1,4 +1,6 @@
-// Toss sync enqueue only. Open API calls run on a static-IP cloud worker.
+// Toss sync enqueue. Open API calls run on a static-IP cloud worker.
+// After the worker finishes, this function estimates dividends from holdings
+// (Yahoo) so 배당 still lands even when the VM is on old code.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   corsHeaders,
@@ -6,6 +8,8 @@ import {
   requireCoupleUser,
   serviceClient,
 } from "../_shared/gemini.ts";
+import { SYNC_REVISION } from "../_shared/syncRevision.ts";
+import { upsertEstimatedDividendsForInstitution } from "../_shared/yahooDividends.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -58,10 +62,33 @@ Deno.serve(async (req) => {
     if (typeof body.job_id === "string" && body.job_id) {
       const { data: job, error } = await admin
         .from("toss_sync_jobs")
-        .select("id,status,error,result,created_at,finished_at")
+        .select("id,status,error,result,created_at,finished_at,user_id")
         .eq("id", body.job_id)
         .maybeSingle();
       if (error || !job) return json({ ok: false, error: "작업을 찾을 수 없습니다." }, 404);
+      if (job.status === "ok") {
+        try {
+          const extra = await upsertEstimatedDividendsForInstitution(admin, {
+            userId: String(job.user_id),
+            institution: "토스증권",
+            source: "toss",
+            lookbackDays: 365,
+          });
+          const prev = job.result && typeof job.result === "object"
+            ? (job.result as Record<string, unknown>)
+            : {};
+          const result = {
+            ...prev,
+            dividends: extra.total,
+            estimated_dividends: extra.inserted,
+            sync_revision: extra.sync_revision,
+          };
+          await admin.from("toss_sync_jobs").update({ result }).eq("id", job.id);
+          return json({ ok: true, job: { ...job, result } });
+        } catch (e) {
+          console.log("toss estimated dividends skip", e);
+        }
+      }
       return json({ ok: true, job });
     }
 

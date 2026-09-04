@@ -61,11 +61,13 @@ from kis_client import (  # noqa: E402
     map_overseas_holding,
     merge_credentials,
     merge_estimated_dividends,
+    normalize_kr_ticker,
     output_rows,
     overseas_cash,
     to_number,
 )
 from toss_client import estimate_holding_dividends  # noqa: E402
+from sync_revision import SYNC_REVISION  # noqa: E402
 
 USER_EMAIL = os.getenv("CLEAR_USER_EMAIL", "sjm3932@gmail.com")
 TRADE_LOOKBACK_DAYS = max(1, int(os.getenv("KIS_TRADE_LOOKBACK_DAYS", "365")))
@@ -543,7 +545,7 @@ def insert_dividends(c, *, user_id: str, account_ids: dict[str, str], rows: list
         payload: dict[str, Any] = {
             "user_id": user_id,
             "account_id": account_id,
-            "ticker": row["ticker"],
+            "ticker": normalize_kr_ticker(row["ticker"]) or row["ticker"],
             "name": row["name"],
             "pay_date": row["pay_date"],
             "amount": row["amount"],
@@ -911,6 +913,18 @@ def kis_credentials() -> tuple[str, str, str, list[tuple[str, str]]]:
     )
 
 
+def normalize_stored_dividend_tickers(c) -> int:
+    rows = c.table("dividends").select("id,ticker").execute().data or []
+    n = 0
+    for row in rows:
+        nxt = normalize_kr_ticker(row.get("ticker"))
+        if not nxt or nxt == row.get("ticker"):
+            continue
+        c.table("dividends").update({"ticker": nxt}).eq("id", row["id"]).execute()
+        n += 1
+    return n
+
+
 def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
     appkey, appsecret, env, accounts = kis_credentials()
     if not appkey or not appsecret:
@@ -936,6 +950,12 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
     print(f"Public IP (allow-list this in KIS Developers if IP lock is on): {ip}")
 
     c = supabase()
+    try:
+        fixed = normalize_stored_dividend_tickers(c)
+        if fixed:
+            print(f"  normalized {fixed} dividend ticker(s)")
+    except Exception as exc:
+        print(f"  dividend ticker normalize skip: {exc}")
     uid = user_id
     if not uid:
         users = c.table("users").select("id,email").eq("email", USER_EMAIL).execute().data or []
@@ -1103,6 +1123,7 @@ def run_sync(*, user_id: str | None = None, require_creds: bool = True) -> dict:
         "egress_ip": ip,
         "trades": trade_n,
         "dividends": div_n,
+        "sync_revision": SYNC_REVISION,
     }
 
 

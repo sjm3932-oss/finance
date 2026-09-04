@@ -20,6 +20,7 @@ import {
   isTickerLike,
   lookupAssetName,
   normalizeKrTicker,
+  tickerLookupKeys,
 } from "@/lib/tickers";
 
 async function safeSelect<T>(
@@ -326,13 +327,15 @@ export async function loadAssetFlows(
 
 export async function loadTickerHistory(ticker: string, accountIds: string[] | null) {
   const supabase = await createClient();
+  const tickerKeys = tickerLookupKeys(ticker);
+  const keys = tickerKeys.length ? tickerKeys : [ticker];
   let trades = await safeSelect<Record<string, unknown>>(() =>
     supabase
       .from("trades")
       .select(
         "trade_date,trade_type,price,quantity,fee,currency,realized_pnl,reason,account_id"
       )
-      .eq("ticker", ticker)
+      .in("ticker", keys)
       .order("trade_date", { ascending: false })
       .limit(200)
   );
@@ -340,7 +343,7 @@ export async function loadTickerHistory(ticker: string, accountIds: string[] | n
     supabase
       .from("dividends")
       .select("pay_date,ticker,name,amount,currency,account_id,memo")
-      .eq("ticker", ticker)
+      .in("ticker", keys)
       .order("pay_date", { ascending: false })
       .limit(200)
   );
@@ -352,7 +355,7 @@ export async function loadTickerHistory(ticker: string, accountIds: string[] | n
     supabase
       .from("holding_daily_snapshots")
       .select("snapshot_date,market_value_krw,account_id")
-      .eq("ticker", ticker)
+      .in("ticker", keys)
       .order("snapshot_date")
       .limit(365)
   );

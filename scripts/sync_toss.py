@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 load_dotenv(ROOT / ".env")
 
+from sync_revision import SYNC_REVISION  # noqa: E402
 from toss_client import (  # noqa: E402
     INSTITUTION,
     TOSS_BASE,
@@ -45,6 +46,7 @@ from toss_client import (  # noqa: E402
     humanize_toss_error,
     local_account_key,
     map_filled_order,
+    normalize_ticker,
     pagination_cursor,
     to_number,
 )
@@ -474,7 +476,7 @@ def insert_toss_dividends(
         payload: dict[str, Any] = {
             "user_id": user_id,
             "account_id": account_id,
-            "ticker": row["ticker"],
+            "ticker": normalize_ticker(row["ticker"]) or row["ticker"],
             "name": row.get("name") or row["ticker"],
             "pay_date": row["pay_date"],
             "amount": row["amount"],
@@ -661,6 +663,7 @@ def run_sync(*, user_id: str | None = None) -> dict:
         "egress_ip": ip,
         "trades": trades_total,
         "dividends": divs_total,
+        "sync_revision": SYNC_REVISION,
     }
 
 

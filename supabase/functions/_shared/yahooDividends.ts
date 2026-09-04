@@ -1,5 +1,8 @@
 /** Yahoo chart dividend events → qty × DPS estimates (Toss / 한투 국내 ETF). */
 
+import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { SYNC_REVISION } from "./syncRevision.ts";
+
 const YAHOO_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const SKIP_TICKERS = new Set(["ISA-FUND"]);
@@ -146,4 +149,138 @@ export function mergeEstimatedDividends<T extends { ticker: string; pay_date: st
     have.add(key);
   }
   return out;
+}
+
+function storedKrTicker(raw: unknown): string {
+  let t = String(raw || "").trim().toUpperCase();
+  if (!t) return t;
+  if (t.endsWith(".KS") || t.endsWith(".KQ")) t = t.slice(0, -3);
+  const aIdx = t.indexOf("A");
+  if (aIdx >= 0 && /^\d*$/.test(t.slice(0, aIdx)) && /^\d+$/.test(t.slice(aIdx + 1))) {
+    t = t.slice(aIdx + 1);
+  }
+  if (/^\d+$/.test(t) && t.length <= 6) return t.padStart(6, "0");
+  if (/^\d+$/.test(t) && t.length > 6) return t.slice(-6);
+  return t;
+}
+
+function lookbackDates(days: number): { fromDate: string; toDate: string } {
+  const to = new Date();
+  const from = new Date(to.getTime() - Math.max(1, days) * 86400000);
+  return { fromDate: from.toISOString().slice(0, 10), toDate: to.toISOString().slice(0, 10) };
+}
+
+export async function normalizeStoredDividendTickers(
+  admin: SupabaseClient,
+  accountIds?: string[]
+): Promise<number> {
+  let query = admin.from("dividends").select("id,ticker");
+  if (accountIds?.length) query = query.in("account_id", accountIds);
+  const { data, error } = await query.limit(2000);
+  if (error || !data?.length) return 0;
+  let n = 0;
+  for (const row of data) {
+    const next = storedKrTicker(row.ticker);
+    if (!next || next === row.ticker) continue;
+    const { error: upd } = await admin.from("dividends").update({ ticker: next }).eq("id", row.id);
+    if (!upd) n += 1;
+  }
+  return n;
+}
+
+export async function upsertEstimatedDividendsForInstitution(
+  admin: SupabaseClient,
+  opts: {
+    userId: string;
+    institution: string;
+    source: "toss" | "kis";
+    lookbackDays?: number;
+  }
+): Promise<{ inserted: number; total: number; normalized: number; sync_revision: string }> {
+  const { data: accounts } = await admin
+    .from("accounts")
+    .select("id,currency,user_id")
+    .eq("institution", opts.institution);
+  const accountRows = accounts || [];
+  const accountIds = accountRows.map((a) => String(a.id));
+  const normalized = await normalizeStoredDividendTickers(admin, accountIds);
+  if (!accountIds.length) {
+    return { inserted: 0, total: 0, normalized, sync_revision: SYNC_REVISION };
+  }
+
+  const { data: holdings } = await admin
+    .from("holdings")
+    .select("ticker,name,quantity,currency,account_id")
+    .in("account_id", accountIds);
+
+  const byAccount = new Map<string, YahooHolding[]>();
+  for (const h of holdings || []) {
+    const aid = String(h.account_id || "");
+    if (!aid) continue;
+    const list = byAccount.get(aid) || [];
+    list.push({
+      ticker: storedKrTicker(h.ticker) || String(h.ticker || "").trim(),
+      name: String(h.name || h.ticker || "").trim(),
+      quantity: Number(h.quantity || 0),
+      currency: String(h.currency || "KRW"),
+    });
+    byAccount.set(aid, list);
+  }
+
+  const dates = lookbackDates(opts.lookbackDays ?? 365);
+  const known = new Set<string>();
+  const { data: existing } = await admin
+    .from("dividends")
+    .select("external_id")
+    .in("account_id", accountIds);
+  for (const row of existing || []) {
+    const ext = String(row.external_id || "").trim();
+    if (ext) known.add(ext);
+  }
+
+  const accountUser = new Map(accountRows.map((a) => [String(a.id), String(a.user_id || "")]));
+  let inserted = 0;
+  for (const [accountId, rows] of byAccount) {
+    if (!rows.length) continue;
+    let estimated: EstimatedDividend[] = [];
+    try {
+      estimated = await estimateHoldingDividends(rows, { ...dates, source: opts.source });
+    } catch (e) {
+      console.log("yahoo estimate skip", opts.institution, accountId, e);
+      continue;
+    }
+    const userId = accountUser.get(accountId) || opts.userId;
+    for (const row of estimated) {
+      if (known.has(row.external_id)) continue;
+      const ticker = storedKrTicker(row.ticker) || row.ticker;
+      const { data, error } = await admin
+        .from("dividends")
+        .insert({
+          user_id: userId,
+          account_id: accountId,
+          ticker,
+          name: row.name || ticker,
+          pay_date: row.pay_date,
+          amount: row.amount,
+          currency: row.currency,
+          memo: row.memo,
+          external_id: row.external_id,
+        })
+        .select("id");
+      if (error || !data?.length) continue;
+      known.add(row.external_id);
+      inserted += 1;
+    }
+  }
+
+  const { count } = await admin
+    .from("dividends")
+    .select("id", { count: "exact", head: true })
+    .in("account_id", accountIds);
+  return {
+    inserted,
+    total: count || 0,
+    normalized,
+    sync_revision: SYNC_REVISION,
+  };
 }

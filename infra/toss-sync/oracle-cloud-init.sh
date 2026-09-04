@@ -26,6 +26,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/toss-sync/repo
 EnvironmentFile=/opt/toss-sync/env
+ExecStartPre=/bin/bash /opt/toss-sync/repo/infra/toss-sync/pull-repo.sh
 ExecStart=/opt/toss-sync/repo/.venv/bin/python3 scripts/toss_sync_worker.py
 Restart=always
 RestartSec=5
@@ -49,6 +50,8 @@ KIS_ACNT_PRDT_CD=01
 KIS_ACCOUNTS=
 KIS_ENV=real
 KIS_TRADE_LOOKBACK_DAYS=365
+WORKER_GIT_REF=cursor/wealth-mvp-core-faae
+WORKER_SELF_UPDATE=1
 ENV
 chmod 600 /opt/toss-sync/env.example
 if [ ! -f /opt/toss-sync/env ]; then
