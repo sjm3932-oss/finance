@@ -33,12 +33,21 @@ export function yahooChartSymbols(ticker: string): string[] {
   return [t];
 }
 
+type YahooDivEvent = { date?: number; amount?: number };
+type YahooChartPayload = {
+  chart?: {
+    result?: Array<{
+      events?: { dividends?: Record<string, YahooDivEvent> | YahooDivEvent[] };
+    }>;
+  };
+};
+
 export function parseYahooDividends(
   payload: unknown,
   opts: { ticker: string; quantity: number; start: string; end: string; source?: "toss" | "kis" }
 ): EstimatedDividend[] {
   if (opts.quantity <= 0) return [];
-  const root = payload as { chart?: { result?: Array<{ events?: { dividends?: Record<string, { date?: number; amount?: number } } | Array<{ date?: number; amount?: number }> } }> } };
+  const root = payload as YahooChartPayload;
   const result = root?.chart?.result || [];
   if (!result.length) return [];
   const events = result[0]?.events?.dividends || {};
