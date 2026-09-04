@@ -524,18 +524,35 @@ def map_overseas_dividend(item: dict[str, Any], *, cano: str) -> dict[str, Any] 
     }
 
 
+def nearby_pay_dates(pay_date: str, days: int = 4) -> list[str]:
+    try:
+        base = date.fromisoformat(str(pay_date)[:10])
+    except ValueError:
+        return [str(pay_date)[:10]]
+    return [(base + timedelta(days=i)).isoformat() for i in range(-days, days + 1)]
+
+
+def has_nearby_pay(ticker: str, pay_date: str, have: set[tuple[str, str]], days: int = 4) -> bool:
+    t = normalize_kr_ticker(ticker) or str(ticker or "")
+    return any((t, d) in have or (str(ticker or ""), d) in have for d in nearby_pay_dates(pay_date, days))
+
+
 def merge_estimated_dividends(
     broker: list[dict[str, Any]], estimated: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Keep broker-paid rows; fill gaps with Yahoo estimates on ticker+pay_date."""
-    have = {(str(row.get("ticker") or ""), str(row.get("pay_date") or "")) for row in broker}
+    """Keep broker-paid rows; fill gaps with Yahoo estimates on ticker+pay_date (±4 days)."""
+    have = {
+        (normalize_kr_ticker(row.get("ticker")) or str(row.get("ticker") or ""), str(row.get("pay_date") or ""))
+        for row in broker
+    }
     out = list(broker)
     for row in estimated:
-        key = (str(row.get("ticker") or ""), str(row.get("pay_date") or ""))
-        if not key[0] or not key[1] or key in have:
+        ticker = normalize_kr_ticker(row.get("ticker")) or str(row.get("ticker") or "")
+        pay = str(row.get("pay_date") or "")
+        if not ticker or not pay or has_nearby_pay(ticker, pay, have):
             continue
         out.append(row)
-        have.add(key)
+        have.add((ticker, pay))
     return out
 
 

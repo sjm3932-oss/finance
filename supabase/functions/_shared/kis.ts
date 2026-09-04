@@ -1,6 +1,6 @@
 // Korea Investment Open API helpers (inquiry only). Port of scripts/kis_client.py + sync_kis.py.
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
-import { estimateHoldingDividends, mergeEstimatedDividends, normalizeStoredDividendTickers } from "./yahooDividends.ts";
+import { estimateHoldingDividends, hasNearbyPay, mergeEstimatedDividends, normalizeStoredDividendTickers } from "./yahooDividends.ts";
 import { SYNC_REVISION } from "./syncRevision.ts";
 
 export const KIS_REAL_BASE = "https://openapi.koreainvestment.com:9443";
@@ -1136,7 +1136,7 @@ async function insertDividends(
     if (known.ids.has(row.external_id)) continue;
     const ticker = normalizeKrTicker(row.ticker) || row.ticker;
     const payKey = `${ticker}|${row.pay_date}`;
-    if (known.pays.has(payKey)) continue;
+    if (hasNearbyPay(ticker, row.pay_date, known.pays)) continue;
     const accountId =
       (row.product && accountIds[`${row.product}:${row.currency}`]) || accountIds[row.currency];
     if (!accountId) continue;

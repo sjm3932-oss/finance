@@ -144,17 +144,36 @@ export async function estimateHoldingDividends(
   return out;
 }
 
+export function nearbyPayDates(payDate: string, days = 4): string[] {
+  const t = Date.parse(`${String(payDate).slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(t)) return [String(payDate).slice(0, 10)];
+  const out: string[] = [];
+  for (let i = -days; i <= days; i++) {
+    out.push(new Date(t + i * 86400000).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+export function hasNearbyPay(ticker: string, payDate: string, have: Set<string>, days = 4): boolean {
+  const norm = storedKrTicker(ticker) || ticker;
+  return nearbyPayDates(payDate, days).some(
+    (d) => have.has(`${norm}|${d}`) || have.has(`${ticker}|${d}`)
+  );
+}
+
 export function mergeEstimatedDividends<T extends { ticker: string; pay_date: string }>(
   broker: T[],
   estimated: T[]
 ): T[] {
-  const have = new Set(broker.map((row) => `${row.ticker}|${row.pay_date}`));
+  const have = new Set(
+    broker.map((row) => `${storedKrTicker(row.ticker) || row.ticker}|${row.pay_date}`)
+  );
   const out = [...broker];
   for (const row of estimated) {
-    const key = `${row.ticker}|${row.pay_date}`;
-    if (!row.ticker || !row.pay_date || have.has(key)) continue;
+    const ticker = storedKrTicker(row.ticker) || row.ticker;
+    if (!ticker || !row.pay_date || hasNearbyPay(ticker, row.pay_date, have)) continue;
     out.push(row);
-    have.add(key);
+    have.add(`${ticker}|${row.pay_date}`);
   }
   return out;
 }
@@ -266,7 +285,7 @@ export async function upsertEstimatedDividendsForInstitution(
       if (known.has(row.external_id)) continue;
       const ticker = storedKrTicker(row.ticker) || row.ticker;
       const payKey = `${ticker}|${row.pay_date}`;
-      if (havePay.has(payKey)) continue;
+      if (hasNearbyPay(ticker, row.pay_date, havePay)) continue;
       const { data, error } = await admin
         .from("dividends")
         .insert({

@@ -410,3 +410,12 @@ def test_merge_estimated_dividends_fills_gaps_only():
     assert [r["pay_date"] for r in merged] == ["2026-03-10", "2026-04-10"]
     assert merged[0]["amount"] == 12.0
     assert merged[1]["external_id"].startswith("kis:div:est:")
+
+    near = merge_estimated_dividends(
+        [{"ticker": "458730", "pay_date": "2026-08-31", "amount": 11610}],
+        [
+            {"ticker": "458730", "pay_date": "2026-08-28", "amount": 11610},
+            {"ticker": "458730", "pay_date": "2026-09-29", "amount": 9000},
+        ],
+    )
+    assert [r["pay_date"] for r in near] == ["2026-08-31", "2026-09-29"]

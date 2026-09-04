@@ -61,6 +61,7 @@ from kis_client import (  # noqa: E402
     map_overseas_holding,
     merge_credentials,
     merge_estimated_dividends,
+    has_nearby_pay,
     normalize_kr_ticker,
     output_rows,
     overseas_cash,
@@ -536,6 +537,7 @@ def insert_trades(c, *, user_id: str, account_ids: dict[str, str], rows: list[di
 
 def insert_dividends(c, *, user_id: str, account_ids: dict[str, str], rows: list[dict]) -> dict[str, int]:
     known, have_pay = existing_dividend_keys(c, list(account_ids.values()))
+    have_tuples = {tuple(k.split("|", 1)) for k in have_pay if "|" in k}
     per_ccy: dict[str, int] = {}
     for row in rows:
         ext = row["external_id"]
@@ -543,7 +545,7 @@ def insert_dividends(c, *, user_id: str, account_ids: dict[str, str], rows: list
             continue
         ticker = normalize_kr_ticker(row["ticker"]) or row["ticker"]
         pay_key = f"{ticker}|{row['pay_date']}"
-        if pay_key in have_pay:
+        if pay_key in have_pay or has_nearby_pay(ticker, row["pay_date"], have_tuples):
             continue
         ccy = row["currency"]
         prod = str(row.get("product") or "")
@@ -574,6 +576,7 @@ def insert_dividends(c, *, user_id: str, account_ids: dict[str, str], rows: list
         if res.data:
             known.add(ext)
             have_pay.add(pay_key)
+            have_tuples.add((ticker, row["pay_date"]))
             per_ccy[ccy] = per_ccy.get(ccy, 0) + 1
     return per_ccy
 
