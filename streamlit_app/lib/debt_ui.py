@@ -26,9 +26,10 @@ DEBT_KIND_KO = {
     "other": "기타",
 }
 
-# Streamlit number_input maps `step` onto HTML <input type="number" step=...>.
-# iOS Safari still rejects real 원 amounts even with step=1 ("유효한 값을 입력하십시오").
-# Won amounts therefore use text inputs; see parse_won().
+# HTML <input type="number"> is valid iff (value - min) is a multiple of `step`.
+# step=100000 made 325047983 invalid. Safari only says "유효한 값을 입력하십시오";
+# Chrome also lists the nearest multiples (325000000 / 325100000). Same constraint.
+# step=1 → any integer 원 is valid. All of min/value/step must be ints (integer widget).
 WON_INPUT_STEP = 1
 RATE_INPUT_STEP = 0.01
 
@@ -52,52 +53,15 @@ def _fmt(n) -> str:
         return "—"
 
 
-def parse_won(raw) -> int | None:
-    """Parse a 원 amount from text. Commas, spaces, ₩/원 suffixes are allowed."""
-    if raw is None:
-        return None
-    if isinstance(raw, bool):
-        return None
-    if isinstance(raw, (int, float)):
-        if raw < 0:
-            return None
-        return int(round(float(raw)))
-    text = (
-        str(raw)
-        .strip()
-        .replace(",", "")
-        .replace(" ", "")
-        .replace("₩", "")
-        .replace("원", "")
+def won_number_input(label: str, *, value: int = 0, **kwargs):
+    """Integer 원 <input type=number step=1> — any whole-won amount is HTML5-valid."""
+    return st.number_input(
+        label,
+        min_value=0,
+        step=WON_INPUT_STEP,
+        value=int(value or 0),
+        **kwargs,
     )
-    if not text:
-        return None
-    try:
-        n = float(text)
-    except ValueError:
-        return None
-    if n < 0 or n != n:  # NaN
-        return None
-    return int(round(n))
-
-
-def won_text_input(
-    label: str,
-    *,
-    value: int = 0,
-    placeholder: str = "예: 325047983",
-    help: str | None = None,
-    key: str | None = None,
-) -> str:
-    """Text field for 원 amounts — avoids iOS HTML5 <input type=number> validation."""
-    kwargs: dict = {
-        "placeholder": placeholder,
-        "help": help or "숫자만 입력하세요. 콤마는 있어도 됩니다.",
-    }
-    if key:
-        kwargs["key"] = key
-    initial = f"{int(value):,}" if value else ""
-    return st.text_input(label, value=initial, **kwargs)
 
 
 def split_monthly_payment(balance: float, annual_rate_pct: float, payment: float) -> tuple[float, float]:
@@ -407,8 +371,8 @@ def render_debt_forms(client, user) -> None:
                 options=list(DEBT_KIND_KO.keys()),
                 format_func=lambda k: DEBT_KIND_KO[k],
             )
-            balance_raw = won_text_input("현재 잔금(원)", placeholder="예: 325047983")
-            original_raw = won_text_input("최초 원금(원)", placeholder="예: 350000000")
+            balance = won_number_input("현재 잔금(원)")
+            original = won_number_input("최초 원금(원)")
             rate = st.number_input(
                 "연 이자율(%)",
                 min_value=0.0,
@@ -435,10 +399,7 @@ def render_debt_forms(client, user) -> None:
                 options=list(REPAY_METHOD_KO.keys()),
                 format_func=lambda k: REPAY_METHOD_KO[k],
             )
-            contracted_raw = won_text_input(
-                "약정 월 납부액(원, 비우면 자동계산)",
-                placeholder="예: 1484675",
-            )
+            contracted = won_number_input("약정 월 납부액(원, 0=자동계산)")
             grace = st.number_input("거치 기간(개월)", min_value=0, step=1, value=0)
             pay_day = st.number_input(
                 "매월 납부일 (1–28, 0=대출일과 동일)",
@@ -463,13 +424,8 @@ def render_debt_forms(client, user) -> None:
             )
             memo = st.text_input("메모", "")
             if st.form_submit_button("등록", type="primary"):
-                balance = parse_won(balance_raw)
-                original = parse_won(original_raw) or 0
-                contracted = parse_won(contracted_raw) or 0
                 if not lender.strip():
                     st.error("대출명을 입력하세요.")
-                elif balance is None:
-                    st.error("현재 잔금을 숫자로 입력하세요.")
                 elif due <= started:
                     st.error("만기일은 대출 시작일보다 뒤여야 합니다.")
                 else:
@@ -550,10 +506,9 @@ def render_debt_forms(client, user) -> None:
                 ),
                 format_func=lambda k: REPAY_METHOD_KO[k],
             )
-            contracted_edit_raw = won_text_input(
-                "약정 월 납부액(원, 비우면 자동계산)",
+            contracted_edit = won_number_input(
+                "약정 월 납부액(원, 0=자동계산)",
                 value=int(debt.get("monthly_payment") or 0),
-                placeholder="예: 1484675",
             )
             grace_edit = st.number_input(
                 "거치 기간(개월)",
@@ -569,7 +524,6 @@ def render_debt_forms(client, user) -> None:
                 value=int(debt.get("payment_day") or 0),
             )
             if st.form_submit_button("상환 조건 저장", type="primary"):
-                contracted_edit = parse_won(contracted_edit_raw) or 0
                 if due_edit <= started_edit:
                     st.error("만기일은 대출 시작일보다 뒤여야 합니다.")
                 else:
@@ -616,10 +570,9 @@ def render_debt_forms(client, user) -> None:
     st.markdown("##### 원리금 납부")
     scheduled_pay = int(plan.next.payment) if plan and plan.next else 0
     with st.form("debt_payment_record"):
-        payment_raw = won_text_input(
+        payment = won_number_input(
             "납부 금액(원리금 합계, 원)",
             value=scheduled_pay,
-            placeholder="예: 1484675",
         )
         pay_date = st.date_input(
             "납부일",
@@ -628,7 +581,6 @@ def render_debt_forms(client, user) -> None:
             max_value=_DATE_MAX,
         )
         memo = st.text_input("메모", "")
-        payment = parse_won(payment_raw) or 0
         interest_p, principal_p = split_monthly_payment(bal, rate, payment)
         if plan and plan.next:
             st.info(
@@ -671,7 +623,7 @@ def render_debt_forms(client, user) -> None:
                 ["increase", "repayment"],
                 format_func=lambda x: DEBT_TX_KO.get(x, x),
             )
-            amt_raw = won_text_input("금액", placeholder="예: 1000000")
+            amt = won_number_input("금액")
             adj_date = st.date_input(
                 "일자",
                 value=date.today(),
@@ -680,7 +632,6 @@ def render_debt_forms(client, user) -> None:
             )
             adj_memo = st.text_input("메모", "")
             if st.form_submit_button("조정 기록"):
-                amt = parse_won(amt_raw) or 0
                 if amt <= 0:
                     st.error("금액을 확인하세요.")
                 else:
