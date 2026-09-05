@@ -47,6 +47,11 @@ _DEBT_COLS = {
     "최초원금": "original_principal",
     "이자율": "interest_rate",
     "만기일": "due_date",
+    "대출일": "started_on",
+    "상환방법": "repay_method",
+    "월납부액": "monthly_payment",
+    "매월납부일": "payment_day",
+    "거치개월": "grace_months",
     "메모": "memo",
 }
 _PAY_COLS = {

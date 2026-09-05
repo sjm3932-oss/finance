@@ -8,6 +8,12 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from lib.debt_schedule import (
+    REPAY_METHOD_KO,
+    amortization_from_debt,
+    parse_date,
+    parse_repay_method,
+)
 from lib.theme import CHART_COLORS, PRIMARY, chart_layout, show_plotly
 from lib.ui_ko import DEBT_TX_KO
 
@@ -20,12 +26,42 @@ DEBT_KIND_KO = {
     "other": "기타",
 }
 
+# HTML <input type="number"> is valid iff (value - min) is a multiple of `step`.
+# step=100000 made 325047983 invalid. Safari only says "유효한 값을 입력하십시오";
+# Chrome also lists the nearest multiples (325000000 / 325100000). Same constraint.
+# step=1 → any integer 원 is valid. All of min/value/step must be ints (integer widget).
+WON_INPUT_STEP = 1
+RATE_INPUT_STEP = 0.01
+
+_DEBT_SELECTS = (
+    "id,user_id,lender,debt_kind,principal,original_principal,"
+    "interest_rate,due_date,memo,created_at,account_id,"
+    "started_on,repay_method,monthly_payment,payment_day,grace_months",
+    "id,user_id,lender,debt_kind,principal,original_principal,"
+    "interest_rate,due_date,memo,created_at,account_id",
+    "id,user_id,lender,debt_kind,principal,original_principal,"
+    "interest_rate,due_date,memo,created_at",
+)
+_DATE_MIN = date(1980, 1, 1)
+_DATE_MAX = date(2100, 12, 31)
+
 
 def _fmt(n) -> str:
     try:
         return f"₩{float(n):,.0f}"
     except (TypeError, ValueError):
         return "—"
+
+
+def won_number_input(label: str, *, value: int = 0, **kwargs):
+    """Integer 원 <input type=number step=1> — any whole-won amount is HTML5-valid."""
+    return st.number_input(
+        label,
+        min_value=0,
+        step=WON_INPUT_STEP,
+        value=int(value or 0),
+        **kwargs,
+    )
 
 
 def split_monthly_payment(balance: float, annual_rate_pct: float, payment: float) -> tuple[float, float]:
@@ -44,30 +80,25 @@ def split_monthly_payment(balance: float, annual_rate_pct: float, payment: float
 
 
 def _load_debts(client, account_ids: list[str] | None = None) -> list[dict]:
-    try:
-        rows = (
-            client.table("debts")
-            .select(
-                "id,user_id,lender,debt_kind,principal,original_principal,"
-                "interest_rate,due_date,memo,created_at,account_id"
+    rows: list[dict] = []
+    last_err = None
+    for cols in _DEBT_SELECTS:
+        try:
+            rows = (
+                client.table("debts")
+                .select(cols)
+                .order("lender")
+                .execute()
+                .data
+                or []
             )
-            .order("lender")
-            .execute()
-            .data
-            or []
-        )
-    except Exception:
-        rows = (
-            client.table("debts")
-            .select(
-                "id,user_id,lender,debt_kind,principal,original_principal,"
-                "interest_rate,due_date,memo,created_at"
-            )
-            .order("lender")
-            .execute()
-            .data
-            or []
-        )
+            last_err = None
+            break
+        except Exception as exc:
+            last_err = exc
+            rows = []
+    if last_err and not rows:
+        rows = []
     allow = {str(a) for a in account_ids} if account_ids is not None else None
     out = []
     for d in rows:
@@ -78,6 +109,18 @@ def _load_debts(client, account_ids: list[str] | None = None) -> list[dict]:
         d["original_principal"] = float(d.get("original_principal") or d.get("principal") or 0)
         d["principal"] = float(d.get("principal") or 0)
         d["interest_rate"] = float(d.get("interest_rate") or 0)
+        d["repay_method"] = parse_repay_method(d.get("repay_method"))
+        d["grace_months"] = int(d.get("grace_months") or 0)
+        try:
+            mp = d.get("monthly_payment")
+            d["monthly_payment"] = float(mp) if mp not in (None, "") else None
+        except (TypeError, ValueError):
+            d["monthly_payment"] = None
+        try:
+            pd_day = d.get("payment_day")
+            d["payment_day"] = int(pd_day) if pd_day not in (None, "") else None
+        except (TypeError, ValueError):
+            d["payment_day"] = None
         out.append(d)
     return out
 
@@ -96,6 +139,55 @@ def _load_txs(client, debt_id: str, limit: int = 60) -> list[dict]:
         .data
         or []
     )
+
+
+def _insert_debt(client, payload: dict):
+    try:
+        return client.table("debts").insert(payload).execute().data
+    except Exception:
+        stripped = dict(payload)
+        for k in (*_SCHEDULE_KEYS, "account_id"):
+            stripped.pop(k, None)
+        return client.table("debts").insert(stripped).execute().data
+
+
+def _update_debt(client, debt_id: str, payload: dict) -> None:
+    try:
+        client.table("debts").update(payload).eq("id", debt_id).execute()
+    except Exception:
+        stripped = {k: v for k, v in payload.items() if k not in _SCHEDULE_KEYS}
+        if stripped:
+            client.table("debts").update(stripped).eq("id", debt_id).execute()
+
+
+def _render_schedule(debt: dict, *, as_of: date | None = None):
+    plan = amortization_from_debt(debt, as_of=as_of or date.today(), upcoming_n=12)
+    if plan is None:
+        st.caption(
+            "최초 대출일·만기일·최초 원금·상환 방법이 있으면 "
+            "매월 줄어드는 원금을 계산합니다."
+        )
+        return None
+    method_ko = REPAY_METHOD_KO.get(plan.method, plan.method)
+    started = debt.get("started_on") or "—"
+    due = debt.get("due_date") or "—"
+    st.caption(f"{method_ko} · 대출 {started} → 만기 {due} · {plan.paid}/{plan.term}회 경과")
+    nxt = plan.next
+    if nxt:
+        c1, c2, c3, c4 = st.columns(4, gap="small")
+        c1.metric("이달 약정 납부", _fmt(nxt.payment))
+        c2.metric("이달 이자", _fmt(nxt.interest))
+        c3.metric("이달 원금상환", _fmt(nxt.principal))
+        c4.metric("납부 후 스케줄 잔금", _fmt(nxt.balance_after))
+        if nxt.in_grace:
+            st.caption("거치 기간 — 이번 달은 이자만 납부하고 원금은 그대로입니다.")
+    else:
+        st.caption("스케줄상 만기 도래 — 잔금 전액 상환 구간입니다.")
+    actual = float(debt.get("principal") or 0)
+    gap = actual - plan.scheduled_balance
+    if abs(gap) >= 1:
+        st.caption(f"스케줄 잔금 {_fmt(plan.scheduled_balance)} · 실제 잔금 {_fmt(actual)}")
+    return plan
 
 
 def render_debt_dashboard(
@@ -148,8 +240,10 @@ def render_debt_dashboard(
         if d["original_principal"] > 0:
             progress = min(max(1 - d["principal"] / d["original_principal"], 0), 1)
         kind_label = DEBT_KIND_KO.get(d["debt_kind"], d["debt_kind"])
+        method_ko = REPAY_METHOD_KO.get(d.get("repay_method") or "", "")
+        extra = f" · {method_ko}" if method_ko else ""
         st.markdown(
-            f"**{d['lender']}** · {kind_label} · "
+            f"**{d['lender']}** · {kind_label}{extra} · "
             f"잔금 {_fmt(d['principal'])} · 이자 {d['interest_rate']:.2f}% · "
             f"상환진행 {progress * 100:.1f}%"
         )
@@ -177,6 +271,24 @@ def render_debt_dashboard(
     k3.metric("연 이자율", f"{debt['interest_rate']:.2f}%")
     month_int = round(debt["principal"] * (debt["interest_rate"] / 100.0) / 12.0)
     k4.metric("이달 예상 이자", _fmt(month_int))
+    plan = _render_schedule(debt)
+    if plan and plan.upcoming:
+        st.markdown("##### 향후 상환 스케줄")
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "회차": [p.number for p in plan.upcoming],
+                    "납부일": [p.pay_date.isoformat() for p in plan.upcoming],
+                    "납부액": [p.payment for p in plan.upcoming],
+                    "이자": [p.interest for p in plan.upcoming],
+                    "원금상환": [p.principal for p in plan.upcoming],
+                    "납부 후 잔금": [p.balance_after for p in plan.upcoming],
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+            height=min(360, 48 + 36 * len(plan.upcoming)),
+        )
 
     hist = (
         client.table("debt_rate_history")
@@ -246,6 +358,7 @@ def render_debt_forms(client, user) -> None:
     """Write path for debts — used only under 기록하기 → 수기."""
     st.caption(
         "부채 등록 · 원리금 납부 · 이자율 변경. "
+        "대출 시작일과 만기일을 함께 넣어야 월 원금 감소를 계산합니다. "
         "스크린샷은 「OCR → 부채 명세/납부」를 사용하세요."
     )
     debts = _load_debts(client)
@@ -258,13 +371,43 @@ def render_debt_forms(client, user) -> None:
                 options=list(DEBT_KIND_KO.keys()),
                 format_func=lambda k: DEBT_KIND_KO[k],
             )
-            c1, c2 = st.columns(2)
-            balance = c1.number_input("현재 잔금(원)", min_value=0.0, step=100000.0, format="%.0f")
-            original = c2.number_input("최초 원금(원)", min_value=0.0, step=100000.0, format="%.0f")
-            c3, c4 = st.columns(2)
-            rate = c3.number_input("연 이자율(%)", min_value=0.0, step=0.1, format="%.2f", value=3.5)
-            due = c4.date_input("만기일", value=date.today())
-            no_due = st.checkbox("만기일 없음")
+            balance = won_number_input("현재 잔금(원)")
+            original = won_number_input("최초 원금(원)")
+            rate = st.number_input(
+                "연 이자율(%)",
+                min_value=0.0,
+                step=RATE_INPUT_STEP,
+                format="%.2f",
+                value=3.5,
+            )
+            started = st.date_input(
+                "대출 시작일",
+                value=date(2020, 1, 1),
+                min_value=_DATE_MIN,
+                max_value=_DATE_MAX,
+                help="대출이 실행된 날. 만기일과 함께 필수입니다.",
+            )
+            due = st.date_input(
+                "만기일",
+                value=date(2050, 1, 1),
+                min_value=_DATE_MIN,
+                max_value=_DATE_MAX,
+                help="대출 만기일. 시작일과 함께 필수입니다.",
+            )
+            method = st.selectbox(
+                "상환 방법",
+                options=list(REPAY_METHOD_KO.keys()),
+                format_func=lambda k: REPAY_METHOD_KO[k],
+            )
+            contracted = won_number_input("약정 월 납부액(원, 0=자동계산)")
+            grace = st.number_input("거치 기간(개월)", min_value=0, step=1, value=0)
+            pay_day = st.number_input(
+                "매월 납부일 (1–28, 0=대출일과 동일)",
+                min_value=0,
+                max_value=28,
+                step=1,
+                value=0,
+            )
             accounts = (
                 client.table("accounts").select("id,institution").order("institution").execute().data
                 or []
@@ -283,6 +426,8 @@ def render_debt_forms(client, user) -> None:
             if st.form_submit_button("등록", type="primary"):
                 if not lender.strip():
                     st.error("대출명을 입력하세요.")
+                elif due <= started:
+                    st.error("만기일은 대출 시작일보다 뒤여야 합니다.")
                 else:
                     orig = original if original > 0 else balance
                     payload = {
@@ -292,16 +437,17 @@ def render_debt_forms(client, user) -> None:
                         "principal": balance,
                         "original_principal": orig,
                         "interest_rate": rate,
-                        "due_date": None if no_due else due.isoformat(),
+                        "due_date": due.isoformat(),
+                        "started_on": started.isoformat(),
+                        "repay_method": method,
+                        "monthly_payment": contracted if contracted > 0 else None,
+                        "payment_day": pay_day if pay_day > 0 else None,
+                        "grace_months": int(grace),
                         "memo": memo or None,
                     }
                     if link_account:
                         payload["account_id"] = link_account
-                    try:
-                        row = client.table("debts").insert(payload).execute().data
-                    except Exception:
-                        payload.pop("account_id", None)
-                        row = client.table("debts").insert(payload).execute().data
+                    row = _insert_debt(client, payload)
                     if row:
                         client.table("debt_rate_history").insert(
                             {
@@ -334,8 +480,67 @@ def render_debt_forms(client, user) -> None:
 
     st.markdown(
         f"**선택:** {debt['lender']} · 잔금 {_fmt(bal)} · {rate:.2f}% · "
-        f"이달 예상 이자 {_fmt(round(bal * rate / 100 / 12))}"
+        f"{REPAY_METHOD_KO.get(debt.get('repay_method') or '', '')}"
     )
+    plan = _render_schedule(debt)
+
+    with st.expander("상환 조건 수정", expanded=plan is None):
+        with st.form("debt_terms_record"):
+            started_edit = st.date_input(
+                "대출 시작일",
+                value=parse_date(debt.get("started_on")) or date.today(),
+                min_value=_DATE_MIN,
+                max_value=_DATE_MAX,
+            )
+            due_edit = st.date_input(
+                "만기일",
+                value=parse_date(debt.get("due_date")) or date.today(),
+                min_value=_DATE_MIN,
+                max_value=_DATE_MAX,
+            )
+            method_edit = st.selectbox(
+                "상환 방법",
+                options=list(REPAY_METHOD_KO.keys()),
+                index=list(REPAY_METHOD_KO.keys()).index(
+                    debt.get("repay_method") or "equal_payment"
+                ),
+                format_func=lambda k: REPAY_METHOD_KO[k],
+            )
+            contracted_edit = won_number_input(
+                "약정 월 납부액(원, 0=자동계산)",
+                value=int(debt.get("monthly_payment") or 0),
+            )
+            grace_edit = st.number_input(
+                "거치 기간(개월)",
+                min_value=0,
+                step=1,
+                value=int(debt.get("grace_months") or 0),
+            )
+            pay_day_edit = st.number_input(
+                "매월 납부일 (1–28, 0=대출일과 동일)",
+                min_value=0,
+                max_value=28,
+                step=1,
+                value=int(debt.get("payment_day") or 0),
+            )
+            if st.form_submit_button("상환 조건 저장", type="primary"):
+                if due_edit <= started_edit:
+                    st.error("만기일은 대출 시작일보다 뒤여야 합니다.")
+                else:
+                    _update_debt(
+                        client,
+                        debt["id"],
+                        {
+                            "started_on": started_edit.isoformat(),
+                            "due_date": due_edit.isoformat(),
+                            "repay_method": method_edit,
+                            "monthly_payment": contracted_edit if contracted_edit > 0 else None,
+                            "grace_months": int(grace_edit),
+                            "payment_day": pay_day_edit if pay_day_edit > 0 else None,
+                        },
+                    )
+                    st.success("상환 조건을 저장했습니다.")
+                    st.rerun()
 
     with st.expander("이자율 변경", expanded=False):
         with st.form("debt_rate_change_record"):
@@ -343,7 +548,7 @@ def render_debt_forms(client, user) -> None:
                 "새 연 이자율(%)",
                 min_value=0.0,
                 value=float(rate),
-                step=0.05,
+                step=RATE_INPUT_STEP,
                 format="%.2f",
             )
             eff = st.date_input("적용일", value=date.today())
@@ -363,15 +568,29 @@ def render_debt_forms(client, user) -> None:
                 st.rerun()
 
     st.markdown("##### 원리금 납부")
+    scheduled_pay = int(plan.next.payment) if plan and plan.next else 0
     with st.form("debt_payment_record"):
-        c1, c2 = st.columns(2)
-        payment = c1.number_input("납부 금액(원리금 합계, 원)", min_value=0.0, step=10000.0, format="%.0f")
-        pay_date = c2.date_input("납부일", value=date.today())
+        payment = won_number_input(
+            "납부 금액(원리금 합계, 원)",
+            value=scheduled_pay,
+        )
+        pay_date = st.date_input(
+            "납부일",
+            value=date.today(),
+            min_value=_DATE_MIN,
+            max_value=_DATE_MAX,
+        )
         memo = st.text_input("메모", "")
         interest_p, principal_p = split_monthly_payment(bal, rate, payment)
-        st.info(
-            f"예상 분할 — 이자 {_fmt(interest_p)} · 원금 {_fmt(principal_p)} · "
-            f"납부 후 잔금 {_fmt(max(bal - principal_p, 0))}"
+        if plan and plan.next:
+            st.info(
+                f"스케줄({REPAY_METHOD_KO.get(plan.method, '')} {plan.next.number}회차) — "
+                f"이자 {_fmt(plan.next.interest)} · 원금 {_fmt(plan.next.principal)} · "
+                f"약정 {_fmt(plan.next.payment)}"
+            )
+        st.caption(
+            f"기록 기준(현재 잔금 × 금리) — 이자 {_fmt(interest_p)} · "
+            f"원금 {_fmt(principal_p)} · 납부 후 잔금 {_fmt(max(bal - principal_p, 0))}"
         )
         if st.form_submit_button("납부 기록", type="primary"):
             if payment <= 0:
@@ -404,9 +623,13 @@ def render_debt_forms(client, user) -> None:
                 ["increase", "repayment"],
                 format_func=lambda x: DEBT_TX_KO.get(x, x),
             )
-            c1, c2 = st.columns(2)
-            amt = c1.number_input("금액", min_value=0.0, step=10000.0, format="%.0f")
-            adj_date = c2.date_input("일자", value=date.today())
+            amt = won_number_input("금액")
+            adj_date = st.date_input(
+                "일자",
+                value=date.today(),
+                min_value=_DATE_MIN,
+                max_value=_DATE_MAX,
+            )
             adj_memo = st.text_input("메모", "")
             if st.form_submit_button("조정 기록"):
                 if amt <= 0:

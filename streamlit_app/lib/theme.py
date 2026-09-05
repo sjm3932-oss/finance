@@ -755,21 +755,20 @@ div[data-testid="stVerticalBlock"]:has(.np-sticky-marker) {{
   margin: 0.25rem 0 0.55rem;
 }}
 
-/* Wrap metric / button rows on narrow screens */
+/* Wrap metric / button rows on narrow screens.
+   Pairing number_input with date_input in 2 columns makes 만기일 sit uneven
+   on phones — stack every horizontal block below tablet width. */
 @media (max-width: 720px) {{
   div[data-testid="stHorizontalBlock"] {{
-    flex-wrap: wrap !important;
-    row-gap: 0.55rem !important;
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    gap: 0.55rem !important;
   }}
-  div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
-    min-width: calc(50% - 0.4rem) !important;
-    flex: 1 1 calc(50% - 0.4rem) !important;
-  }}
-}}
-@media (max-width: 420px) {{
-  div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
-    min-width: 100% !important;
-    flex: 1 1 100% !important;
+  div[data-testid="stHorizontalBlock"] > div {{
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    flex: 1 1 auto !important;
   }}
 }}
 
