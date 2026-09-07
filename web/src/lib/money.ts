@@ -30,6 +30,21 @@ export function fmtCompactKrw(v: number | null | undefined): string {
   return Math.round(n).toLocaleString("ko-KR");
 }
 
+/** Convert a native-currency amount to KRW for the unified ledger. USD without FX stays USD. */
+export function toLedgerMoney(
+  amount: number,
+  currency: string | null | undefined,
+  usdkrw: number | null
+): { amount: number; currency: string } {
+  const n = Number(amount) || 0;
+  const ccy = String(currency || "KRW").toUpperCase();
+  if (ccy === "USD") {
+    if (usdkrw) return { amount: n * usdkrw, currency: "KRW" };
+    return { amount: n, currency: "USD" };
+  }
+  return { amount: n, currency: "KRW" };
+}
+
 export function fmtMoney(
   v: number | null | undefined,
   currency?: string | null,

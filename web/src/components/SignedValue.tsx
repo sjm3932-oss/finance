@@ -82,10 +82,12 @@ export function SignedPct({
 
 export function FlowAmount({
   amount,
+  currency,
   className = "text-sm",
   signedNet = false,
 }: {
   amount: number;
+  currency?: string | null;
   className?: string;
   /** When true, 0 is unlabeled; otherwise treat >= 0 as inflow. */
   signedNet?: boolean;
@@ -93,6 +95,7 @@ export function FlowAmount({
   return (
     <SignedAmount
       amount={amount}
+      currency={currency}
       className={className}
       kind="flow"
       signedNet={signedNet}
