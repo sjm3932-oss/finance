@@ -6,6 +6,7 @@ import { loadPortfolioSnapshot } from "@/lib/data";
 import { loadAssetFlows } from "@/lib/data-insights";
 import { accountIdsForInstitution } from "@/lib/portfolio";
 import { FLOW_KIND_KO, aggregateByMonth } from "@/lib/insights";
+import { toLedgerMoney } from "@/lib/money";
 import { flowDisplayName, isTickerLike, normalizeKrTicker } from "@/lib/tickers";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export default async function FlowsPage({
   searchParams: Promise<{ own?: string; inst?: string; sub?: string }>;
 }) {
   const sp = await searchParams;
-  const { accounts } = await loadPortfolioSnapshot({
+  const { accounts, usdkrw } = await loadPortfolioSnapshot({
     ownership: sp.own,
     institution: sp.inst,
     sub: sp.sub,
@@ -26,26 +27,26 @@ export default async function FlowsPage({
     sp.inst && sp.inst !== "전체" ? sp.inst : null,
     sp.sub && sp.sub !== "전체" ? sp.sub : null
   );
-  const flows = await loadAssetFlows(accountIds);
+  const flows = (await loadAssetFlows(accountIds)).map((f) => {
+    const ledger = toLedgerMoney(Number(f.amount) || 0, f.currency, usdkrw);
+    return { ...f, ledger };
+  });
 
-  const inflow = flows.reduce((s, f) => s + Math.max(Number(f.amount) || 0, 0), 0);
-  const outflow = flows.reduce(
-    (s, f) => s + Math.max(-(Number(f.amount) || 0), 0),
-    0
-  );
+  const inflow = flows.reduce((s, f) => s + Math.max(f.ledger.amount, 0), 0);
+  const outflow = flows.reduce((s, f) => s + Math.max(-f.ledger.amount, 0), 0);
   const trades = flows.filter((f) => f.flow_kind === "trade").length;
 
   const byMonthIn = aggregateByMonth(
     flows.map((f) => ({
       date: String(f.event_date).slice(0, 10),
-      value: Math.max(Number(f.amount) || 0, 0),
+      value: Math.max(f.ledger.amount, 0),
       key: "in",
     }))
   );
   const byMonthOut = aggregateByMonth(
     flows.map((f) => ({
       date: String(f.event_date).slice(0, 10),
-      value: Math.max(-(Number(f.amount) || 0), 0),
+      value: Math.max(-f.ledger.amount, 0),
       key: "out",
     }))
   );
@@ -108,7 +109,6 @@ export default async function FlowsPage({
           거래 원장
         </div>
         {flows.slice(0, 50).map((f, i) => {
-          const amount = Number(f.amount) || 0;
           const title = flowDisplayName(f, FLOW_KIND_KO);
           const ticker =
             f.asset_ref &&
@@ -133,7 +133,10 @@ export default async function FlowsPage({
                 </div>
               </div>
               <div className="shrink-0">
-                <FlowAmount amount={amount} />
+                <FlowAmount
+                  amount={f.ledger.amount}
+                  currency={f.ledger.currency}
+                />
               </div>
             </div>
           );
