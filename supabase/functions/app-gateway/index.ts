@@ -1,5 +1,5 @@
-// Production gateway: always send users to the fixed Streamlit Cloud app.
-// Temporary tunnels (Pinggy/Cloudflare) are no longer used.
+// Production gateway: always send users to the fixed Vercel app.
+// Temporary tunnels / Streamlit Cloud are no longer used.
 const cors: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -9,7 +9,7 @@ const cors: Record<string, string> = {
 
 const PRODUCTION_APP_URL = (
   Deno.env.get("PRODUCTION_APP_URL") ||
-  "https://richddoong.streamlit.app"
+  "https://richddoong.vercel.app"
 ).replace(/\/$/, "");
 
 Deno.serve((req) => {

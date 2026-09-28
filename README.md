@@ -4,17 +4,16 @@
 
 **Supabase:** https://lsqkixysysfhywipmrky.supabase.co
 
-> **모바일/실사용 배포:** 임시 터널(Cloudflare/Pinggy)은 쓰지 마세요.  
-> 고정 URL이 필요합니다 → [`DEPLOY.md`](./DEPLOY.md).
+> **모바일/실사용:** `https://richddoong.vercel.app` 만 북마크하세요.  
+> 터널·`*.streamlit.app` 은 폐기 → [`DEPLOY.md`](./DEPLOY.md).
 
-## UI (병행)
+## UI
 
 | 앱 | 경로 | 상태 |
 |----|------|------|
-| **Next.js (신규)** | [`web/`](./web/) | Streamlit 읽기 UX 이식 + 수기 기록 (OCR/챗/한투는 병행) |
-| **Streamlit** | `streamlit_app/` | 기록(OCR/수기)·승인·챗 등 기존 기능 |
+| **Next.js (Vercel)** | [`web/`](./web/) | 유일한 실사용 UI (홈·보유·손익·기록·OCR·챗) |
 
-Next 로컬: `cd web && cp .env.example .env.local && npm i && npm run dev`  
+로컬: `cd web && cp .env.example .env.local && npm i && npm run dev`  
 자세한 내용: [`web/README.md`](./web/README.md)
 
 ## MVP 범위 (기획서 1~4단계)
@@ -83,11 +82,15 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
 ### Supabase Auth
 
 1. Enable Google provider in Authentication → Providers
-2. Set Site URL / Redirect URLs to the **fixed Streamlit Cloud URL**:
-   `https://richddoong.streamlit.app`
-   (see [`DEPLOY.md`](./DEPLOY.md); do **not** use Pinggy/Cloudflare tunnels)
-3. Put couple emails in `ALLOWED_EMAILS` and Streamlit Secrets
-4. Bookmark only `https://richddoong.streamlit.app`
+2. Set Site URL / Redirect URLs to the **fixed Vercel URL**:
+   `https://richddoong.vercel.app`
+   (see [`DEPLOY.md`](./DEPLOY.md); do **not** use tunnels or Streamlit Cloud)
+3. Put couple emails in `ALLOWED_EMAILS` (and Vercel env)
+4. Bookmark only `https://richddoong.vercel.app`
+
+```bash
+.venv/bin/python scripts/set_production_url.py https://richddoong.vercel.app
+```
 
 ### Toss Securities / 한국투자증권 sync
 
@@ -118,10 +121,11 @@ This clears `ocr_staging` (+ OCR storage objects) and rebuilds transactional tab
 ### Run
 
 ```bash
-streamlit run streamlit_app/Home.py
+cd web && npm i && npm run dev
 ```
 
-Production: deploy on Streamlit Community Cloud — do not run `keep_public_tunnel.sh`.
+Production: Vercel project `richddoong` (Root Directory = `web`) → `https://richddoong.vercel.app`.  
+Do not run `keep_public_tunnel.sh` / `run_mobile_tunnel.sh`.
 
 ## parsed_json contract
 

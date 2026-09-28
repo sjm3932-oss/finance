@@ -1,4 +1,4 @@
--- Live Streamlit origins published by tunnel keepers.
+-- Canonical public app origin (Vercel). Historically used by tunnel keepers.
 create table if not exists public.app_runtime (
   id int primary key default 1 check (id = 1),
   public_url text not null,

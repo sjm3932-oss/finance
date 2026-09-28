@@ -33,6 +33,10 @@ jobs:
             echo "skip=0" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Deploy app-gateway
+        if: steps.token.outputs.skip != '1'
+        run: supabase functions deploy app-gateway --project-ref "$PROJECT_REF"
+
       - name: Deploy toss-sync
         if: steps.token.outputs.skip != '1'
         run: supabase functions deploy toss-sync --project-ref "$PROJECT_REF"

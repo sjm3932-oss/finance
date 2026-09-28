@@ -256,7 +256,7 @@ export function layoutTreemap(
 
 export function returnColor(pct: number): string {
   // red (down) ← 0 → green (up); Korea convention: up=red, down=blue in stock
-  // Streamlit treemap used green up / red down for US-style; product uses up=#E11D48 down=#2563EB
+  // Treemap: product uses up=#E11D48 down=#2563EB
   if (pct > 0.05) return "#E11D48";
   if (pct < -0.05) return "#2563EB";
   return "#9CA3AF";
