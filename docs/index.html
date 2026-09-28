@@ -83,7 +83,7 @@
     function buildTarget(appUrl) {
       const auth = mergeAuthParams();
       const u = new URL(appUrl);
-      // Prefer query for Streamlit (reads st.query_params).
+      // Forward auth params as query (Next.js /auth/callback + app routes).
       for (const [k, v] of auth.entries()) u.searchParams.set(k, v);
       return u.toString();
     }

@@ -1,4 +1,4 @@
--- Live Streamlit origins published by tunnel keepers.
+-- Canonical public app origin (Vercel). Historically used by tunnel keepers.
 create table if not exists public.app_runtime (
   id int primary key default 1 check (id = 1),
   public_url text not null,
@@ -16,7 +16,7 @@ create policy "app_runtime_select_all"
   using (true);
 
 insert into public.app_runtime (id, public_url)
-values (1, 'http://localhost:8501')
+values (1, 'https://richddoong.vercel.app')
 on conflict (id) do nothing;
 
 alter table public.app_runtime
